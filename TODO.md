@@ -128,9 +128,9 @@ Highest value first:
       nothing recorded and nothing replayable, and it needs a MediaMTX instance the phone can reach.
       That is a viewing pipeline, not a bus payload, and it does not fit an app whose whole design is
       store-and-forward. The bus-native option is `video_compressed` (`foxglove.CompressedVideo`,
-      `transient` on `dev`): H.264 out of `MediaCodec`, which every Android device encodes in hardware, lands in the MCAP
-      alongside everything else, replays with the rest of the run, and is roughly an order of magnitude
-      cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before deciding — the honest
+      `transient` on `dev`): H.264 out of `MediaCodec`, which every Android device encodes in hardware,
+      lands in the MCAP alongside everything else, replays with the rest of the run, and is roughly an
+      order of magnitude cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before deciding — the honest
       unknowns are keyframe interval against the replay story and whether `CompressedVideo`'s framing
       wants Annex B or AVCC.
 
