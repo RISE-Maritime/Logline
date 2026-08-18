@@ -26,19 +26,19 @@ Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `
 
 ## P1 — a long unattended run should not lie, and should not die quietly
 
-- [ ] **An outage longer than the outbox is not reported anywhere.** `OutboxBuffer` counts what it
-      evicted and exposes it as `evicted`, and nothing outside the class ever reads it. The ring holds
-      32 768 entries — about 2.5 minutes at the measured 217 samples/s — so a twenty-minute hole in
-      coverage silently loses eighteen of those minutes from the replay, while the UI still says
-      "Filling the gap" and then "Replayed N samples" as if it had caught up. The recorder already
-      surfaces `dropped` for exactly this reason; this is the same honesty applied to the other buffer.
+- [x] **An outage longer than the outbox was not reported anywhere** — fixed 2026-08-18, though not the
+      way this item proposed. Surfacing `evicted` would have been wrong: the ring is full two and a half
+      minutes into any run and evicts on every sample after that, so a healthy hour would have announced
+      most of a million samples lost. The number that means something is the part of the *replay window*
+      that overflowed, and `OutboxBuffer.lostSince(addedMark)` computes it from an add count the
+      watchdog marks at each poll that saw a router — zero for any outage shorter than the whole buffer.
+      It reaches `PublisherStatus.replayLost` on every poll, open gap included, so the main screen warns
+      during the outage instead of only afterwards. `OutboxBufferTest` pins the arithmetic, the
+      no-false-positive case, and that a new run starts from zero.
 
-- [ ] **Consider replaying from the MCAP file rather than the RAM ring.** Follows from the item above:
-      the complete data *is* on disk, and the outbox exists only because re-reading the file is more
-      work. A file-backed replay would turn "fills a 2.5-minute gap" into "fills the whole outage",
-      which is the difference between the feature being nice and being the reason to trust the bus.
-      Needs the same pacing (~400/s, every profile is `DROP`) and the same `image_compressed`
-      exclusion, plus a read path that does not fight the writer for the file being appended to.
+      **Not verified against a real outage** — the unit tests cover the arithmetic exactly, but nothing
+      has yet driven the watchdog through a >2.5 minute gap on a phone. Airplane mode for three minutes
+      during a run is the check.
 
 - [ ] **"Location is switched off" looks exactly like "no fix yet".** `SensorPublisher.runLocation()`
       checks the *permission* and then subscribes; if location services are off system-wide, or the
@@ -52,6 +52,8 @@ Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `
       mitigation is a one-time `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` prompt, shown once, from
       the same conditional shape as the other permissions — not on first launch, but the first time a
       run is started.
+
+
 
 - [ ] **Start on boot, opt-in.** `RECEIVE_BOOT_COMPLETED` is already declared (the checklist reminders
       need it) and `PublisherService` is already `START_STICKY`, so a process kill resumes — but a

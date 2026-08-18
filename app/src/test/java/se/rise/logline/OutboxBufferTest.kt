@@ -52,6 +52,51 @@ class OutboxBufferTest {
     }
 
     /**
+     * The number the UI actually shows, and the one [OutboxBuffer.evicted] is not.
+     *
+     * A run is publishing into a full ring within a couple of minutes, so evictions run at the sample
+     * rate forever after and say nothing about whether anything was lost. What is lost is the part of
+     * the *replay window* — everything buffered since the link was last known good — that no longer
+     * fits, which is zero until an outage has run longer than the whole buffer.
+     */
+    @Test
+    fun `nothing is lost until a gap outruns the whole buffer`() {
+        val outbox = OutboxBuffer(capacity = 4)
+        // A long healthy run: the ring is full and evicting on every add, and none of it matters.
+        repeat(100) { outbox.add(entry(it)) }
+        assertTrue("the ring should be turning over", outbox.evicted > 0)
+
+        // The watchdog's poll sees a router and takes its mark here.
+        val mark = outbox.added
+        assertEquals(0L, outbox.lostSince(mark))
+
+        // The link drops. Up to a bufferful of samples still fits, so nothing is beyond saving yet.
+        repeat(4) { outbox.add(entry(200 + it)) }
+        assertEquals(0L, outbox.lostSince(mark))
+
+        // One more and the head of the gap is gone for good.
+        outbox.add(entry(300))
+        assertEquals(1L, outbox.lostSince(mark))
+
+        repeat(10) { outbox.add(entry(400 + it)) }
+        assertEquals(11L, outbox.lostSince(mark))
+    }
+
+    /** The mark moves on every connected poll, so a healthy run can never accumulate a phantom loss. */
+    @Test
+    fun `a mark taken each poll keeps a connected run at zero`() {
+        val outbox = OutboxBuffer(capacity = 4)
+        var mark = outbox.added
+        repeat(50) {
+            // Two samples per poll interval against a four-entry ring: comfortably inside it.
+            outbox.add(entry(it * 2))
+            outbox.add(entry(it * 2 + 1))
+            assertEquals(0L, outbox.lostSince(mark))
+            mark = outbox.added
+        }
+    }
+
+    /**
      * Replay starts from the last poll that saw a router, which is up to a poll interval stale — so the
      * selection is inclusive and deliberately returns a little already-delivered data.
      */
@@ -108,16 +153,20 @@ class OutboxBufferTest {
         assertEquals(0L, outbox.evicted)
     }
 
+    /** Both counters go with the buffer: a new run starts from nothing lost, not from the last one's. */
     @Test
-    fun `clear resets the buffer and the eviction count`() {
+    fun `clear resets the buffer and both counters`() {
         val outbox = OutboxBuffer(capacity = 2)
         repeat(5) { outbox.add(entry(it)) }
         assertTrue(outbox.evicted > 0)
+        assertTrue(outbox.lostSince(0L) > 0)
 
         outbox.clear()
 
         assertEquals(0, outbox.size)
         assertEquals(0L, outbox.evicted)
+        assertEquals(0L, outbox.added)
+        assertEquals(0L, outbox.lostSince(0L))
         assertTrue(outbox.snapshot().isEmpty())
     }
 

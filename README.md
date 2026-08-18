@@ -851,7 +851,16 @@ Three things a consumer should know:
 
 The buffer holds 32768 entries — about 2.5 minutes at default rates, bounded in *entries* rather than
 seconds because `Maximum` rate is legal and the gyroscope has been measured at 442 Hz. A longer outage
-than that is still complete in the MCAP recording; anything evicted is counted and shown, never hidden.
+than that is still complete in the MCAP recording, but the bus cannot be filled in past the buffer, and
+the main screen says so **while the outage is still going**: *Longer outage than the buffer holds — N
+samples cannot be replayed*, with the same count as `Not replayed` beside `Replayed` in the details.
+Without it a twenty-minute hole ended in "Replayed 32768 samples", which reads exactly like a run that
+caught up.
+
+Note this is not the same as the buffer's eviction count, which is ordinary turnover: the ring is full a
+couple of minutes into every run and evicts on every sample from then on. What is reported is the part
+of the *replay window* — the samples taken since the link was last known good — that no longer fits,
+which stays at zero for any outage shorter than the whole buffer.
 
 ### The native path, for consumers that want it
 

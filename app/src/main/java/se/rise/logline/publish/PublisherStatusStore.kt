@@ -43,6 +43,15 @@ data class PublisherStatus(
     val replayPending: Int = 0,
     val replayed: Long = 0,
     /**
+     * Samples this run's outages outran the outbox by, and which therefore can never be replayed.
+     *
+     * Zero for any gap shorter than the buffer, which is most of them; it starts climbing only once an
+     * outage has lasted longer than the whole ring — about two and a half minutes at the measured rate.
+     * Surfaced because the alternative is a run that says "Replayed 32 768 samples" after a twenty-
+     * minute hole and looks like it caught up. A run total, not per gap.
+     */
+    val replayLost: Long = 0,
+    /**
      * How much longer the battery can carry this run, measured from its own drain.
      *
      * Derived rather than published: keelson has no subject for "time left", and the number is about
@@ -111,6 +120,17 @@ class PublisherStatusStore {
 
     fun replayFinished(sent: Int) = _status.update {
         it.copy(replayPending = 0, replayed = it.replayed + sent)
+    }
+
+    /**
+     * The run total of samples no replay can fill in.
+     *
+     * Set rather than incremented: the watchdog recomputes it from the outbox on every poll, including
+     * while the gap is still open, so the number is right on screen during the outage instead of only
+     * after it.
+     */
+    fun replayLostChanged(total: Long) = _status.update {
+        if (it.replayLost == total) it else it.copy(replayLost = total)
     }
 
     /** A sample went out. Clears any recorded failure for that subject — this is how recovery shows. */

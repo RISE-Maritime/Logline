@@ -366,6 +366,18 @@ private fun StatusCard(
                 )
             }
 
+            // Said while the gap is still open, not afterwards. Once an outage has run longer than the
+            // outbox the replay cannot fill it, and "Replayed 32 768 samples" on the far side of a
+            // twenty-minute hole reads exactly like a run that caught up.
+            if (status.replayLost > 0) {
+                StatusLine(
+                    text = "Longer outage than the buffer holds",
+                    tone = StatusTone.Warning,
+                    detail = "${formatCounted(status.replayLost, "sample")} cannot be replayed" +
+                        if (recording.recording) " — they are in the recording." else ".",
+                )
+            }
+
             if (showDetail) {
                 HorizontalDivider()
                 Detail("Realm", settings.realm)
@@ -392,6 +404,8 @@ private fun StatusCard(
                 }
                 recording.error?.let { Detail("Error", it) }
                 if (status.replayed > 0) Detail("Replayed", formatCounted(status.replayed, "sample"))
+                // Next to Replayed on purpose: the two are only meaningful read together.
+                if (status.replayLost > 0) Detail("Not replayed", formatCounted(status.replayLost, "sample"))
             } else {
                 Text(
                     "Tap for endpoint and file details",

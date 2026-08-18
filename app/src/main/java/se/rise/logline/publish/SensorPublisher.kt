@@ -467,18 +467,39 @@ class SensorPublisher(private val appContext: Context) {
         // *noticed*, which is up to a poll interval later — plus however long Zenoh took to tear the
         // transport down. Overlapping is deliberate: a couple of seconds of duplicates beats a hole.
         var lastConnectedNanos = System.currentTimeMillis() * 1_000_000L
+        // The outbox's add count at that same poll, and half of the same anchor: the timestamp says
+        // where the replay window starts, this says how many samples have been buffered into it since,
+        // which is the only way to tell whether the ring has overflowed the window.
+        var addedWhenConnected = outbox.added
+        // Gaps already closed this run. The status field is a run total, so the open gap's loss is
+        // added to this rather than replacing it.
+        var lostInClosedGaps = 0L
 
         // delay() is cancellable, so stopping the scope ends this loop.
         while (true) {
             val connected = session.isConnectedToRouter()
             statusStore.connectionChanged(connected)
 
-            if (connected && !wasConnected && backfillEnabled) {
-                // Reconnected. Flush on this coroutine rather than a collector's, so pacing delays
-                // never stall a sensor stream.
-                replay(session, lastConnectedNanos)
+            if (backfillEnabled) {
+                // Recomputed every poll, open gap included: an outage that has already outrun the
+                // buffer should say so while it is still happening, not turn up afterwards as a
+                // "Replayed N samples" that quietly means fewer than were lost.
+                val lost = outbox.lostSince(addedWhenConnected)
+                statusStore.replayLostChanged(lostInClosedGaps + lost)
+                if (connected && !wasConnected) {
+                    if (lost > 0) {
+                        Log.w(TAG, "outage outran the outbox; $lost samples cannot be replayed")
+                        lostInClosedGaps += lost
+                    }
+                    // Reconnected. Flush on this coroutine rather than a collector's, so pacing delays
+                    // never stall a sensor stream.
+                    replay(session, lastConnectedNanos)
+                }
             }
-            if (connected) lastConnectedNanos = System.currentTimeMillis() * 1_000_000L
+            if (connected) {
+                lastConnectedNanos = System.currentTimeMillis() * 1_000_000L
+                addedWhenConnected = outbox.added
+            }
             wasConnected = connected
             delay(CONNECTION_POLL_MILLIS)
         }

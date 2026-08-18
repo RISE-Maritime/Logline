@@ -44,9 +44,20 @@ class OutboxBuffer(private val capacity: Int = DEFAULT_CAPACITY) {
     private var count = 0
     private var next = 0
     private var evictedCount = 0L
+    private var addedCount = 0L
 
-    /** Entries dropped because the buffer filled — surfaced, never hidden. */
+    /**
+     * Entries dropped because the buffer filled.
+     *
+     * **Ordinary turnover, not a loss** — the ring is full about two and a half minutes into any run
+     * and every add evicts something from then on, so a healthy hour evicts most of a million samples
+     * and means nothing by it. What a *gap* costs is [lostSince], which is the number worth showing
+     * anyone.
+     */
     val evicted: Long get() = synchronized(this) { evictedCount }
+
+    /** Entries ever offered. Monotonic, so two readings bracket a period. */
+    val added: Long get() = synchronized(this) { addedCount }
 
     val size: Int get() = synchronized(this) { count }
 
@@ -56,6 +67,7 @@ class OutboxBuffer(private val capacity: Int = DEFAULT_CAPACITY) {
      */
     fun add(entry: OutboxEntry) = synchronized(this) {
         if (count == capacity) evictedCount++
+        addedCount++
         entries[next] = entry
         next = (next + 1) % capacity
         if (count < capacity) count++
@@ -82,10 +94,25 @@ class OutboxBuffer(private val capacity: Int = DEFAULT_CAPACITY) {
     /** Everything currently held, oldest first. */
     fun snapshot(): List<OutboxEntry> = since(Long.MIN_VALUE)
 
+    /**
+     * How many of the entries added since [addedMark] the ring has already dropped — the samples a
+     * replay will *not* be able to fill in.
+     *
+     * Arithmetic rather than bookkeeping, and it is exact: take the mark at the last poll that saw a
+     * router, and everything added after it belongs to the replay window. The ring holds [capacity] of
+     * them and drops the rest, oldest first. Nothing older than the mark is in the window, so evicting
+     * that costs nothing — which is why [evicted] is the wrong number here and this one is zero until
+     * an outage has run longer than the whole buffer.
+     */
+    fun lostSince(addedMark: Long): Long = synchronized(this) {
+        (addedCount - addedMark - capacity).coerceAtLeast(0L)
+    }
+
     fun clear() = synchronized(this) {
         count = 0
         next = 0
         evictedCount = 0
+        addedCount = 0
     }
 
     companion object {

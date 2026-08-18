@@ -481,6 +481,15 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   what a normal session does. Verified fixed by two consecutive runs in one process producing 10 596 and
   9 703 messages, both read back with the `mcap` Python library.
 
+- **`OutboxBuffer.evicted` is not a loss, and must never be shown as one.** The ring is full about two
+  and a half minutes into any run, so from then on every add evicts something and a healthy hour evicts
+  most of a million samples. What costs data is only the part of the *replay window* that overflowed,
+  which `lostSince(addedMark)` computes from the add count the watchdog marks at each poll that saw a
+  router: everything added since the mark is window, the ring holds `capacity` of them, the rest are
+  gone. Zero for any outage shorter than the whole buffer, which is nearly all of them.
+  `PublisherStatus.replayLost` carries the run total and is recomputed on every poll *including while
+  the gap is open* — reporting it only after the reconnect would mean the one screen anybody looks at
+  during an outage says nothing, and then says "Replayed 32 768 samples" as if it had caught up.
 - **The outbox fills unconditionally, never on `Disconnected`.** `isConnectedToRouter()` reads Zenoh's
   transport table and is polled every 2 s, and Zenoh only empties that table once its keepalive gives
   up — so the state changes *seconds* after samples actually started going nowhere. A buffer gated on
