@@ -1,74 +1,22 @@
 # TODO
 
-Working checklist for Logline, roughly in the order things should be picked up. P0 items block using the app for a real logging run; everything below that is completeness and polish.
+Outstanding work only, roughly in the order it should be picked up. Finished items are removed rather
+than ticked — what was done, and why it was done that way, is in the git history and in the gotchas in
+[CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where somebody would actually go looking.
 
-Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `dev`, plus lint. Nothing in P0–P2 was found by running the app, so anything that says it was *measured* was measured earlier and is quoted from the code; the rest is a claim about the code as written and should be confirmed on a device before it is trusted.
+Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `dev`, plus lint. Most of
+what is below was found by reading the code rather than running it, so treat anything not marked as
+measured as a claim to confirm on a device.
 
 - [ ] **Rename to Logline**: The repo folder on disk is still `KeelsonLogger`.
 
-## P0 — before the next real run
-
-
-- [x] **Android auto-backup carried the TLS client key off the phone** — fixed 2026-08-18. Both
-      `res/xml/backup_rules.xml` (API 30, which is minSdk) and `res/xml/data_extraction_rules.xml`
-      (API 31+, both `cloud-backup` and `device-transfer`) now exclude `filesDir/tls`,
-      `filesDir/recordings` and `filesDir/osmdroid`. Verified on the Pixel 6 against the local backup
-      transport rather than reasoned about: with the stub rules the phone backed up **3 648 000 bytes**
-      — the whole of `filesDir`, `client_key.pem` included — and with the excludes, **7 168**, which is
-      the DataStore settings and nothing else. The local backup set made during that test was wiped
-      and the phone put back on the Google transport.
-
-      Left deliberately: an exclude list rather than `allowBackup="false"`, so the settings still
-      survive a phone swap. Worth considering separately — moving the credentials to
-      `context.noBackupFilesDir` would make it structural rather than a rule a future manifest edit
-      can undo, but it orphans credentials already imported on every phone in the fleet unless a
-      migration goes with it.
-
 ## P1 — a long unattended run should not lie, and should not die quietly
-
-- [x] **An outage longer than the outbox was not reported anywhere** — fixed 2026-08-18, though not the
-      way this item proposed. Surfacing `evicted` would have been wrong: the ring is full two and a half
-      minutes into any run and evicts on every sample after that, so a healthy hour would have announced
-      most of a million samples lost. The number that means something is the part of the *replay window*
-      that overflowed, and `OutboxBuffer.lostSince(addedMark)` computes it from an add count the
-      watchdog marks at each poll that saw a router — zero for any outage shorter than the whole buffer.
-      It reaches `PublisherStatus.replayLost` on every poll, open gap included, so the main screen warns
-      during the outage instead of only afterwards. `OutboxBufferTest` pins the arithmetic, the
-      no-false-positive case, and that a new run starts from zero.
-
-      **Not verified against a real outage** — the unit tests cover the arithmetic exactly, but nothing
-      has yet driven the watchdog through a >2.5 minute gap on a phone. Airplane mode for three minutes
-      during a run is the check.
-
-- [x] **"Location is switched off" looked exactly like "no fix yet"** — fixed 2026-08-18, though not
-      as a setup failure: `PublisherStatus.error` stops the foreground service, and killing an entire
-      run — IMU, barometer, radio and all — because GPS is off would be worse than the silence it
-      replaced. It is a per-subject failure on all four GNSS subjects instead, which is what the rows
-      and the group heading already know how to show.
-
-      `LocationProvider` now emits `LocationUpdate` (`Fix` / `Unavailable(reason)` / `Available`) off
-      the one existing registration. Reported: the master switch, read from
-      `LocationManager.isLocationEnabled` at registration and watched through `MODE_CHANGED_ACTION` so
-      a mid-run toggle shows within a second; a `requestLocationUpdates` rejection, which is how a
-      device without Play Services presents; and a refused permission, which used to be a quiet
-      `return`. Deliberately *not* reported: `onLocationAvailability(false)` with the switch on, which
-      is a phone indoors — `Waiting` is the honest state for that, and a row that cries wolf under a
-      roof is a row nobody reads. `Available` clears the failure without waiting for a fix, via a new
-      `PublisherStatusStore.recovered()`; `PublisherStatusStoreTest` pins that it clears nothing else
-      and moves no counter.
-
-      **Not verified on a device.** The paths need a publishing run to exercise, and that means putting
-      data on the shared fleet bus. One minute checks it: switch location off, Start, and the four GNSS
-      rows should read the reason rather than `Waiting`; switch it back on and they should clear before
-      the first fix arrives.
 
 - [ ] **Ask for a battery-optimisation exemption.** A foreground service and a partial wake lock are
       enough on a Pixel; several OEM battery managers still kill a multi-hour background run. Standard
       mitigation is a one-time `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` prompt, shown once, from
       the same conditional shape as the other permissions — not on first launch, but the first time a
       run is started.
-
-
 
 - [ ] **Start on boot, opt-in.** `RECEIVE_BOOT_COMPLETED` is already declared (the checklist reminders
       need it) and `PublisherService` is already `START_STICKY`, so a process kill resumes — but a
@@ -171,57 +119,35 @@ Highest value first:
 - [ ] **Export and import settings.** Provisioning a second phone means retyping realm, entity, source
       ids, endpoints, per-subject switches, rates, QoS overrides and the operator identity through the
       settings screen. A JSON export and import (share sheet, or a QR code for the small case) makes a
-      fleet reproducible. TLS credentials stay out of it — they are files, and the point of P0's backup
-      item is that they should not travel casually.
+      fleet reproducible. TLS credentials stay out of it — they are files, and the whole point of the
+      backup exclusions is that they should not travel casually.
 
-- [ ] **Video: `video_compressed`, not WebRTC** (this replaces the open question in P4). Upstream's
-      answer for WebRTC is `connectors/mediamtx`, which proxies MediaMTX's WHEP endpoint through a
-      Zenoh queryable — signalling over the bus, media over WebRTC, live only, nothing recorded and
-      nothing replayable, and it needs a MediaMTX instance the phone can reach. That is a viewing
-      pipeline, not a bus payload, and it does not fit an app whose whole design is store-and-forward.
-      The bus-native option is `video_compressed` (`foxglove.CompressedVideo`, `transient` on `dev`):
-      H.264 out of `MediaCodec`, which every Android device encodes in hardware, lands in the MCAP
+- [ ] **Video: `video_compressed`, not WebRTC** — the answer to the old "can we use keelson webrtc for
+      video?" question. Upstream's answer for WebRTC is `connectors/mediamtx`, which proxies MediaMTX's
+      WHEP endpoint through a Zenoh queryable — signalling over the bus, media over WebRTC, live only,
+      nothing recorded and nothing replayable, and it needs a MediaMTX instance the phone can reach.
+      That is a viewing pipeline, not a bus payload, and it does not fit an app whose whole design is
+      store-and-forward. The bus-native option is `video_compressed` (`foxglove.CompressedVideo`,
+      `transient` on `dev`): H.264 out of `MediaCodec`, which every Android device encodes in hardware, lands in the MCAP
       alongside everything else, replays with the rest of the run, and is roughly an order of magnitude
       cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before deciding — the honest
       unknowns are keyframe interval against the replay story and whether `CompressedVideo`'s framing
       wants Annex B or AVCC.
 
-## P4 — feature plans
+## P4 — housekeeping
 
-- [ ] **Other sensors** the phone can provide — answered above, see P2.
-- [x] **Video streams** — answered above, see P3.
-- [x] **Annotation view** — `log_message` / `foxglove.Log`, configurable buttons (label + severity +
-      category) and a free-text note, on the **Mark event** screen. Reads natively in Foxglove's Log
-      panel. Foxglove *Events* (marks on the playback bar) are a separate post-processing job and are
-      not done — see the README.
-- [x] **Check Lists** — done. Full peer on crowsnest's checklist protocol: subscribes to every site's
-      `checklist_event`, publishes its own, heartbeats `checklist_presence`, and bootstraps from
-      `checklist_state` in the router's storage. Per-item reminders are phone-local (`AlarmManager`,
-      inexact by design) and never published — no checklist message carries a due time.
+- [ ] **Push to a remote.** `git init` is done — `main`, four commits — but there is nowhere to push,
+      which leaves two things stalled: `.github/workflows/build.yml` has never run, and the checklist
+      protos below cannot be PR'd from this side. Creating it is a decision about where this lives
+      rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
+      is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
-      Three things came out of it worth knowing. The protos existed **nowhere** in `../keelson` — only
-      as generated JS in the git-ignored `sdks/js/dist/`, which crowsnest consumes via a `file:` dep;
-      they are now reconstructed in `messages/payloads/` and pinned by `ChecklistWireTest` against
-      golden bytes from crowsnest's own encoders. Procedure *definitions* never travelled on the bus
-      at all (crowsnest seeds a hardcoded constant per browser), so `ChecklistProcedure.proto` and a
-      router storage were added — which also fixes crowsnest's own `get_once` bootstrap, which had
-      nothing behind the key. And the `rise/@v0/*/pubsub/checklist_*` storages already on the router
-      belong to an earlier design no client speaks; they are untouched.
-
-      **Not committed upstream.** `../keelson` has four new untracked protos and four `subjects.yaml`
-      entries sitting on `feature/operational-authority`; they want their own branch and a PR before
-      anyone else can build this. Blocked behind P0's `git init` on this side too.
-
-- [x] **Calibration of equipment** — a **Rig calibration** screen that records the rig's zero point and
-      each sensor's pose relative to it, publishes them as `frame_transform` (one message per sensor)
-      and `configuration_json` under the **rig's** entity id, and exports the platform-geometry file
-      keelson's own `connectors/platform` reads unchanged. Offsets are typed or captured from an
-      averaged fix; rotations are always typed, because a phone can measure where a sensor is and not
-      where it is aimed. The written description, the frame conventions and an honest account of what a
-      phone fix is worth are in [docs/calibration.md](docs/calibration.md) — which also proposes the
-      provenance block upstream's schema has nowhere to put.
-
-## P5 — housekeeping
+- [ ] **Commit the checklist protos upstream.** `../keelson` still has four untracked protos and four
+      `subjects.yaml` entries sitting on `feature/operational-authority`
+      (`Checklist{Event,State,Presence,Procedure}.proto`). Until they are on a branch and merged, nobody
+      else can build against the checklist feature, and this app's vendored copies are the only
+      definition of a wire format two projects already speak — crowsnest reconstructed from its
+      generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
 - [ ] **The README's "Known limitations" section is stale, and it is the misleading kind.** All four
       bullets are wrong now: QoS profiles exist (`keelson/Qos.kt`, verified against `dev`'s `qos.yaml`
@@ -252,10 +178,3 @@ Highest value first:
       `PluralsCandidate` folded into the notification item in P1. `UsableSpace` in `Recorder.kt` is
       *not* one of these: `getAllocatableBytes` counts clearable cache the recorder cannot actually
       have, and the floor being predicted is real free space.
-
-- [x] **Set up a release build** — done. Signing comes from `LOGLINE_KEYSTORE*` env vars or
-      `local.properties`, an unconfigured build warns and emits `app-release-unsigned.apk` rather than
-      failing, `versionCode`/`versionName` live in `version.properties`, and the decision on
-      `optimization { enable = false }` is made and written down in both the build file and the README:
-      minification stays off, because R8 would need hand-written keeps for protobuf-lite and the Zenoh
-      JNI classes and both fail at runtime rather than at build time.
