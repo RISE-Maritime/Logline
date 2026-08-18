@@ -1,13 +1,15 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The same exclusions as `data_extraction_rules.xml`, for API 30 — which is minSdk, so this file is
+    not vestigial: it is the only one an Android 11 phone reads. From API 31 this one is ignored and
+    the other takes over, which is why the two must be changed together. The reasoning for each entry
+    is written out there rather than duplicated here.
+
+    Note the older format has no device-transfer section: on API 30 these rules govern cloud backup,
+    and the transfer path did not exist yet.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="file" path="tls" />
+    <exclude domain="file" path="recordings" />
+    <exclude domain="file" path="osmdroid" />
 </full-backup-content>

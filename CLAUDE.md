@@ -282,6 +282,17 @@ A shared checklist that several sites work at once, interoperating with crowsnes
 - **TLS credentials are never bundled in the APK, and `certificates/` is git-ignored.** The client key
   authenticates this phone to the *shared* fleet bus; a 120 MB debug build gets passed around. If you
   ever find yourself adding a PEM to `res/` or `assets/`, stop.
+- **The backup rules are the third leg of that, and they are not decoration.** `filesDir` is where the
+  key lives, and Android's auto-backup takes *all* of `filesDir` unless told otherwise — so with the
+  Android Studio stub rules the key went to Google Drive and rode a phone-to-phone transfer. Measured
+  with the local backup transport on a Pixel 6: **3 648 000 bytes** backed up with the stubs, **7 168**
+  with the excludes in `res/xml/{backup_rules,data_extraction_rules}.xml`. Both files, always: API 30
+  reads the first and 31+ the second, and minSdk is 30, so changing one alone fixes half the fleet.
+  `recordings` and `osmdroid` are excluded for a different reason — cloud backup's 25 MB quota is
+  per app and a file over it fails the *whole* backup, so a run in progress would cost the settings
+  their backup too. Adding any `<include>` flips the file to an allow-list and silently stops backing
+  up everything unlisted; the settings are meant to survive a phone swap, which is why this is an
+  exclude list rather than `allowBackup="false"`.
 - **`tcp/127.0.0.1:7447` is the phone's own loopback**, not the dev machine's. Testing against a
   laptop router needs the LAN IP, or `adb reverse tcp:7447 tcp:7447`.
 - **The foreground service type is chosen per start.** `location` when `ACCESS_FINE_LOCATION` is

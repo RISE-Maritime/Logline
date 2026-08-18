@@ -615,6 +615,16 @@ as an opaque handshake failure.
 bus. For the same reason `certificates/`, `*.pem`, `*.jks` and `*.keystore` are git-ignored — a key
 that reaches the fleet must not reach the history.
 
+**And they are excluded from Android's backups.** Auto-backup takes all of `filesDir` unless told
+otherwise, so without a rule the client key would sit in a Google Drive backup and ride a
+phone-to-phone transfer onto a device nobody enrolled. `res/xml/backup_rules.xml` (API 30) and
+`res/xml/data_extraction_rules.xml` (API 31+, cloud backup *and* device transfer) exclude
+`filesDir/tls` — along with `recordings` and the map tile cache, which are large enough to fail the
+whole backup against its 25 MB quota. The settings themselves are still backed up on purpose. One
+consequence worth knowing: **a restored or transferred phone has no credentials and must import its
+own**, which is the intended shape — enrolment is per device — and it says so plainly on the first
+start rather than failing obscurely.
+
 Starting a `tls/` endpoint with a credential missing fails immediately and says which file is missing,
 rather than hanging or failing obscurely later.
 

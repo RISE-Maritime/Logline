@@ -8,24 +8,21 @@ Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `
 
 ## P0 — before the next real run
 
-- [x] **`git init`** — done 2026-08-18. `main`, one initial commit of the whole app at `versionCode 1`
-      (191 files, 1.8 MB; `app/build`'s 629 MB and the credentials under `certificates/` correctly
-      ignored). **No remote yet**, so `.github/workflows/build.yml` still has nothing to run against and
-      the checklist protos on `../keelson`'s `feature/operational-authority` branch still cannot be
-      PR'd from this side — creating the remote is the next step and it is a decision about where this
-      lives, not a command. One thing to look at while doing it: `.claude/settings.json` is tracked and
-      carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
-- [ ] **Android auto-backup carries the TLS client key off the phone.** `AndroidManifest.xml` sets
-      `android:allowBackup="true"`, and `res/xml/backup_rules.xml` and `res/xml/data_extraction_rules.xml`
-      are both still the Android Studio stubs — every rule in them is commented out. With no rules,
-      auto-backup and device-to-device transfer take *all* of `filesDir`, which is precisely where
-      `TlsCredentialStore` puts `client_key.pem` because "`filesDir` is the security boundary". The key
-      authenticates this phone to the shared fleet bus; it should not be in a Google Drive backup or
-      ride a phone-to-phone transfer to a device nobody enrolled. Same rules should exclude
-      `filesDir/recordings` (a live MCAP is up to 512 MB against a 25 MB backup quota, so its presence
-      quietly breaks the whole backup) and `filesDir/osmdroid` (tile cache, same problem). Settings and
-      checklist state are worth *keeping* backed up, so this is an exclude list, not `allowBackup="false"`.
+- [x] **Android auto-backup carried the TLS client key off the phone** — fixed 2026-08-18. Both
+      `res/xml/backup_rules.xml` (API 30, which is minSdk) and `res/xml/data_extraction_rules.xml`
+      (API 31+, both `cloud-backup` and `device-transfer`) now exclude `filesDir/tls`,
+      `filesDir/recordings` and `filesDir/osmdroid`. Verified on the Pixel 6 against the local backup
+      transport rather than reasoned about: with the stub rules the phone backed up **3 648 000 bytes**
+      — the whole of `filesDir`, `client_key.pem` included — and with the excludes, **7 168**, which is
+      the DataStore settings and nothing else. The local backup set made during that test was wiped
+      and the phone put back on the Google transport.
+
+      Left deliberately: an exclude list rather than `allowBackup="false"`, so the settings still
+      survive a phone swap. Worth considering separately — moving the credentials to
+      `context.noBackupFilesDir` would make it structural rather than a rule a future manifest edit
+      can undo, but it orphans credentials already imported on every phone in the fleet unless a
+      migration goes with it.
 
 ## P1 — a long unattended run should not lie, and should not die quietly
 

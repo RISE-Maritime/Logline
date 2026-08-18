@@ -1,19 +1,43 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What may leave the phone when Android backs the app up (`cloud-backup`, i.e. Google Drive) or
+    copies it to a new one (`device-transfer`). Read on API 31+; `backup_rules.xml` says the same
+    thing for API 30, which is minSdk.
+
+    An exclude list, not `allowBackup="false"`: the settings are worth restoring. Realm, entity and
+    source ids, the endpoint list, per-subject switches, rates, QoS overrides, the operator identity
+    and the checklist state all live in `files/datastore/` and are tedious to retype — losing them on
+    a phone swap is a real cost with nothing bought for it.
+
+    With no `<include>` anywhere, everything not excluded here is backed up. Adding one would flip
+    that: the file becomes an allow-list and anything unlisted stops being backed up, silently.
+
+    Three things must not travel:
+
+    * `tls` — the mTLS material `TlsCredentialStore` imports. `client_key.pem` authenticates this
+      phone to the *shared* fleet bus, so a copy in a Google Drive backup, or riding a phone-to-phone
+      transfer onto a device nobody enrolled, is exactly the exposure that keeping it out of the APK
+      and off external storage was meant to prevent. A restored phone therefore has no credentials
+      and says so: `clientConfigJson` throws naming the missing file, which surfaces through
+      `statusStore.setupFailed()`. Re-importing is the intended path — enrolment is per device.
+
+    * `recordings` — MCAP files in flight. Cloud backup has a 25 MB quota per app and a file over it
+      does not merely get skipped, it fails the whole backup, so a run in progress would quietly cost
+      the settings their backup too. A finished recording is copied to Downloads/Logline, which has a
+      backup story of its own.
+
+    * `osmdroid` — the map tile cache. Hundreds of MB of re-downloadable data, same quota problem,
+      and it is a cache: `TrackMap` rebuilds it from the network.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="tls" />
+        <exclude domain="file" path="recordings" />
+        <exclude domain="file" path="osmdroid" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="tls" />
+        <exclude domain="file" path="recordings" />
+        <exclude domain="file" path="osmdroid" />
     </device-transfer>
-    -->
 </data-extraction-rules>
