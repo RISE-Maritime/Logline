@@ -423,6 +423,17 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   **The exception is `speed_over_ground_knots` and `course_over_ground_deg`**, which publish `0.0` when
   the fix carries no value — a product decision, documented in the README, taken because an unbroken
   series was judged worth more than the distinction. Do not "fix" it back without asking.
+- **A location row that says nothing is a bug, and `Waiting` is the only honest silence.** The four GNSS
+  subjects ride one callback, so all four go quiet together and the *reason* has to reach all four —
+  `LOCATION_SUBJECTS.forEach { statusStore.failed(...) }`. `LocationProvider` emits a `LocationUpdate`
+  rather than a bare `Location` for this: `Unavailable` carries text a person can act on, `Available`
+  clears it without waiting for a fix (the time to first fix after the switch goes back on is tens of
+  seconds, and the stale reason reads as the setting not having taken). The master switch is read from
+  `LocationManager.isLocationEnabled` and watched through `MODE_CHANGED_ACTION` — **not** inferred from
+  `onLocationAvailability`, which is also false for a phone indoors. That distinction is the whole
+  design: only causes that are certain and actionable become a failure, because a row that cries wolf
+  when the phone is under a roof is a row nobody reads. A missing permission is reported the same way
+  instead of returning quietly, which used to leave four rows on `Waiting` for an entire IMU-only run.
 - **Cell identity is the only radio data that needs a permission.** `getAllCellInfo()` requires
   `ACCESS_FINE_LOCATION`; the signal-quality subjects require nothing. When it is denied or the app-op
   is suppressed, the platform returns an **empty list rather than an error** — so "suppressed" and "no

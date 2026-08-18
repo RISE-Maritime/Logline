@@ -40,12 +40,27 @@ Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `
       has yet driven the watchdog through a >2.5 minute gap on a phone. Airplane mode for three minutes
       during a run is the check.
 
-- [ ] **"Location is switched off" looks exactly like "no fix yet".** `SensorPublisher.runLocation()`
-      checks the *permission* and then subscribes; if location services are off system-wide, or the
-      device has no Play Services for `FusedLocationProviderClient`, the callback simply never fires and
-      the four GNSS subjects sit on `Waiting` forever with nothing said. `LocationCallback` already
-      offers `onLocationAvailability`, which answers this directly — surface it as a setup problem the
-      way a missing TLS credential is surfaced.
+- [x] **"Location is switched off" looked exactly like "no fix yet"** — fixed 2026-08-18, though not
+      as a setup failure: `PublisherStatus.error` stops the foreground service, and killing an entire
+      run — IMU, barometer, radio and all — because GPS is off would be worse than the silence it
+      replaced. It is a per-subject failure on all four GNSS subjects instead, which is what the rows
+      and the group heading already know how to show.
+
+      `LocationProvider` now emits `LocationUpdate` (`Fix` / `Unavailable(reason)` / `Available`) off
+      the one existing registration. Reported: the master switch, read from
+      `LocationManager.isLocationEnabled` at registration and watched through `MODE_CHANGED_ACTION` so
+      a mid-run toggle shows within a second; a `requestLocationUpdates` rejection, which is how a
+      device without Play Services presents; and a refused permission, which used to be a quiet
+      `return`. Deliberately *not* reported: `onLocationAvailability(false)` with the switch on, which
+      is a phone indoors — `Waiting` is the honest state for that, and a row that cries wolf under a
+      roof is a row nobody reads. `Available` clears the failure without waiting for a fix, via a new
+      `PublisherStatusStore.recovered()`; `PublisherStatusStoreTest` pins that it clears nothing else
+      and moves no counter.
+
+      **Not verified on a device.** The paths need a publishing run to exercise, and that means putting
+      data on the shared fleet bus. One minute checks it: switch location off, Start, and the four GNSS
+      rows should read the reason rather than `Waiting`; switch it back on and they should clear before
+      the first fix arrives.
 
 - [ ] **Ask for a battery-optimisation exemption.** A foreground service and a partial wake lock are
       enough on a Pixel; several OEM battery managers still kill a multi-hour background run. Standard

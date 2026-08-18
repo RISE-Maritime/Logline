@@ -18,6 +18,43 @@ private const val TICKS = 25_000
 class PublisherStatusStoreTest {
 
     /**
+     * A failure that resolves before it can publish again.
+     *
+     * `tick` already clears a failure, which covers everything that recovers by producing a sample.
+     * Location does not: switched back on mid-run, the time to first fix is tens of seconds, and
+     * leaving "Location is switched off" on the row through all of it tells the user their setting did
+     * not take. Counters must not move — nothing was published, and inventing a sample here would show
+     * up as a rate.
+     */
+    @Test
+    fun `a subject can recover without publishing`() {
+        val store = PublisherStatusStore()
+        store.started()
+        store.tick(PublishedSubject.LOCATION_FIX)
+        store.failed(PublishedSubject.LOCATION_FIX, "Location is switched off in Android settings")
+        val published = store.status.value[PublishedSubject.LOCATION_FIX].samplesPublished
+
+        store.recovered(PublishedSubject.LOCATION_FIX)
+
+        val after = store.status.value[PublishedSubject.LOCATION_FIX]
+        assertNull(after.failure)
+        assertEquals("recovering is not a sample", published, after.samplesPublished)
+    }
+
+    /** Recovering something that was never broken must not churn the state the UI collects. */
+    @Test
+    fun `recovering a healthy subject changes nothing`() {
+        val store = PublisherStatusStore()
+        store.started()
+        store.tick(PublishedSubject.LOCATION_FIX)
+        val before = store.status.value
+
+        store.recovered(PublishedSubject.LOCATION_FIX)
+
+        assertTrue("an untouched status should be the same value", before === store.status.value)
+    }
+
+    /**
      * The regression test for the lost-update race: on a plain
      * `_status.value = _status.value.copy(...)` these counters come out short.
      *

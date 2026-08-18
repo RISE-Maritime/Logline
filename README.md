@@ -922,6 +922,22 @@ Denying location is therefore degraded, not fatal — you still get IMU. The mod
 granting the permission afterwards needs a Stop and Start before GNSS appears. Denying the notification
 permission does not stop publishing; it only makes the notification invisible.
 
+**When there is no fix, the rows say why.** Four subjects come off the one GNSS callback, and a silent
+row is the same shape whether the phone is waiting for satellites, the permission was refused, or
+location is switched off at the system level — so the two causes a person can act on are named on all
+four rows instead of left to look like a slow first fix:
+
+| What the rows say | What happened |
+| --- | --- |
+| `Waiting for the first sample` | Normal. Nothing is wrong yet — a cold fix indoors takes a while. |
+| `Failed — Location is switched off in Android settings` | The master switch. Caught at the start of a run *and* the moment it is toggled mid-run, and cleared as soon as it is switched back on rather than after the next fix. |
+| `Failed — Location permission was not granted for this run` | An IMU-only run. Stop, grant, Start. |
+| `Failed — The location provider refused the request: …` | Play Services rejected it, which is how a device without them presents. |
+
+A phone merely indoors is deliberately *not* one of these. The fused provider reports itself unavailable
+under a roof and then recovers, and calling that a failure is the kind of false alarm that teaches
+people to stop reading the row.
+
 `ACCESS_BACKGROUND_LOCATION` is deliberately not requested — the service is always started from a
 visible Activity, which is the exemption that makes it unnecessary.
 

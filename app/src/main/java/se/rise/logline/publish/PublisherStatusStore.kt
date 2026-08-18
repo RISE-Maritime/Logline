@@ -151,6 +151,20 @@ class PublisherStatusStore {
         status.replace(subject) { it.copy(failure = message) }
     }
 
+    /**
+     * A subject's recorded failure no longer applies, and no sample has arrived to say so.
+     *
+     * [tick] already clears a failure, which covers everything that recovers by publishing again. This
+     * is for the case that recovers *before* it can publish: location switched back on mid-run has a
+     * time to first fix of tens of seconds, and leaving "Location is switched off" on the row for all
+     * of it would be telling the user their setting did not take. Counters are untouched — nothing has
+     * been published, and pretending otherwise would show up as a rate.
+     */
+    fun recovered(subject: PublishedSubject) = _status.update { status ->
+        if (status[subject].failure == null) status
+        else status.replace(subject) { it.copy(failure = null) }
+    }
+
     private inline fun PublisherStatus.replace(
         subject: PublishedSubject,
         change: (SubjectStatus) -> SubjectStatus,

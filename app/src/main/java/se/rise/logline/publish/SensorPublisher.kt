@@ -32,6 +32,7 @@ import se.rise.logline.sensors.BatteryProvider
 import se.rise.logline.sensors.CameraProvider
 import se.rise.logline.sensors.ImuProvider
 import se.rise.logline.sensors.LocationProvider
+import se.rise.logline.sensors.LocationUpdate
 import se.rise.logline.sensors.RadioProvider
 import se.rise.logline.sensors.ScalarSensorProvider
 import se.rise.logline.sensors.SensorClock
@@ -571,6 +572,12 @@ class SensorPublisher(private val appContext: Context) {
             != PackageManager.PERMISSION_GRANTED
         ) {
             Log.w(TAG, "ACCESS_FINE_LOCATION not granted; skipping location publisher")
+            // Said on the rows rather than only in the log. Returning quietly left the four GNSS
+            // subjects reading "Waiting for the first sample" for the whole of an IMU-only run, which
+            // is the one state that looks like the app is about to work and never will.
+            LOCATION_SUBJECTS.forEach {
+                statusStore.failed(it, "Location permission was not granted for this run")
+            }
             return
         }
         val frameId = settings.locationSource
@@ -584,7 +591,23 @@ class SensorPublisher(private val appContext: Context) {
         val variationSink = SubjectSink(PublishedSubject.MAGNETIC_VARIATION, session)
         val sink = SubjectSink(PublishedSubject.LOCATION_FIX, session)
         sink.guard {
-            LocationProvider(appContext).locations(intervalMillis = rate.toIntervalMillis()).collect { loc ->
+            LocationProvider(appContext).updates(intervalMillis = rate.toIntervalMillis()).collect { update ->
+                // Why there is no fix, when that is knowable, on every subject that rides this
+                // callback — all four go silent together, so all four have to account for it.
+                val loc = when (update) {
+                    is LocationUpdate.Unavailable -> {
+                        LOCATION_SUBJECTS.forEach { statusStore.failed(it, update.reason) }
+                        return@collect
+                    }
+                    // Cleared without waiting for a fix: the time to first fix after location is
+                    // switched back on is tens of seconds, and the old reason sitting there through
+                    // all of it reads as the setting not having taken.
+                    LocationUpdate.Available -> {
+                        LOCATION_SUBJECTS.forEach { statusStore.recovered(it) }
+                        return@collect
+                    }
+                    is LocationUpdate.Fix -> update.location
+                }
                 // The provider's own UTC fix time. Mock and some network fixes leave it at 0, in which
                 // case there is nothing better than now.
                 val observedAt = if (loc.time > 0L) protoTimestamp(loc.time * 1_000_000L) else protoTimestamp()
