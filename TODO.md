@@ -8,14 +8,13 @@ Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `
 
 ## P0 — before the next real run
 
-- [ ] **`git init`.** There is still no repository here: ~17 000 lines of Kotlin, the vendored protos,
-      the calibration work and the checklist protocol reconstruction all exist in exactly one place,
-      with no history and no way to see what changed between two APKs. It also holds up three things
-      already written and waiting: `.github/workflows/build.yml` is inert, `version.properties` says
-      it is bumped by hand *because* there is no tag to derive from, and the checklist protos on
-      `../keelson`'s `feature/operational-authority` branch cannot be PR'd against anything from this
-      side. `.gitignore` is already correct (`local.properties`, `.claude/settings.local.json`,
-      `certificates/`, the generated descriptor set), so this is one command and a first commit.
+- [x] **`git init`** — done 2026-08-18. `main`, one initial commit of the whole app at `versionCode 1`
+      (191 files, 1.8 MB; `app/build`'s 629 MB and the credentials under `certificates/` correctly
+      ignored). **No remote yet**, so `.github/workflows/build.yml` still has nothing to run against and
+      the checklist protos on `../keelson`'s `feature/operational-authority` branch still cannot be
+      PR'd from this side — creating the remote is the next step and it is a decision about where this
+      lives, not a command. One thing to look at while doing it: `.claude/settings.json` is tracked and
+      carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
 - [ ] **Android auto-backup carries the TLS client key off the phone.** `AndroidManifest.xml` sets
       `android:allowBackup="true"`, and `res/xml/backup_rules.xml` and `res/xml/data_extraction_rules.xml`

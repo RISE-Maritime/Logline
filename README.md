@@ -502,9 +502,9 @@ Kotlin binding ships native `.so` libraries for every ABI; that is expected, not
 ```
 
 Version comes from `version.properties` at the repo root — `versionCode` and `versionName`, bumped by
-hand. There is no git repository to derive them from, and a version that changes as a side effect of
-building makes "is this the same build?" unanswerable. A non-integer `versionCode` fails the build
-rather than silently defaulting.
+hand. The repository has no tags and no remote to derive them from, and a version that changes as a
+side effect of building makes "is this the same build?" unanswerable. A non-integer `versionCode`
+fails the build rather than silently defaulting.
 
 **Signing is optional and off by default.** With no credentials configured the build succeeds, warns,
 and produces `app-release-unsigned.apk` — most developers here never need the key. To produce a signed

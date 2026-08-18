@@ -629,7 +629,8 @@ Sibling repos on this machine, useful as references and already in the working-d
 ## CI
 
 `.github/workflows/build.yml` runs `testDebugUnitTest lintDebug assembleDebug` on push, pull request,
-and manual dispatch. It is **inert until this becomes a git repository** — see below.
+and manual dispatch. It runs as of the initial commit; nothing has exercised it yet, because
+there is no remote to push to.
 
 Two runner-specific details worth knowing before editing it: there is no `local.properties` on CI, so
 AGP resolves the SDK from `ANDROID_HOME` (verified locally by building with the file moved aside), and
@@ -637,6 +638,12 @@ AGP resolves the SDK from `ANDROID_HOME` (verified locally by building with the 
 
 ## Repository state
 
-Not a git repository yet (`git init` has never been run here). If you're asked to commit, that's the
-first step — and note `.claude/settings.local.json` and `local.properties` are already in
-`.gitignore`.
+A git repository since 2026-08-18, on `main`, with no remote configured yet — pushing needs one
+created first, and that is a decision for whoever owns the org. The initial commit is the whole app at
+`versionCode 1`; everything before it is unrecoverable, which is the reason it exists.
+
+Ignored and deliberately never committed: `local.properties`, `.claude/settings.local.json`, the mTLS
+client credentials under `certificates/`, any `*.pem` / `*.jks` / `*.keystore`, and the generated
+`assets/keelson_payloads.desc`. Note `.claude/settings.json` **is** tracked and holds this machine's
+absolute `JAVA_HOME` and `ANDROID_HOME` — fine while this is a one-machine project, worth revisiting
+the moment it is not.
