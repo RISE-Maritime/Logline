@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Logline</string>
+
+    <string name="notification_channel_name">Publishing</string>
+    <string name="notification_channel_description">Shown while sensor data is being published to a Zenoh router</string>
+    <string name="notification_starting">Starting…</string>
+    <string name="notification_target">%1$s → %2$s</string>
+    <string name="notification_samples">%1$d samples</string>
+    <string name="notification_imu_only">IMU only</string>
+    <string name="notification_audio">recording audio</string>
+    <string name="notification_camera">taking pictures</string>
+    <string name="notification_battery">~%1$s on battery</string>
+    <string name="notification_storage">~%1$s on storage</string>
+    <string name="notification_disconnected">router unreachable</string>
+    <string name="notification_stop">Stop</string>
+</resources>
