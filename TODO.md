@@ -59,16 +59,20 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-- [ ] **`illuminance_lux` is in no released keelson.** Not in `0.6.0-pre.3`, not in `dev`, not in
+- [x] **`illuminance_lux` is in no released keelson.** Not in `0.6.0-pre.3`, not in `dev`, not in
       `0.5.4` — it exists only on the unmerged one-commit branch `feat/illuminance-subject`, as a
       single line in `subjects.yaml`. The app has been publishing an unratified subject name, against
       its own rule that subject names are protocol and inventing one here produces messages nobody can
       consume. Merging that line upstream is the fix; tearing out a working sensor to satisfy
       bookkeeping is the alternative, and it is worse. Needs a decision from whoever owns `keelson`,
       and it should not go quiet for a second release running.
-      *(2026-08-19: [keelson#201](https://github.com/RISE-Maritime/keelson/pull/201) ratifies it,
-      open against `dev`. Nothing to change here — the app's subject name and payload type already
-      match what that PR adds.)*
+      *(2026-08-19: ratified in **`0.6.0-pre.5`** — `illuminance_lux: keelson.TimestampedFloat`, which
+      is what the app already publishes, plus a units-table row in the specification giving lux as the
+      unit (no conversion, as `sensors/Units.kt` has always assumed). #201 was closed and folded into
+      #202, which is where the commit now lives. **Note the tag was cut from `feature/checklist-subjects`,
+      not from `dev`** — `dev` still lacks the line until #202 merges, so a `git show dev:...` lookup
+      still comes back empty. Nothing to change in this app.)*
+      Done in 0.6.0-pre.5 upstream; no commit here.
 
 - [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
       previous item: a release has now shipped without messages this app builds against, and
@@ -82,37 +86,16 @@ rewritten from the ground up. These are the consequences.
       the rebase, so no drift crept in while they sat unmerged. Two review points carried in the PR
       body rather than hidden: the design itself is unreviewed, and `checklist_state` /
       `checklist_procedure` want the router storage backing that `../keelson-router/` now has and
-      that repo does not. **Leave this open until #202 merges.**)*
+      that repo does not.
+      2026-08-19, later: **`0.6.0-pre.5` ships all four**, and they are byte-identical to this app's
+      vendored copies — checked file by file against the tag, along with every other proto (17 of 17
+      identical) and every subject name and QoS profile (no drift). So the app no longer publishes
+      anything unratified, which is what this item was really about. **Still open because #202 itself
+      is**: the tag was cut from its branch rather than from `dev`, so `dev` has neither the checklist
+      subjects nor `illuminance_lux` until that PR merges. Close this when it does.)*
 
 
 ## P3 — product
-
-
-- [x] **Video: `video_compressed`, not WebRTC** — the answer to the old "can we use keelson webrtc for
-      video?" question. Upstream's answer for WebRTC is `connectors/mediamtx`, which proxies MediaMTX's
-      WHEP endpoint through a Zenoh queryable — signalling over the bus, media over WebRTC, live only,
-      nothing recorded and nothing replayable, and it needs a MediaMTX instance the phone can reach.
-      That is a viewing pipeline, not a bus payload, and it does not fit an app whose whole design is
-      store-and-forward. The bus-native option is `video_compressed` (`foxglove.CompressedVideo`,
-      `transient` on `dev`): H.264 out of `MediaCodec`, which every Android device encodes in hardware,
-      lands in the MCAP alongside everything else, replays with the rest of the run, and is roughly an
-      order of magnitude cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before
-      deciding — the honest unknowns are keyframe interval against the replay story, and whether
-      `CompressedVideo`'s framing wants Annex B or AVCC.
-      *(2026-08-19: **built, and both unknowns answered — plus two the item did not anticipate.**
-      Framing is **Annex B**, which is what `MediaCodec` emits natively; the real trap is that every
-      keyframe must carry its SPS while the codec sends it once, so it is cached and prepended.
-      Keyframes every 2 s, which bounds a live joiner's wait and is most of the bitrate at 10 fps.
-      **The cost claim was backwards**: video is ~11x cheaper per *frame* and 5.4x more expensive per
-      *hour* at 720p/2 Mbps, so the default is 640x480 at 300 kbps — 131 MB/h measured, below the
-      time-lapse's 158 for twenty times the frames.
-      Two findings the plan did not predict. **The camera will not serve `Preview` and `ImageCapture`
-      together** — `ERROR_CAMERA_DEVICE`, HAL restart loop, at matching resolutions too — so video and
-      the time-lapse are mutually exclusive, enforced in `Settings.offSubjects()`. And
-      **`KEY_FRAME_RATE` is a bitrate hint, not a throttle**: 10 fps requested encoded at 29.9 until
-      the rate was asked of the camera through `Camera2Interop`, after which it measured 10.0.
-      Proven end to end by cutting a recording at frame 1260 of 2499 and decoding it with `ffmpeg`.)*
-      Done in 71a3d3a.
 
 - [ ] **Samples queued at Stop are dropped rather than drained.** `Recorder.stop()` closes the queue
       and then `cancelAndJoin`s the drain scope, and cancellation beats the `for (sample in queue)`
@@ -143,12 +126,6 @@ rewritten from the ground up. These are the consequences.
       definition of a wire format two projects already speak — crowsnest reconstructed from its
       generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
-- [x] **The README's "Known limitations" section is stale, and it is the misleading kind.** All four
-      bullets are wrong now: QoS profiles exist (`keelson/Qos.kt`, verified against `dev`'s `qos.yaml`
-      with no drift), liveliness tokens are declared per (entity, source) pair, `ExampleUnitTest` is
-      long gone and there are 39 test classes, and `applicationId` is not a template default. A reader
-      deciding whether this app is fit for a run reads that section first.
-      Done in ceb872b.
 
 - [ ] **CLAUDE.md's QoS note is stale in the same way** — it says only the three GNSS subjects differ
       from Zenoh's defaults. It is eight subjects across four profiles today: five `elevated`

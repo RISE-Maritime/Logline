@@ -142,7 +142,10 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `PublishedSubject` in `keelson/SubjectRegistry.kt`. A new subject means a constant plus a registry
   entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **Check `dev`,
   not just the checked-out branch** — the `radio_*` subjects live on `dev` and are not yet on `main`, so
-  a `git show dev:messages/subjects.yaml` is the honest lookup.
+  a `git show dev:messages/subjects.yaml` is the honest lookup. **And check the newest tag as well as
+  `dev`:** `0.6.0-pre.5` was cut from a feature branch and ships `illuminance_lux` and the four
+  `checklist_*` subjects that `dev` does not have, so a release can be *ahead* of `dev` rather than
+  behind it. `git tag --sort=-creatordate | head -1` names the one to read.
 - **`Subjects` is wire names; `PublishedSubject` is the *sensor* set.** They are usually the same
   list, and the four `checklist_*` subjects are the exception: they are in `Subjects` and deliberately
   **not** in the registry. Everything derived from the registry — rates, `SensorManager` types, MCAP
