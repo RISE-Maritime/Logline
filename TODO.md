@@ -112,7 +112,7 @@ rewritten from the ground up. These are the consequences.
       **`KEY_FRAME_RATE` is a bitrate hint, not a throttle**: 10 fps requested encoded at 29.9 until
       the rate was asked of the camera through `Camera2Interop`, after which it measured 10.0.
       Proven end to end by cutting a recording at frame 1260 of 2499 and decoding it with `ffmpeg`.)*
-      Done in <sha>.
+      Done in 71a3d3a.
 
 - [ ] **Samples queued at Stop are dropped rather than drained.** `Recorder.stop()` closes the queue
       and then `cancelAndJoin`s the drain scope, and cancellation beats the `for (sample in queue)`
