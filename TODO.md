@@ -103,7 +103,7 @@ rewritten from the ground up. These are the consequences.
       outside the system image can hold it. `CellIdentityNr` has no bandwidth field at all, so 5G gives
       nothing by either route. So one subject was added, `radio_downlink_bandwidth_mhz`, LTE only, and
       the four others are recorded in the README as unreachable with the reason.)*
-      Done in <sha>.
+      Done in dc4a224.
 
 - [ ] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** The app answers
       crowsnest's `get_config` probe but is not an RPC server in the interface/version sense, and §3.6's
