@@ -844,6 +844,20 @@ rather than hanging or failing obscurely later.
 
 ## Configure
 
+The app has five tabs across the bottom — **Session**, **Live**, **Events**, **Files** and **Setup**.
+Session is the dashboard and the start/stop control, Live is the map and the plots, Events is where a
+moment is marked, Files is what has been recorded, and Setup holds everything that is configured
+rather than operated: Settings, Rigs, the annotation buttons and (when enabled) Checklists.
+
+Start and Stop sit pinned above the tab bar rather than in the scroll, because the page below them is
+thirty-nine subjects long. The card at the top is the session summary — what the last run left behind
+while nothing is running, what this one is doing while it is — with the endpoint and the file's own
+figures one tap behind the row along its bottom edge.
+
+Settings itself is six collapsible groups — General, Connection, Recording, Sensors & media,
+Collaboration, Advanced — with only General open to start with. The longer explanations sit behind the
+ⓘ on a section heading rather than in the page.
+
 Settings screen fields, all persisted to DataStore (`logline_settings`):
 
 | Field | Default | Notes |
@@ -891,9 +905,17 @@ than shedding samples, which on a 55 Hz sensor path can stall the publisher. Eve
 
 ## Live view
 
-A **Live** button on the main screen opens a view of what is actually going on the bus, as opposed to
-how fast it is going: the last GNSS fix on an OpenStreetMap background with the recent track drawn over
-it, and a sparkline per subject for the last couple of minutes.
+The **Live** tab shows what is actually going on the bus, as opposed to how fast it is going: the last
+GNSS fix on an OpenStreetMap background with the recent track drawn over it, and a sparkline per
+subject for the last couple of minutes.
+
+Under the position sits a one-line summary — fix kind, satellites, cellular SINR, charge — so the
+question "is this run healthy" does not cost a scroll into three groups. The chips below it filter the
+plots to one group when tapped. And a **Basic / All** control decides how much is plotted: Basic is
+the eight subjects an operator watches (the fix, speed, course, true heading, horizontal accuracy, fix
+quality, air pressure, charge) and All is every published series, with the number being held back
+stated beside the control. Nothing is switched off by choosing Basic — every subject still publishes
+and is still recorded.
 
 It shows **only what was published** — it deliberately does not read the sensors itself. A second
 location stream would double GNSS power draw and could disagree with the bus, which is the one thing
@@ -1030,9 +1052,17 @@ Checklist activity is **not** written to the MCAP recording.
 
 ## Rig calibration
 
-Optional, and nothing publishes until a rig is described. **Rigs** on the main screen (while stopped)
-records where a sensor rig's zero point is and where each sensor sits relative to it: X forward, Y to
+Optional, and nothing publishes until a rig is described. **Setup → Rigs** (while stopped) records
+where a sensor rig's zero point is and where each sensor sits relative to it: X forward, Y to
 starboard, **Z down**, metres, with rotations in degrees applied yaw → pitch → roll.
+
+Describing one rig is a five-step flow — **Rig**, **Zero**, **Forward**, **Sensors**, **Review** —
+with the steps shown as a row of chips at the top. They are navigation rather than a sequence: any
+step is reachable at any time, which is what makes correcting an existing rig as quick as it should
+be, and **Save** stays available throughout, so a survey interrupted halfway is not lost. A step
+carrying a ✓ has something in it. The wire details — the key the transforms go out on,
+`frame_transform`, `configuration_json` — live on the Review step and behind the ⓘ, not above the
+name field.
 
 The phone holds a **library** of rigs, not one. A rig is a keelson *platform* — `entity_id` is the
 platform name — so the list is the counterpart to crowsnest's own-ship selector: one rig is **active**
@@ -1142,7 +1172,7 @@ they restart at each 512 MB rotation, which is what the file count is there to c
 
 ### Getting recordings off the phone
 
-**Recordings → Share** on the main screen, when nothing is running. It lists everything the app has put
+The **Files** tab. It lists everything the app has put
 in `Downloads/Logline` — recordings and the rig calibration's platform-geometry export — newest first,
 with size, message count and duration, and offers a share sheet and a delete.
 

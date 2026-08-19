@@ -18,6 +18,10 @@ import se.rise.logline.sensors.achievedHz
 data class SubjectGroup(
     val title: String,
     val entries: List<PublishedSubject>,
+    /** What the group *is*, so nothing downstream has to recognise it by its display title. */
+    val source: SourceKind,
+    /** The link, where one source kind covers several — `cellular` and `wifi`. Null otherwise. */
+    val sourceId: String?,
     /**
      * True when the heading already names the source. It is what lets a row be called just "RSSI":
      * that subject appears under both `Radio · cellular` and `Radio · wifi`, and the heading is the
@@ -35,6 +39,8 @@ fun subjectGroups(): List<SubjectGroup> =
             SubjectGroup(
                 title = groupTitle(source, sourceId),
                 entries = entries,
+                source = source,
+                sourceId = sourceId,
                 sourceInTitle = sourceId != null,
             )
         }

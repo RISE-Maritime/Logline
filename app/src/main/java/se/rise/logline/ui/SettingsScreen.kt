@@ -26,6 +26,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ import se.rise.logline.keelson.validateEndpoint
 import se.rise.logline.sensors.toIntervalMillis
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.FormActions
+import se.rise.logline.ui.components.InfoDialog
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
@@ -147,6 +150,27 @@ fun SettingsScreen(
         edited.routerEndpoints.isNotEmpty()
 
     var confirmDiscard by remember { mutableStateOf(false) }
+    /**
+     * Which groups are open. **Only General starts open**, which is what this default means.
+     *
+     * The same rule the start screen's subject groups follow: twelve sections and twenty-odd
+     * explanatory paragraphs is five screens to scroll past, and somebody opening Settings is looking
+     * for one of them. Stored as the *open* set rather than the closed one so a group added later is
+     * closed like the rest, with no list to remember to update.
+     */
+    var openSections by rememberSaveable { mutableStateOf(listOf("General")) }
+    /**
+     * The paragraph currently being read, as (title, body), or null.
+     *
+     * The long explanations that used to sit under four of these headings are worth having and are not
+     * worth the space they took on a screen somebody is scrolling to find one field. Same move the live
+     * view made with its magnitude note and axis reference — one dialog, opened from the ⓘ.
+     */
+    var info by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    info?.let { (title, body) ->
+        InfoDialog(title = title, body = body, onDismiss = { info = null })
+    }
     var confirmClear by remember { mutableStateOf<TlsCredential?>(null) }
 
     // Leaving with unsaved edits used to drop them without a word, and the system gesture is how most
@@ -199,556 +223,627 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionHeader("Identity")
-            OutlinedTextField(
-                value = realm,
-                onValueChange = { realm = it },
-                label = { Text("Realm") },
-                supportingText = { Text("First segment of every key — which bus this belongs to.") },
-                isError = realm.isBlank(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = entityId,
-                onValueChange = { entityId = it },
-                label = { Text("Entity ID") },
-                supportingText = { Text("Which physical thing is reporting — this phone.") },
-                isError = entityId.isBlank(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SettingsGroup(
+                title = "General",
+                trailing = null,
+                expanded = "General" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "General") },
+            ) {
+                SectionHeader("Identity")
+                OutlinedTextField(
+                    value = realm,
+                    onValueChange = { realm = it },
+                    label = { Text("Realm") },
+                    supportingText = { Text("First segment of every key — which bus this belongs to.") },
+                    isError = realm.isBlank(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = entityId,
+                    onValueChange = { entityId = it },
+                    label = { Text("Entity ID") },
+                    supportingText = { Text("Which physical thing is reporting — this phone.") },
+                    isError = entityId.isBlank(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
-            SectionHeader("Router endpoints", trailing = "${endpoints.size} configured")
-            Text(
-                "Tried in order; the session attaches to whichever answers first, so this is failover, " +
-                    "not publishing to several at once. Keep it short and put the likeliest first — an " +
-                    "endpoint that silently drops packets costs up to ten seconds before the next is " +
-                    "tried, though a refused one fails instantly.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                SectionHeader("Source IDs")
+                OutlinedTextField(
+                    value = locationSource,
+                    onValueChange = { locationSource = it },
+                    label = { Text("Location source ID") },
+                    supportingText = { Text("Names the GNSS hardware in the key, and the fix's frame_id.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = imuSource,
+                    onValueChange = { imuSource = it },
+                    label = { Text("IMU source ID") },
+                    supportingText = { Text("Same, for the accelerometer, gyroscope and magnetometer.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
-            endpoints.forEachIndexed { index, value ->
+                SectionHeader("Background running")
+                SettingSwitch(
+                    title = "Start on boot",
+                    description = "Begin a run again after the phone restarts, for a phone left wired into " +
+                        "a rig. Needs the location permission — Android will not allow an IMU-only run to " +
+                        "start itself — and never brings audio or the camera with it, which that same rule " +
+                        "forbids. A run stopped by hand stays stopped until the next restart.",
+                    checked = startOnBoot,
+                    onCheckedChange = { startOnBoot = it },
+                )
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(value, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                buildString {
-                                    append(
-                                        if (endpointNeedsTls(value)) {
-                                            "TLS — needs the credentials below"
-                                        } else {
-                                            "no TLS"
-                                        }
-                                    )
-                                    // Saying so here is cheaper than the run failing with EPERM later.
-                                    if (isLocalEndpoint(value)) append(" · asks for local network access")
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            if (batteryOptimised) "Android may stop long runs" else "Exempt from battery optimisation",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            if (batteryOptimised) {
+                                "The foreground service and wake lock are enough on some phones and not on " +
+                                    "others — several manufacturers' battery managers stop an app that has " +
+                                    "been in the background for hours, which is the shape of every logging " +
+                                    "run. The exemption is the documented way out of that."
+                            } else {
+                                "Android will leave this app running in the background, which is what an " +
+                                    "unattended run needs."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (batteryOptimised) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                        // Only when there is something to ask for. A button that opens a dialog saying
+                        // "already allowed" is a button that teaches people the screen is not to be
+                        // trusted — and the state above already says so.
+                        if (batteryOptimised) {
+                            OutlinedButton(onClick = onRequestBatteryExemption) { Text("Ask Android to allow it") }
                         }
-                        // The last one cannot be removed: a session with nowhere to connect is not a
-                        // state worth allowing.
-                        TextButton(
-                            onClick = { endpoints.removeAt(index) },
-                            enabled = endpoints.size > 1,
-                        ) { Text("Remove") }
                     }
                 }
             }
-            if (endpoints.size == 1) {
-                Text(
-                    "The last endpoint cannot be removed — add another first.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
 
-            val trimmedNew = newEndpoint.trim()
-            val endpointError = when {
-                trimmedNew.isEmpty() -> null
-                trimmedNew in endpoints -> "Already in the list"
-                else -> validateEndpoint(trimmedNew)
-            }
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                OutlinedTextField(
-                    value = newEndpoint,
-                    onValueChange = { newEndpoint = it },
-                    label = { Text("Add an endpoint") },
-                    placeholder = { Text("tcp/192.168.1.42:7447") },
-                    // Checked as it is typed: a bad locator used to be accepted here and only surface
-                    // much later as a session that would not open.
-                    supportingText = endpointError?.let { { Text(it) } },
-                    isError = endpointError != null,
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = {
-                        endpoints.add(trimmedNew)
-                        newEndpoint = ""
+            SettingsGroup(
+                title = "Connection",
+                trailing = "${endpoints.size} endpoint" + if (endpoints.size == 1) "" else "s",
+                expanded = "Connection" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "Connection") },
+            ) {
+                SectionHeader(
+                    "Router endpoints",
+                    trailing = "${endpoints.size} configured",
+                    onInfo = {
+                        info = "Router endpoints" to
+                            "Tried in order; the session attaches to whichever answers first, so this is failover, " +
+                            "not publishing to several at once. Keep it short and put the likeliest first — an " +
+                            "endpoint that silently drops packets costs up to ten seconds before the next is " +
+                            "tried, though a refused one fails instantly."
                     },
-                    enabled = trimmedNew.isNotEmpty() && endpointError == null,
-                    modifier = Modifier.padding(top = 8.dp),
-                ) { Text("Add") }
-            }
-
-            SectionHeader("Find a router")
-            OutlinedTextField(
-                value = scoutAddress,
-                onValueChange = { scoutAddress = it },
-                label = { Text("Scan multicast address") },
-                supportingText = {
-                    Text(
-                        "Zenoh's default is ${Settings.DEFAULT_SCOUT_ADDRESS}. Deployments move it — one " +
-                            "keelson router uses :7448 — and a scan on the wrong address looks exactly " +
-                            "like an empty network."
-                    )
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            // The button now follows the field it reads, and the results land directly beneath it.
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { onScan(scoutAddress.trim()) }, enabled = !scanning) {
-                    Text(if (scanning) "Scanning…" else "Scan for routers")
+                )
+                endpoints.forEachIndexed { index, value ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(value, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    buildString {
+                                        append(
+                                            if (endpointNeedsTls(value)) {
+                                                "TLS — needs the credentials below"
+                                            } else {
+                                                "no TLS"
+                                            }
+                                        )
+                                        // Saying so here is cheaper than the run failing with EPERM later.
+                                        if (isLocalEndpoint(value)) append(" · asks for local network access")
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            // The last one cannot be removed: a session with nowhere to connect is not a
+                            // state worth allowing.
+                            TextButton(
+                                onClick = { endpoints.removeAt(index) },
+                                enabled = endpoints.size > 1,
+                            ) { Text("Remove") }
+                        }
+                    }
                 }
-                if (scanning) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                if (endpoints.size == 1) {
                     Text(
-                        "Listening for a few seconds",
+                        "The last endpoint cannot be removed — add another first.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-            scanMessage?.let {
-                StatusLine(text = "No router found", tone = StatusTone.Warning, detail = it)
-            }
-            scanResults.forEach { found ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(found.label, style = MaterialTheme.typography.bodyMedium)
-                        found.locators.forEach { locator ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    locator,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                TextButton(
-                                    onClick = { if (locator !in endpoints) endpoints.add(locator) },
-                                    enabled = locator !in endpoints,
-                                ) { Text(if (locator in endpoints) "Added" else "Add") }
+
+                val trimmedNew = newEndpoint.trim()
+                val endpointError = when {
+                    trimmedNew.isEmpty() -> null
+                    trimmedNew in endpoints -> "Already in the list"
+                    else -> validateEndpoint(trimmedNew)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    OutlinedTextField(
+                        value = newEndpoint,
+                        onValueChange = { newEndpoint = it },
+                        label = { Text("Add an endpoint") },
+                        placeholder = { Text("tcp/192.168.1.42:7447") },
+                        // Checked as it is typed: a bad locator used to be accepted here and only surface
+                        // much later as a session that would not open.
+                        supportingText = endpointError?.let { { Text(it) } },
+                        isError = endpointError != null,
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            endpoints.add(trimmedNew)
+                            newEndpoint = ""
+                        },
+                        enabled = trimmedNew.isNotEmpty() && endpointError == null,
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text("Add") }
+                }
+
+                SectionHeader(
+                    "Router security",
+                    trailing = "${tlsCredentials.count { it.present }}/${tlsCredentials.size} imported",
+                    onInfo = {
+                        info = "Router security" to
+                            "A tls/ endpoint needs all three. They are imported into app-private storage, never " +
+                            "bundled in the APK — the client key authenticates this phone to the shared fleet bus."
+                    },
+                )
+                tlsCredentials.forEach { state ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(state.credential.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                state.summary ?: "Not set",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (state.present) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onImportCredential(state.credential) }) {
+                                    Text(if (state.present) "Replace…" else "Import…")
+                                }
+                                if (state.present) {
+                                    // Confirmed: this key is not recoverable from the phone.
+                                    TextButton(onClick = { confirmClear = state.credential }) { Text("Clear") }
+                                }
                             }
                         }
                     }
                 }
             }
-            Text(
-                "Multicast does not leave the local segment, so this never finds an internet router, and " +
-                    "nothing is connected to until you add it and save.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
 
-            SectionHeader("Source IDs")
-            OutlinedTextField(
-                value = locationSource,
-                onValueChange = { locationSource = it },
-                label = { Text("Location source ID") },
-                supportingText = { Text("Names the GNSS hardware in the key, and the fix's frame_id.") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = imuSource,
-                onValueChange = { imuSource = it },
-                label = { Text("IMU source ID") },
-                supportingText = { Text("Same, for the accelerometer, gyroscope and magnetometer.") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SettingsGroup(
+                title = "Recording",
+                trailing = null,
+                expanded = "Recording" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "Recording") },
+            ) {
+                SectionHeader("Local recording")
+                SettingSwitch(
+                    title = "Record to MCAP",
+                    description = "Writes every published sample to a file in Downloads/Logline. A Zenoh " +
+                        "put succeeds even with no router, so the local file is the only complete record " +
+                        "of a run — roughly 77 MB per hour, rolling to a new file at 512 MB.",
+                    checked = recordingEnabled,
+                    onCheckedChange = { recordingEnabled = it },
+                )
+                SettingSwitch(
+                    title = "Fill in dropped links",
+                    description = "Hold the last couple of minutes and replay them when the router comes " +
+                        "back. Replayed samples keep their original timestamp but arrive after live data, " +
+                        "and the window overlaps slightly, so expect a few seconds of duplicates.",
+                    checked = backfillEnabled,
+                    onCheckedChange = { backfillEnabled = it },
+                )
 
-            SectionHeader("Local recording")
-            SettingSwitch(
-                title = "Record to MCAP",
-                description = "Writes every published sample to a file in Downloads/Logline. A Zenoh " +
-                    "put succeeds even with no router, so the local file is the only complete record " +
-                    "of a run — roughly 77 MB per hour, rolling to a new file at 512 MB.",
-                checked = recordingEnabled,
-                onCheckedChange = { recordingEnabled = it },
-            )
-            SettingSwitch(
-                title = "Fill in dropped links",
-                description = "Hold the last couple of minutes and replay them when the router comes " +
-                    "back. Replayed samples keep their original timestamp but arrive after live data, " +
-                    "and the window overlaps slightly, so expect a few seconds of duplicates.",
-                checked = backfillEnabled,
-                onCheckedChange = { backfillEnabled = it },
-            )
-
-            SectionHeader("Background running")
-            SettingSwitch(
-                title = "Start on boot",
-                description = "Begin a run again after the phone restarts, for a phone left wired into " +
-                    "a rig. Needs the location permission — Android will not allow an IMU-only run to " +
-                    "start itself — and never brings audio or the camera with it, which that same rule " +
-                    "forbids. A run stopped by hand stays stopped until the next restart.",
-                checked = startOnBoot,
-                onCheckedChange = { startOnBoot = it },
-            )
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        if (batteryOptimised) "Android may stop long runs" else "Exempt from battery optimisation",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        if (batteryOptimised) {
-                            "The foreground service and wake lock are enough on some phones and not on " +
-                                "others — several manufacturers' battery managers stop an app that has " +
-                                "been in the background for hours, which is the shape of every logging " +
-                                "run. The exemption is the documented way out of that."
-                        } else {
-                            "Android will leave this app running in the background, which is what an " +
-                                "unattended run needs."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (batteryOptimised) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                    // Only when there is something to ask for. A button that opens a dialog saying
-                    // "already allowed" is a button that teaches people the screen is not to be
-                    // trusted — and the state above already says so.
-                    if (batteryOptimised) {
-                        OutlinedButton(onClick = onRequestBatteryExemption) { Text("Ask Android to allow it") }
+                SectionHeader(
+                    "Offline map",
+                    trailing = if (offlineMaps.isEmpty()) null else formatBytes(offlineMaps.sumOf { it.sizeBytes }),
+                    onInfo = {
+                        info = "Offline map" to
+                            "The live view's map draws from OpenStreetMap over the network. Import a tile archive " +
+                            "— .mbtiles, .gemf, .zip or .sqlite — and it draws from that instead wherever the " +
+                            "archive covers, with no network at all. Prepare one ashore for the water you are " +
+                            "going to: OpenStreetMap's own tiles may not be bulk-downloaded, which is why the " +
+                            "app cannot fetch an area for you."
+                    },
+                )
+                offlineMapMessage?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                offlineMaps.forEach { map ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(map.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                formatBytes(map.sizeBytes),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { onDeleteOfflineMap(map) }) { Text("Remove") }
+                        }
                     }
                 }
+                OutlinedButton(onClick = onImportOfflineMap) { Text("Import a tile archive…") }
+                SettingSwitch(
+                    title = "Offline tiles only",
+                    description = "Draw only from imported archives. Out of coverage the downloader still " +
+                        "queues every tile an archive does not cover and waits for each to time out, so " +
+                        "this is what stops a map that has what it needs grinding on the ones it does not.",
+                    checked = offlineTilesOnly,
+                    onCheckedChange = { offlineTilesOnly = it },
+                )
             }
 
-            SectionHeader("Configuration")
-            Text(
-                "Hand this phone's settings to another one. The file carries everything shareable — " +
-                    "endpoints, source ids, switched-off subjects, rates, QoS overrides, annotation " +
-                    "buttons; the QR carries the connection alone, which is the part that is the same " +
-                    "across a fleet. Neither carries this phone's entity id or its identity on the " +
-                    "bus: a profile configures a phone, it does not clone one.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            profileMessage?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = onExportProfile, modifier = Modifier.weight(1f)) { Text("Export…") }
-                OutlinedButton(onClick = onImportProfile, modifier = Modifier.weight(1f)) { Text("Import…") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = onShowConnectionQr, modifier = Modifier.weight(1f)) { Text("Show QR") }
-                OutlinedButton(onClick = onScanConnectionQr, modifier = Modifier.weight(1f)) { Text("Scan QR") }
-            }
-
-            SectionHeader(
-                "Offline map",
-                trailing = if (offlineMaps.isEmpty()) null else formatBytes(offlineMaps.sumOf { it.sizeBytes }),
-            )
-            Text(
-                "The live view's map draws from OpenStreetMap over the network. Import a tile archive " +
-                    "— .mbtiles, .gemf, .zip or .sqlite — and it draws from that instead wherever the " +
-                    "archive covers, with no network at all. Prepare one ashore for the water you are " +
-                    "going to: OpenStreetMap's own tiles may not be bulk-downloaded, which is why the " +
-                    "app cannot fetch an area for you.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            offlineMapMessage?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            }
-            offlineMaps.forEach { map ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(map.name, style = MaterialTheme.typography.bodyLarge)
+            SettingsGroup(
+                title = "Sensors & media",
+                trailing = null,
+                expanded = "Sensors & media" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "Sensors & media") },
+            ) {
+                SectionHeader("Audio")
+                SettingSwitch(
+                    title = "Record audio",
+                    description = "Captures the microphone continuously while a run is going and publishes " +
+                        "it on the audio subject. It records every conversation held near the phone — " +
+                        "Android shows its microphone indicator throughout, and this is off unless you " +
+                        "turn it on.",
+                    checked = audioEnabled,
+                    onCheckedChange = { audioEnabled = it },
+                )
+                if (audioEnabled) {
+                    Text(
+                        "Uncompressed WAV, because keelson's audio message allows only MP3 or WAV and " +
+                            "Android cannot encode MP3. Roughly ${audioMegabytesPerHour(audioSampleRateHz, audioChannels)} " +
+                            "MB per hour, against about 77 MB per hour for every other subject combined.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Settings.AUDIO_SAMPLE_RATES.forEach { rate ->
+                            val available = rate in supportedAudioRates
+                            FilterChip(
+                                selected = rate == audioSampleRateHz,
+                                enabled = available,
+                                onClick = { audioSampleRateHz = rate },
+                                // 44100 is "44.1 kHz" to anyone who works with audio; integer division
+                                // would call it 44 and quietly misname the one rate every device supports.
+                                label = { Text(audioRateLabel(rate)) },
+                            )
+                        }
+                    }
+                    if (Settings.AUDIO_SAMPLE_RATES.any { it !in supportedAudioRates }) {
                         Text(
-                            formatBytes(map.sizeBytes),
-                            style = MaterialTheme.typography.bodySmall,
+                            "Greyed-out rates are ones this device's microphone does not offer.",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { onDeleteOfflineMap(map) }) { Text("Remove") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(1 to "Mono", 2 to "Stereo").forEach { (count, name) ->
+                            FilterChip(
+                                selected = count == audioChannels,
+                                onClick = { audioChannels = count },
+                                label = { Text(name) },
+                            )
+                        }
                     }
                 }
-            }
-            OutlinedButton(onClick = onImportOfflineMap) { Text("Import a tile archive…") }
-            SettingSwitch(
-                title = "Offline tiles only",
-                description = "Draw only from imported archives. Out of coverage the downloader still " +
-                    "queues every tile an archive does not cover and waits for each to time out, so " +
-                    "this is what stops a map that has what it needs grinding on the ones it does not.",
-                checked = offlineTilesOnly,
-                onCheckedChange = { offlineTilesOnly = it },
-            )
 
-            SectionHeader("Audio")
-            SettingSwitch(
-                title = "Record audio",
-                description = "Captures the microphone continuously while a run is going and publishes " +
-                    "it on the audio subject. It records every conversation held near the phone — " +
-                    "Android shows its microphone indicator throughout, and this is off unless you " +
-                    "turn it on.",
-                checked = audioEnabled,
-                onCheckedChange = { audioEnabled = it },
-            )
-            if (audioEnabled) {
-                Text(
-                    "Uncompressed WAV, because keelson's audio message allows only MP3 or WAV and " +
-                        "Android cannot encode MP3. Roughly ${audioMegabytesPerHour(audioSampleRateHz, audioChannels)} " +
-                        "MB per hour, against about 77 MB per hour for every other subject combined.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                SectionHeader("Camera")
+                SettingSwitch(
+                    title = "Record a time-lapse",
+                    description = "Takes one picture at the image_compressed rate for the whole run and " +
+                        "publishes it as a JPEG. It photographs whatever is in front of the phone — " +
+                        "Android shows its camera indicator throughout, and this is off unless you turn " +
+                        "it on.",
+                    checked = cameraEnabled && !videoEnabled,
+                    onCheckedChange = {
+                        cameraEnabled = it
+                        // One camera consumer at a time — see the video switch below.
+                        if (it) videoEnabled = false
+                    },
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Settings.AUDIO_SAMPLE_RATES.forEach { rate ->
-                        val available = rate in supportedAudioRates
-                        FilterChip(
-                            selected = rate == audioSampleRateHz,
-                            enabled = available,
-                            onClick = { audioSampleRateHz = rate },
-                            // 44100 is "44.1 kHz" to anyone who works with audio; integer division
-                            // would call it 44 and quietly misname the one rate every device supports.
-                            label = { Text(audioRateLabel(rate)) },
-                        )
+                if (cameraEnabled) {
+                    Text(
+                        "Roughly ${cameraMegabytesPerHour(cameraWidth, cameraHeight, frameHz)} MB per hour " +
+                            "at ${formatFrameRate(frameHz)}, against about 77 MB per hour for every other " +
+                            "subject combined. The interval is the image_compressed rate, on its own row " +
+                            "in the subject list.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Settings.CAMERA_RESOLUTIONS.forEach { (width, height) ->
+                            FilterChip(
+                                selected = width == cameraWidth && height == cameraHeight,
+                                onClick = {
+                                    cameraWidth = width
+                                    cameraHeight = height
+                                },
+                                label = { Text("${width}x$height") },
+                            )
+                        }
+                    }
+                    Text(
+                        "A request, like every other rate here: the camera picks the size it supports " +
+                            "closest to this one.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(false to "Rear", true to "Front").forEach { (front, name) ->
+                            FilterChip(
+                                selected = front == cameraLensFront,
+                                onClick = { cameraLensFront = front },
+                                label = { Text(name) },
+                            )
+                        }
                     }
                 }
-                if (Settings.AUDIO_SAMPLE_RATES.any { it !in supportedAudioRates }) {
+
+                SettingSwitch(
+                    title = "Record video",
+                    description = "Publishes continuous H.264 on video_compressed. Replaces the " +
+                        "time-lapse rather than joining it — the camera will not serve both at once — and " +
+                        "is off by default for the same reason: this one records everything the lens " +
+                        "sees, not a frame every few seconds.",
+                    checked = videoEnabled,
+                    onCheckedChange = {
+                        videoEnabled = it
+                        if (it) cameraEnabled = false
+                    },
+                )
+                if (videoEnabled) {
                     Text(
-                        "Greyed-out rates are ones this device's microphone does not offer.",
+                        "About ${videoMegabytesPerHour(videoBitrateKbps)} MB per hour — the bitrate is what " +
+                            "the encoder is told to produce, so unlike the time-lapse figure above this is " +
+                            "not an estimate. At the default it costs less per hour than the time-lapse " +
+                            "and carries twenty times the frames; at 2 Mbps it is five times the cost and " +
+                            "turns ten days of recording into under two.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Settings.VIDEO_RESOLUTIONS.forEach { (width, height) ->
+                            FilterChip(
+                                selected = width == videoWidth && height == videoHeight,
+                                onClick = {
+                                    videoWidth = width
+                                    videoHeight = height
+                                },
+                                label = { Text("${width}x$height") },
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Settings.VIDEO_BITRATES_KBPS.forEach { kbps ->
+                            FilterChip(
+                                selected = kbps == videoBitrateKbps,
+                                onClick = { videoBitrateKbps = kbps },
+                                label = { Text(if (kbps >= 1_000) "${kbps / 1_000} Mbps" else "$kbps kbps") },
+                            )
+                        }
+                    }
+                    Text(
+                        "The frame rate is the video_compressed rate, on its own row in the subject list.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(1 to "Mono", 2 to "Stereo").forEach { (count, name) ->
-                        FilterChip(
-                            selected = count == audioChannels,
-                            onClick = { audioChannels = count },
-                            label = { Text(name) },
+            }
+
+            SettingsGroup(
+                title = "Collaboration",
+                trailing = null,
+                expanded = "Collaboration" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "Collaboration") },
+            ) {
+                SectionHeader("Checklists")
+                SettingSwitch(
+                    title = "Share checklists",
+                    description = "Work a shared procedure alongside the ROC stations. Opens a second " +
+                        "Zenoh session while a checklist screen is open, and publishes your name and site " +
+                        "with every item you tick.",
+                    checked = checklistEnabled,
+                    onCheckedChange = { checklistEnabled = it },
+                )
+                if (checklistEnabled) {
+                    OutlinedTextField(
+                        value = operatorName,
+                        onValueChange = { operatorName = it },
+                        label = { Text("Your name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = operatorRole,
+                        onValueChange = { operatorRole = it },
+                        label = { Text("Role") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = rocSiteId,
+                        onValueChange = { rocSiteId = it },
+                        label = { Text("Site") },
+                        placeholder = { Text(entityId) },
+                        supportingText = {
+                            // Not cosmetic: crowsnest discards an incoming event whose site *and* operator
+                            // both match its own, so a phone that borrowed a station's name would have its
+                            // ticks silently ignored at that station.
+                            Text("Must differ from the ROC stations' names. Defaults to the entity id.")
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "Checklists live under their own realm and entity — not this phone's. The defaults " +
+                            "are where crowsnest already keeps them; change these only if a deployment has " +
+                            "moved the tree.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = checklistRealm,
+                            onValueChange = { checklistRealm = it },
+                            label = { Text("Checklist realm") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = checklistEntityId,
+                            onValueChange = { checklistEntityId = it },
+                            label = { Text("Checklist entity") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
                         )
                     }
+                }
+
+                SectionHeader(
+                    "Configuration",
+                    onInfo = {
+                        info = "Configuration" to
+                            "Hand this phone's settings to another one. The file carries everything shareable — " +
+                            "endpoints, source ids, switched-off subjects, rates, QoS overrides, annotation " +
+                            "buttons; the QR carries the connection alone, which is the part that is the same " +
+                            "across a fleet. Neither carries this phone's entity id or its identity on the " +
+                            "bus: a profile configures a phone, it does not clone one."
+                    },
+                )
+                profileMessage?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = onExportProfile, modifier = Modifier.weight(1f)) { Text("Export…") }
+                    OutlinedButton(onClick = onImportProfile, modifier = Modifier.weight(1f)) { Text("Import…") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = onShowConnectionQr, modifier = Modifier.weight(1f)) { Text("Show QR") }
+                    OutlinedButton(onClick = onScanConnectionQr, modifier = Modifier.weight(1f)) { Text("Scan QR") }
                 }
             }
 
-            SectionHeader("Camera")
-            SettingSwitch(
-                title = "Record a time-lapse",
-                description = "Takes one picture at the image_compressed rate for the whole run and " +
-                    "publishes it as a JPEG. It photographs whatever is in front of the phone — " +
-                    "Android shows its camera indicator throughout, and this is off unless you turn " +
-                    "it on.",
-                checked = cameraEnabled && !videoEnabled,
-                onCheckedChange = {
-                    cameraEnabled = it
-                    // One camera consumer at a time — see the video switch below.
-                    if (it) videoEnabled = false
-                },
-            )
-            if (cameraEnabled) {
-                Text(
-                    "Roughly ${cameraMegabytesPerHour(cameraWidth, cameraHeight, frameHz)} MB per hour " +
-                        "at ${formatFrameRate(frameHz)}, against about 77 MB per hour for every other " +
-                        "subject combined. The interval is the image_compressed rate, on its own row " +
-                        "in the subject list.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Settings.CAMERA_RESOLUTIONS.forEach { (width, height) ->
-                        FilterChip(
-                            selected = width == cameraWidth && height == cameraHeight,
-                            onClick = {
-                                cameraWidth = width
-                                cameraHeight = height
-                            },
-                            label = { Text("${width}x$height") },
-                        )
-                    }
-                }
-                Text(
-                    "A request, like every other rate here: the camera picks the size it supports " +
-                        "closest to this one.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(false to "Rear", true to "Front").forEach { (front, name) ->
-                        FilterChip(
-                            selected = front == cameraLensFront,
-                            onClick = { cameraLensFront = front },
-                            label = { Text(name) },
-                        )
-                    }
-                }
-            }
-
-            SettingSwitch(
-                title = "Record video",
-                description = "Publishes continuous H.264 on video_compressed. Replaces the " +
-                    "time-lapse rather than joining it — the camera will not serve both at once — and " +
-                    "is off by default for the same reason: this one records everything the lens " +
-                    "sees, not a frame every few seconds.",
-                checked = videoEnabled,
-                onCheckedChange = {
-                    videoEnabled = it
-                    if (it) cameraEnabled = false
-                },
-            )
-            if (videoEnabled) {
-                Text(
-                    "About ${videoMegabytesPerHour(videoBitrateKbps)} MB per hour — the bitrate is what " +
-                        "the encoder is told to produce, so unlike the time-lapse figure above this is " +
-                        "not an estimate. At the default it costs less per hour than the time-lapse " +
-                        "and carries twenty times the frames; at 2 Mbps it is five times the cost and " +
-                        "turns ten days of recording into under two.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Settings.VIDEO_RESOLUTIONS.forEach { (width, height) ->
-                        FilterChip(
-                            selected = width == videoWidth && height == videoHeight,
-                            onClick = {
-                                videoWidth = width
-                                videoHeight = height
-                            },
-                            label = { Text("${width}x$height") },
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Settings.VIDEO_BITRATES_KBPS.forEach { kbps ->
-                        FilterChip(
-                            selected = kbps == videoBitrateKbps,
-                            onClick = { videoBitrateKbps = kbps },
-                            label = { Text(if (kbps >= 1_000) "${kbps / 1_000} Mbps" else "$kbps kbps") },
-                        )
-                    }
-                }
-                Text(
-                    "The frame rate is the video_compressed rate, on its own row in the subject list.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            SectionHeader("Checklists")
-            SettingSwitch(
-                title = "Share checklists",
-                description = "Work a shared procedure alongside the ROC stations. Opens a second " +
-                    "Zenoh session while a checklist screen is open, and publishes your name and site " +
-                    "with every item you tick.",
-                checked = checklistEnabled,
-                onCheckedChange = { checklistEnabled = it },
-            )
-            if (checklistEnabled) {
+            SettingsGroup(
+                title = "Advanced",
+                trailing = null,
+                expanded = "Advanced" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "Advanced") },
+            ) {
+                SectionHeader("Find a router")
                 OutlinedTextField(
-                    value = operatorName,
-                    onValueChange = { operatorName = it },
-                    label = { Text("Your name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = operatorRole,
-                    onValueChange = { operatorRole = it },
-                    label = { Text("Role") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = rocSiteId,
-                    onValueChange = { rocSiteId = it },
-                    label = { Text("Site") },
-                    placeholder = { Text(entityId) },
+                    value = scoutAddress,
+                    onValueChange = { scoutAddress = it },
+                    label = { Text("Scan multicast address") },
                     supportingText = {
-                        // Not cosmetic: crowsnest discards an incoming event whose site *and* operator
-                        // both match its own, so a phone that borrowed a station's name would have its
-                        // ticks silently ignored at that station.
-                        Text("Must differ from the ROC stations' names. Defaults to the entity id.")
+                        Text(
+                            "Zenoh's default is ${Settings.DEFAULT_SCOUT_ADDRESS}. Deployments move it — one " +
+                                "keelson router uses :7448 — and a scan on the wrong address looks exactly " +
+                                "like an empty network."
+                        )
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text(
-                    "Checklists live under their own realm and entity — not this phone's. The defaults " +
-                        "are where crowsnest already keeps them; change these only if a deployment has " +
-                        "moved the tree.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = checklistRealm,
-                        onValueChange = { checklistRealm = it },
-                        label = { Text("Checklist realm") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = checklistEntityId,
-                        onValueChange = { checklistEntityId = it },
-                        label = { Text("Checklist entity") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            SectionHeader(
-                "Router security",
-                trailing = "${tlsCredentials.count { it.present }}/${tlsCredentials.size} imported",
-            )
-            Text(
-                "A tls/ endpoint needs all three. They are imported into app-private storage, never " +
-                    "bundled in the APK — the client key authenticates this phone to the shared fleet bus.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            tlsCredentials.forEach { state ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(state.credential.label, style = MaterialTheme.typography.bodyLarge)
+                // The button now follows the field it reads, and the results land directly beneath it.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { onScan(scoutAddress.trim()) }, enabled = !scanning) {
+                        Text(if (scanning) "Scanning…" else "Scan for routers")
+                    }
+                    if (scanning) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         Text(
-                            state.summary ?: "Not set",
+                            "Listening for a few seconds",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (state.present) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onImportCredential(state.credential) }) {
-                                Text(if (state.present) "Replace…" else "Import…")
-                            }
-                            if (state.present) {
-                                // Confirmed: this key is not recoverable from the phone.
-                                TextButton(onClick = { confirmClear = state.credential }) { Text("Clear") }
+                    }
+                }
+                scanMessage?.let {
+                    StatusLine(text = "No router found", tone = StatusTone.Warning, detail = it)
+                }
+                scanResults.forEach { found ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(found.label, style = MaterialTheme.typography.bodyMedium)
+                            found.locators.forEach { locator ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        locator,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(
+                                        onClick = { if (locator !in endpoints) endpoints.add(locator) },
+                                        enabled = locator !in endpoints,
+                                    ) { Text(if (locator in endpoints) "Added" else "Add") }
+                                }
                             }
                         }
                     }
                 }
+                Text(
+                    "Multicast does not leave the local segment, so this never finds an internet router, and " +
+                        "nothing is connected to until you add it and save.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
 }
+
+/**
+ * One collapsible group of settings.
+ *
+ * The screen used to be twelve flat sections in one scroll, every one of them expanded, which is what
+ * made it read as a configuration file rather than a screen. `SectionHeader` already knew how to
+ * collapse — the start screen has used it that way for a while — it simply had never been used here.
+ *
+ * The inner `SectionHeader`s are kept inside each group rather than flattened away: they carry the
+ * per-section summaries ("2/3 imported") that are worth reading, and they are what keeps a long group
+ * like Connection scannable once it is open.
+ */
+@Composable
+private fun SettingsGroup(
+    title: String,
+    trailing: String?,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    SectionHeader(title, trailing = trailing, expanded = expanded, onToggle = onToggle)
+    if (expanded) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+    }
+}
+
+/** Open a group, or close it if it was already open. */
+private fun toggleSection(open: List<String>, title: String): List<String> =
+    if (title in open) open - title else open + title
 
 /** A labelled switch with its explanation — the same shape wherever a setting is a toggle. */
 @Composable

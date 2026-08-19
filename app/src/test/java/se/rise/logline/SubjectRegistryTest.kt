@@ -311,6 +311,35 @@ class SubjectRegistryTest {
     }
 
     /**
+     * What the live view shows under **Basic**, transcribed so adding a subject is a decision.
+     *
+     * `featured` defaults to false, which is the safe direction — a new subject appears under All and
+     * nowhere else. This pins the set anyway, because the failure it guards against is the opposite
+     * one: somebody adding a genuinely operational subject and never noticing it is missing from the
+     * screen people actually watch during a run. A curated list that nothing checks stops being
+     * curated within a release or two.
+     *
+     * If this fails, decide which side the new subject belongs on and update the set here — do not
+     * simply widen it to make the test pass.
+     */
+    @Test
+    fun `the Basic set of the live view is the operational one`() {
+        assertEquals(
+            setOf(
+                "location_fix",
+                "speed_over_ground_knots",
+                "course_over_ground_deg",
+                "location_fix_quality",
+                "location_fix_accuracy_horizontal_m",
+                "heading_true_north_deg",
+                "air_pressure_pa",
+                "battery_state_of_charge_pct",
+            ),
+            PublishedSubject.entries.filter { it.featured }.map { it.subject }.toSet(),
+        )
+    }
+
+    /**
      * The entity is the phone for everything it measures, and the *rig* for what it surveyed.
      *
      * This is the one place a key's entity varies, and getting it wrong files a vessel's geometry under

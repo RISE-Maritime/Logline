@@ -24,6 +24,8 @@ import se.rise.logline.platform.DiscoveredPlatform
 import se.rise.logline.platform.DiscoveryState
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.ScreenScaffold
+import androidx.compose.material3.Button
+import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
 import se.rise.logline.ui.components.StatusTone
@@ -121,11 +123,16 @@ fun RigListScreen(
             SectionHeader("Platforms", trailing = summaryOf(rigs, activeEntityId, publishingEntityIds))
 
             if (rigs.isEmpty()) {
-                StatusLine(
-                    "No rigs yet",
-                    StatusTone.Neutral,
-                    detail = "A rig records where a sensor rig's zero point is and where each sensor " +
+                // The first thing a new install sees here, so it says what a rig is *for* and offers
+                // both ways out of the state — describing one, or taking one somebody else wrote.
+                EmptyState(
+                    title = "No rigs yet",
+                    body = "A rig records where a sensor rig's zero point is and where each sensor " +
                         "sits relative to it. Nothing publishes until one is described.",
+                    primary = { Button(onClick = onAddRig) { Text("Add rig") } },
+                    secondary = {
+                        OutlinedButton(onClick = onImport, enabled = !publishing) { Text("Import…") }
+                    },
                 )
             }
 
@@ -153,8 +160,12 @@ fun RigListScreen(
                 )
             }
 
-            OutlinedButton(onClick = onAddRig, modifier = Modifier.fillMaxWidth()) {
-                Text("Add rig")
+            // Only when there is a list to add to: the empty state above already offers this, and
+            // two "Add rig" buttons a thumb apart is worse than either on its own.
+            if (rigs.isNotEmpty()) {
+                OutlinedButton(onClick = onAddRig, modifier = Modifier.fillMaxWidth()) {
+                    Text("Add rig")
+                }
             }
 
             SectionHeader("Share with crowsnest")

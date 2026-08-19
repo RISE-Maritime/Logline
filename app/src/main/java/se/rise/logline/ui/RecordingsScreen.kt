@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import se.rise.logline.record.SavedRecording
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.ScreenScaffold
+import se.rise.logline.ui.components.EmptyState
 
 /**
  * What this phone has saved, and the two things anyone wants to do with it.
@@ -33,7 +34,10 @@ import se.rise.logline.ui.components.ScreenScaffold
  * is here because the other reason to go looking for these files is that the disk is full.
  *
  * The file being written right now is deliberately absent — it lives in app-private storage until it
- * is closed, and the main screen's status card reports it live.
+ * is closed, and the session card on the start screen reports it live.
+ *
+ * A tab rather than a pushed screen since the files are this app's output, not its configuration —
+ * which is what let the session card stop naming the folder every recording had gone to.
  */
 @Composable
 fun RecordingsScreen(
@@ -42,7 +46,8 @@ fun RecordingsScreen(
     loaded: Boolean,
     onShare: (SavedRecording) -> Unit,
     onDelete: (SavedRecording) -> Unit,
-    onBack: () -> Unit,
+    /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
+    bottomBar: @Composable () -> Unit = {},
 ) {
     var confirmDelete by remember { mutableStateOf<SavedRecording?>(null) }
 
@@ -60,27 +65,21 @@ fun RecordingsScreen(
         )
     }
 
-    ScreenScaffold(title = "Recordings", onBack = onBack) { padding ->
+    ScreenScaffold(title = "Recordings", bottomBar = bottomBar) { padding ->
         if (files.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    if (loaded) "Nothing saved yet" else "Looking…",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+            // "Looking…" and "none yet" are different states and must not be conflated: a listing
+            // that has not been read yet has nothing to say about whether there are files.
+            Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
                 if (loaded) {
-                    Text(
-                        "Finished recordings are copied to Downloads/Logline and appear here.\n\n" +
+                    EmptyState(
+                        title = "Nothing saved yet",
+                        body = "Finished recordings are copied to Downloads/Logline and appear here.\n\n" +
                             "Files saved by an earlier install of this app are not listed — Android " +
                             "ties them to the install that wrote them. They are still in " +
                             "Downloads/Logline and any file manager can see them.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
                     )
+                } else {
+                    Text("Looking…", style = MaterialTheme.typography.bodyLarge)
                 }
             }
             return@ScreenScaffold

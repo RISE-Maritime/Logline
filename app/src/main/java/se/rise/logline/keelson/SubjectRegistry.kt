@@ -89,23 +89,41 @@ enum class PublishedSubject(
      * means nobody has marked anything yet. That is the normal state of a run.
      */
     val eventDriven: Boolean = false,
+    /**
+     * Whether the live view shows this in **Basic**.
+     *
+     * Thirty-nine plots is a page nobody scrolls to the bottom of during a run, and almost none of it
+     * answers "is the boat where I think it is, and is the data any good". This flag names the handful
+     * that do; everything else is one tap away under **All**.
+     *
+     * It defaults to false and `SubjectRegistryTest` pins the resulting set, which is the point: a
+     * subject added later has to make the call deliberately rather than falling into — or silently out
+     * of — a curated list. The same reason [bufferedForReplay] and [eventDriven] are pinned there.
+     *
+     * Not to be confused with a *rate* or a *switch*: a subject left out of Basic still publishes, is
+     * still recorded, and still counts towards its group's health badge.
+     */
+    val featured: Boolean = false,
 ) {
     LOCATION_FIX(
         subject = Subjects.LOCATION_FIX,
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
+        featured = true,
     ),
     SPEED_OVER_GROUND(
         subject = Subjects.SPEED_OVER_GROUND_KNOTS,
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
+        featured = true,
     ),
     COURSE_OVER_GROUND(
         subject = Subjects.COURSE_OVER_GROUND_DEG,
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
+        featured = true,
     ),
     /**
      * Declination — how far magnetic north is from true north here.
@@ -166,6 +184,7 @@ enum class PublishedSubject(
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
+        featured = true,
     ),
     /**
      * How far off the fix might be, as plain numbers.
@@ -184,6 +203,7 @@ enum class PublishedSubject(
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
+        featured = true,
     ),
     ACCURACY_VERTICAL(
         subject = Subjects.LOCATION_FIX_ACCURACY_VERTICAL_M,
@@ -260,6 +280,7 @@ enum class PublishedSubject(
         source = SourceKind.IMU,
         sensorType = Sensor.TYPE_ROTATION_VECTOR,
         rateOwner = Subjects.ORIENTATION_QUATERNION,
+        featured = true,
     ),
     /**
      * The platform's own 1-sigma estimate, straight off the rotation vector's fifth component.
@@ -445,6 +466,7 @@ enum class PublishedSubject(
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.DEVICE,
         sensorType = Sensor.TYPE_PRESSURE,
+        featured = true,
     ),
     // The battery subjects are polled rather than event-driven, so they fit the same rate model as
     // everything else. 0.2 Hz is one sample every five seconds — the values change far slower.
@@ -452,6 +474,7 @@ enum class PublishedSubject(
         subject = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
         defaultRate = SensorRate.Hz(0.2),
         source = SourceKind.DEVICE,
+        featured = true,
     ),
     BATTERY_VOLTAGE(
         subject = Subjects.BATTERY_VOLTAGE_V,

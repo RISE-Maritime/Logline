@@ -22,11 +22,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import se.rise.logline.publish.ConnectionState
+import se.rise.logline.ui.Routes
+import se.rise.logline.ui.theme.signalGreen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -77,6 +87,12 @@ fun ScreenScaffold(
     /** The trailing end of the bar — the connection state on the start screen. */
     actions: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
+    /**
+     * Transient confirmation, for an action whose only other evidence arrives late.
+     *
+     * Material draws this above [bottomBar], so it does not hide the navigation bar or a form's Save.
+     */
+    snackbarHost: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -107,6 +123,7 @@ fun ScreenScaffold(
             )
         },
         bottomBar = bottomBar,
+        snackbarHost = snackbarHost,
         content = content,
     )
 }
@@ -354,4 +371,148 @@ fun InfoDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
+}
+
+/**
+ * The five things this app is for, and the only destinations that carry a navigation bar.
+ *
+ * Everything else — the settings form, the rig editor, a sensor, a QoS sheet, the annotation buttons —
+ * is *pushed* on top of one of these and keeps a back arrow instead. That split is what lets the bar
+ * share [ScreenScaffold]'s single `bottomBar` slot with [FormActions] and never collide with it: no
+ * screen is both a tab and a form.
+ *
+ * `route` comes from [Routes] rather than being spelled again here, so a tab's route and the graph's
+ * declaration of it cannot drift — the bar decides what is selected by comparing against the current
+ * back-stack entry, and a stale string there is a tab that never lights up. Note `main` must stay the graph's start destination — system back on
+ * any other tab pops to it, which is the platform-standard behaviour the nav call below relies on.
+ */
+enum class TopLevel(val route: String, val label: String, val icon: ImageVector) {
+    /**
+     * The start screen, and no longer a play arrow.
+     *
+     * `PlayArrow` sat directly above the `Start publishing` button pinned into the same bottom bar —
+     * two start controls, one of which does nothing of the sort — and it went on saying "play" for the
+     * whole of a run. `Home` is the honest reading: this is where a session is begun, watched and
+     * ended. The choice is out of `material-icons-core`'s forty-eight, which is the whole vocabulary
+     * available here; `material-icons-extended` is tens of megabytes of vectors for four drawings.
+     */
+    Session(Routes.MAIN, "Session", Icons.Default.Home),
+    Live(Routes.LIVE, "Live", Icons.Default.Place),
+    Events(Routes.ANNOTATIONS, "Events", Icons.Default.Edit),
+
+    /**
+     * Saved recordings, promoted out of Setup.
+     *
+     * The files are the *output* of this app, and they were two taps down a configuration screen while
+     * the start screen spent a line of its status card telling people which folder they had gone to.
+     * Labelled `Files` rather than `Recordings` because five tabs leave about 72 dp each and the longer
+     * word ellipsizes; the screen keeps its own title.
+     */
+    Files(Routes.RECORDINGS, "Files", Icons.AutoMirrored.Filled.List),
+    Setup(Routes.SETUP, "Setup", Icons.Default.Settings),
+}
+
+/**
+ * The persistent bar across the bottom of the four top-level screens.
+ *
+ * Icons come from `material-icons-core`, which is already a dependency and carries all four. Do not
+ * reach for `material-icons-extended` to get a prettier glyph — it is tens of megabytes of vectors for
+ * four drawings.
+ */
+@Composable
+fun LoglineNavBar(current: String?, onSelect: (TopLevel) -> Unit) {
+    NavigationBar {
+        TopLevel.entries.forEach { dest ->
+            NavigationBarItem(
+                selected = current == dest.route,
+                onClick = { onSelect(dest) },
+                icon = { Icon(dest.icon, contentDescription = null) },
+                label = { Text(dest.label) },
+            )
+        }
+    }
+}
+
+/**
+ * Whether there is a router on the other end — the one thing worth knowing from across a cockpit.
+ *
+ * Shared rather than written per screen because it was written twice and the two drifted: the start
+ * screen said `Idle` and the live view said `IDLE`, from unrelated implementations of the same idea.
+ * The wording here is the whole vocabulary for *global* state; a session fact ("Publishing to
+ * nothing", "Recording saved") belongs on the status card, and a screen's own mode ("LIVE · REC") on
+ * that screen.
+ */
+/**
+ * The link as a traffic light: green connected, amber still trying, red gone, grey idle.
+ *
+ * Shared by the chip in the app bar and the dot beside the router in the start screen's detail panel,
+ * because they report the same fact and read as a contradiction the moment they differ. It is a
+ * *link* state and nothing else — a stalled subject or a slow sensor does not colour it, since the
+ * question this answers is whether there is a router on the other end.
+ */
+@Composable
+fun connectionColor(running: Boolean, connection: ConnectionState): Color = when {
+    !running -> MaterialTheme.colorScheme.onSurfaceVariant
+    connection == ConnectionState.Connected -> signalGreen()
+    connection == ConnectionState.Disconnected -> MaterialTheme.colorScheme.error
+    // Idle while the run is up means the session is still opening.
+    else -> MaterialTheme.colorScheme.tertiary
+}
+
+@Composable
+fun ConnectionChip(running: Boolean, connection: ConnectionState, modifier: Modifier = Modifier) {
+    val text = when {
+        !running -> "Idle"
+        connection == ConnectionState.Connected -> "Running"
+        connection == ConnectionState.Disconnected -> "No router"
+        else -> "Connecting"
+    }
+    val color = connectionColor(running, connection)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.padding(end = 12.dp).readAsOneItem("Router $text"),
+    ) {
+        Surface(color = color, shape = CircleShape, modifier = Modifier.size(9.dp)) {}
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = color,
+            modifier = Modifier.padding(start = 6.dp),
+        )
+    }
+}
+
+/**
+ * One shape for "there is nothing here yet", because there were three.
+ *
+ * A `StatusLine` on the rig list, a centred column on the recordings list and a bare line of body text
+ * on the annotation screen all answered the same question in a different voice. An empty state is the
+ * first thing a new install shows, so it is worth saying what the thing is for and offering the one
+ * action that ends it — hence [primary], with [secondary] for the import-shaped alternative.
+ */
+@Composable
+fun EmptyState(
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    primary: (@Composable () -> Unit)? = null,
+    secondary: (@Composable () -> Unit)? = null,
+) {
+    Column(
+        modifier.fillMaxWidth().padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (primary != null || secondary != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                primary?.invoke()
+                secondary?.invoke()
+            }
+        }
+    }
 }

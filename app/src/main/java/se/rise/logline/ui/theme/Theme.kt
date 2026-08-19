@@ -8,6 +8,8 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColors = lightColorScheme(
@@ -110,3 +112,13 @@ fun LoglineTheme(
         content = content
     )
 }
+
+/**
+ * The green of [SignalGreenLight] / [SignalGreenDark], picked for whichever scheme is in force.
+ *
+ * Keyed on the surface's luminance rather than `isSystemInDarkTheme()`, so it still lands correctly
+ * when the scheme comes from the wallpaper via `dynamicColor`.
+ */
+@Composable
+fun signalGreen(): Color =
+    if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) SignalGreenDark else SignalGreenLight

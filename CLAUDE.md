@@ -150,6 +150,12 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `dev`:** `0.6.0-pre.5` was cut from a feature branch and ships `illuminance_lux` and the four
   `checklist_*` subjects that `dev` does not have, so a release can be *ahead* of `dev` rather than
   behind it. `git tag --sort=-creatordate | head -1` names the one to read.
+- **`PublishedSubject.featured` is what the live view shows under "Basic".** Eight subjects — the fix,
+  speed, course, true heading, horizontal accuracy, fix quality, air pressure and charge. It defaults
+  to false, so a new subject appears under **All** and nowhere else, and `SubjectRegistryTest`
+  transcribes the set so adding an operational one is a decision rather than an omission. It is not a
+  switch and not a rate: a subject left out of Basic still publishes, is still recorded, and still
+  counts towards its group's health badge.
 - **`Subjects` is wire names; `PublishedSubject` is the *sensor* set.** They are usually the same
   list, and the four `checklist_*` subjects are the exception: they are in `Subjects` and deliberately
   **not** in the registry. Everything derived from the registry — rates, `SensorManager` types, MCAP
@@ -165,6 +171,26 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   (`sensorCapabilities()`, the file picker, the osmdroid `MapView`) is resolved in `App()` in
   `MainActivity` and handed down. `LiveScreen` takes its map as a `@Composable (Modifier) -> Unit`
   for exactly this reason.
+- **Five screens are tabs; everything else is pushed.** `TopLevel` in `ui/components/Screen.kt` names
+  them — Session, Live, Events, Files, Setup — and they are the only destinations that carry
+  `LoglineNavBar`. Files is the recordings list, promoted out of Setup because the saved files are what
+  this app produces rather than something it is configured with.
+  The bar goes into `ScreenScaffold`'s **existing `bottomBar` slot**, which is also where `FormActions`
+  lives on the five form screens; the two cannot collide because no screen is both. **The start screen
+  stacks a third thing into that same slot** — `Actions`, i.e. Start, or Live/Mark/Stop while a run is
+  going — pinned *above* the bar in a `Column`, because a page thirty-nine subjects long put the one
+  control the screen exists for a scroll away. Stack into the slot; do not add a second `Scaffold`. There is still
+  exactly one `Scaffold` in the app, which is what keeps `enableEdgeToEdge()` insets applied once —
+  nesting a second one put a band of dead space above every title, and that is why `MainActivity`
+  deliberately has none. Tab switches go through `goToTab()`, whose
+  `popUpTo(start) { saveState = true }` + `restoreState` + `launchSingleTop` is what stops tab-hopping
+  accumulating back-stack entries and what lets Live keep its scroll. **`main` must stay the start
+  destination**: system back on any tab pops to it and then exits.
+  **The two Zenoh sessions are still scoped by route *prefix*** — `startsWith("checklist")` and
+  `startsWith("calibration")` — so moving Rigs and Checklists under Setup changed nothing there, and
+  `setup` collides with neither prefix. Anything that renames a route has to be re-checked on a device
+  against those two, because a broken prefix match fails *silently*: the screen still opens and simply
+  never finds anything on the bus.
 - **Numbers are formatted with `.fmt()`**, the `Locale.ROOT` helper in `ui/Format.kt` — never Kotlin's
   bare `"%.1f".format(x)`, which uses `Locale.getDefault()` and prints `55,3` on a Swedish phone. The
   same rule is why `Double.json()` in `calibrate/PlatformGeometryJson.kt` goes through `BigDecimal`.
@@ -844,6 +870,19 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   saved having saved one. And `fileName`/`messagesWritten`/`bytesWritten` are **per file, not per run** —
   they restart at every rotation, which is why the final `_status.update` deliberately touches nothing
   but the count: an empty final session would otherwise replace a real file's figures with zeroes.
+  That per-file rule is also why the start screen's "Last run" line counts *files* rather than
+  megabytes once `filesCompleted > 1` (`lastRecordingOf()`): a size beside a whole-run sample count
+  would silently be describing the last file of several.
+- **The start screen's card is a session summary, and an icon on it means attention.** It says what
+  the last run left behind, whether there is room for another, and where this one will connect — and
+  deliberately **no longer says "Not publishing"**, which the `Idle` chip in the app bar and the
+  `Start publishing` button pinned above the navigation bar were already saying. `StatusLine`, with
+  its icon, is reserved for a warning or a failure; every calm fact is a label with its figure, since
+  a run that saved perfectly announced with the same ⓘ as one that dropped samples teaches the eye to
+  skip both. The row along the card's bottom edge names where a tap goes ("Endpoint & recording")
+  rather than instructing ("Tap for endpoint and file details"), and while connected it can name the
+  endpoint **only when exactly one is configured** — Zenoh reports routers' zids, not the locator a
+  transport was opened on.
 - **The outbox fills unconditionally, never on `Disconnected`.** `isConnectedToRouter()` reads Zenoh's
   transport table and is polled every 2 s, and Zenoh only empties that table once its keepalive gives
   up — so the state changes *seconds* after samples actually started going nowhere. A buffer gated on

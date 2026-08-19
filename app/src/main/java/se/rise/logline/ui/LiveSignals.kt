@@ -1,6 +1,8 @@
 package se.rise.logline.ui
 
 import se.rise.logline.keelson.PublishedSubject
+import se.rise.logline.keelson.SourceKind
+import se.rise.logline.keelson.RadioSources
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.publish.SampleWindow
 import kotlin.math.roundToInt
@@ -114,16 +116,22 @@ fun featuredValue(
     latest: (PublishedSubject) -> Float?,
     rateHz: (PublishedSubject) -> Double?,
     accuracyMetres: Float?,
-): String? = when (group.title) {
-    "GNSS" -> accuracyMetres?.let { "±${it.roundToInt()} m" }
+    // Keyed on what the group *is*, not on what it is called. The titles are display strings — one
+    // rename ("GNSS" to "Position", say) used to silently empty every one of these headline values,
+    // with nothing failing to say so.
+): String? = when {
+    group.source == SourceKind.LOCATION -> accuracyMetres?.let { "±${it.roundToInt()} m" }
     // The IMU's headline is how fast it is running, taken from one representative sensor — the sum
     // across seven subjects would read as an implausible 390 Hz.
-    "IMU" -> rateHz(PublishedSubject.LINEAR_ACCEL)?.let { "${formatRate(it)} Hz" }
-    "Device" -> latest(PublishedSubject.BATTERY_STATE_OF_CHARGE)?.let { "${it.roundToInt()} %" }
-    "Radio · cellular" -> latest(PublishedSubject.CELLULAR_SINR)?.let { "SINR ${it.roundToInt()} dB" }
-    "Radio · wifi" -> latest(PublishedSubject.WIFI_RSSI)?.let { "${it.roundToInt()} dBm" }
+    group.source == SourceKind.IMU -> rateHz(PublishedSubject.LINEAR_ACCEL)?.let { "${formatRate(it)} Hz" }
+    group.source == SourceKind.DEVICE ->
+        latest(PublishedSubject.BATTERY_STATE_OF_CHARGE)?.let { "${it.roundToInt()} %" }
+    group.sourceId == RadioSources.CELLULAR ->
+        latest(PublishedSubject.CELLULAR_SINR)?.let { "SINR ${it.roundToInt()} dB" }
+    group.sourceId == RadioSources.WIFI -> latest(PublishedSubject.WIFI_RSSI)?.let { "${it.roundToInt()} dBm" }
     // How many sensors the published geometry describes. `configuration_json` carries that count as
     // its sample value precisely so this line has something true to say.
-    "Rig calibration" -> latest(PublishedSubject.CONFIGURATION_JSON)?.let { "${it.roundToInt()} sensors" }
+    group.source == SourceKind.CALIBRATION ->
+        latest(PublishedSubject.CONFIGURATION_JSON)?.let { "${it.roundToInt()} sensors" }
     else -> null
 }

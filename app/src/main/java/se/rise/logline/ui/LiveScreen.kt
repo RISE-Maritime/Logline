@@ -76,8 +76,15 @@ val WINDOW_CHOICES = listOf(30 to "30 s", 120 to "2 min", 600 to "10 min")
 /** Tall enough to navigate by, against the 240dp it started at. */
 private val MAP_HEIGHT = 400.dp
 
-/** Effectively the screen: the readouts are hidden while the chart is expanded. */
-private val MAP_HEIGHT_EXPANDED = 640.dp
+/**
+ * Effectively the screen: the readouts are hidden while the chart is expanded.
+ *
+ * 560 rather than the 640 it was, because the navigation bar now takes ~80dp from the bottom of every
+ * top-level screen. The bar deliberately stays visible while the chart is expanded — a control that
+ * disappears is how somebody ends up stranded on a full-screen map — so the height gives that space
+ * back instead, leaving the *visible* chart the size it has always been.
+ */
+private val MAP_HEIGHT_EXPANDED = 560.dp
 
 @Composable
 fun LiveScreen(
@@ -101,7 +108,21 @@ fun LiveScreen(
     onLayerChange: (MapLayer) -> Unit,
     seaMarks: Boolean,
     onSeaMarksChange: (Boolean) -> Unit,
-    onBack: () -> Unit,
+    /**
+     * Null while this is a tab, which it normally is — `ScreenScaffold` then omits the back arrow.
+     * Kept as a parameter because the screen is still reachable as a pushed destination.
+     */
+    onBack: (() -> Unit)? = null,
+    /**
+     * Whether the plot list is the curated set or everything. See `PublishedSubject.featured`.
+     *
+     * Hoisted like the window and the map layer: it is a preference carried between visits, not
+     * something to re-choose every time the screen is opened.
+     */
+    basicOnly: Boolean,
+    onBasicOnlyChange: (Boolean) -> Unit,
+    /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
+    bottomBar: @Composable () -> Unit = {},
 ) {
     // Drives the window slice and the health checks. The snapshot itself arrives on its own ticker.
     val nowMillis by produceState(System.currentTimeMillis(), paused) {
@@ -112,6 +133,9 @@ fun LiveScreen(
     }
     var showAbout by remember { mutableStateOf(false) }
     var showAxes by remember { mutableStateOf(false) }
+    // Which group the chips have narrowed to, if any. Deliberately *not* hoisted: narrowing to Wi-Fi
+    // is something you do for a minute while looking at it, the same call `mapExpanded` makes.
+    var chipFilter by rememberSaveable { mutableStateOf<String?>(null) }
 
     val fix = snapshot.lastFix
     val latest: (PublishedSubject) -> Float? = { snapshot[it].latest }
@@ -156,6 +180,7 @@ fun LiveScreen(
                 Icon(Icons.Default.Info, contentDescription = "About the live view")
             }
         },
+        bottomBar = bottomBar,
     ) { padding ->
         // Not hoisted like the other live-view preferences: expanding the chart is something you do
         // for a minute while looking at it, not a setting you carry between screens.
@@ -204,8 +229,16 @@ fun LiveScreen(
                 headingDegrees = heading,
                 headingIsTrue = headingIsTrue,
             )
+            VitalsLine(
+                satellitesUsed = latest(PublishedSubject.SATELLITES_USED),
+                // Through the same formatter the row uses, so the word here and the word there cannot drift.
+                fixQuality = latest(PublishedSubject.FIX_QUALITY)
+                    ?.let { formatLiveValue(PublishedSubject.FIX_QUALITY, it) },
+                sinrDb = latest(PublishedSubject.CELLULAR_SINR),
+                batteryPercent = latest(PublishedSubject.BATTERY_STATE_OF_CHARGE),
+            )
             HealthChips(
-                subjectGroups().map { group ->
+                chips = subjectGroups().map { group ->
                     HealthChip(
                         name = chipName(group.title),
                         healthy = !groupSummary(
@@ -217,11 +250,14 @@ fun LiveScreen(
                             disabled = disabledSubjects,
                         ).needsAttention,
                     )
-                }
+                },
+                selected = chipFilter,
+                onSelect = { chipFilter = it },
             )
 
             HorizontalDivider(Modifier.padding(top = 4.dp))
             WindowControl(windowSeconds, onWindowSecondsChange, paused, onPausedChange)
+            ScopeControl(basicOnly, onBasicOnlyChange)
 
             if (!running && snapshot.track.isEmpty()) {
                 StatusLine(
@@ -232,7 +268,15 @@ fun LiveScreen(
             }
 
             // -- the plots -----------------------------------------------------------------------
-            subjectGroups().forEach { group ->
+            //
+            // Two filters, and they are different in kind. `basicOnly` is about which *subjects* are
+            // worth a plot during a run; `chipFilter` is about which *group* somebody is looking into
+            // right now. A group emptied by the Basic filter drops out entirely rather than showing a
+            // heading over nothing.
+            subjectGroups().filter { chipFilter == null || chipName(it.title) == chipFilter }
+                .forEach { group ->
+                val plotted = group.entries.filter { !basicOnly || it.featured }
+                if (plotted.isEmpty()) return@forEach
                 val summary = groupSummary(
                     entries = group.entries,
                     status = status,
@@ -252,7 +296,7 @@ fun LiveScreen(
                     onInfo = if (group.title == "IMU") ({ showAxes = true }) else null,
                 )
                 if (!collapsed) {
-                    group.entries.forEach { entry ->
+                    plotted.forEach { entry ->
                         val window = windowedTo(snapshot[entry], windowSeconds, nowMillis)
                         if (!window.isEmpty) {
                             SparklineCard(
@@ -374,6 +418,42 @@ private fun LayerControl(
  * Pause is the one that earns its place during a test: something odd goes past, and without it the
  * evidence has scrolled off the window before anyone can look at it.
  */
+/**
+ * Basic or All — how much of the bus this screen is trying to show.
+ *
+ * Separate from the window control above it because they answer different questions: the window is
+ * *how far back*, this is *how much*. Basic is the default because thirty-nine plots is a page nobody
+ * reads during a run; nothing is switched off by choosing it, and the count says what is being held
+ * back so it cannot read as data having gone missing.
+ */
+@Composable
+private fun ScopeControl(basicOnly: Boolean, onBasicOnlyChange: (Boolean) -> Unit) {
+    val hidden = PublishedSubject.entries.count { !it.featured }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(
+            selected = basicOnly,
+            onClick = { onBasicOnlyChange(true) },
+            label = { Text("Basic") },
+        )
+        FilterChip(
+            selected = !basicOnly,
+            onClick = { onBasicOnlyChange(false) },
+            label = { Text("All") },
+        )
+        if (basicOnly) {
+            Text(
+                "$hidden more under All",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun WindowControl(
     windowSeconds: Int,
@@ -501,6 +581,10 @@ private fun SparklineCard(
                         // The range of what is drawn: for a circular subject that is the unwrapped
                         // series, so a turn through north reads as 350–370 rather than 0–360.
                         append("${formatLiveValue(entry, bounds.min)} – ${formatLiveValue(entry, bounds.max)}")
+                        // The unit belongs here as well as in the header: the footer is read on its
+                        // own while scanning down a column of cards, and a bare "12 – 18" says
+                        // nothing about what it is 12 of. Empty for the enum-valued subjects.
+                        label.unit?.let { append(" $it") }
                         rate?.let { append(" · ${formatRate(it)} Hz") }
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -517,5 +601,3 @@ private fun SparklineCard(
     }
 }
 
-/** Degrees, percent and SI prefixes sit tight against the number; word units take a space. */
-private fun unitGap(unit: String) = if (unit == "°" || unit == "%" || unit == "bit/s") 0.dp else 3.dp

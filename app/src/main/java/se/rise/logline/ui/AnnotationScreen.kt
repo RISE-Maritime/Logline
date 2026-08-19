@@ -26,6 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +40,7 @@ import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.publish.Annotation
 import se.rise.logline.ui.components.ScreenScaffold
+import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
 import se.rise.logline.ui.components.StatusTone
@@ -61,14 +67,37 @@ fun AnnotationScreen(
     recent: List<Annotation>,
     totalMarks: Int,
     nowMillis: Long,
-    onMark: (AnnotationButton) -> Unit,
-    onNote: (String, AnnotationSeverity) -> Unit,
+    /**
+     * Publish a mark. Returns false when there was nothing for it to land in — see
+     * `SensorPublisher.mark`, which is where that decision is made.
+     */
+    onMark: (AnnotationButton) -> Boolean,
+    onNote: (String, AnnotationSeverity) -> Boolean,
     onEditButtons: () -> Unit,
     onStart: () -> Unit,
-    onBack: () -> Unit,
+    /** Null while this is a tab — see the note on `LiveScreen`. */
+    onBack: (() -> Unit)? = null,
+    /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
+    bottomBar: @Composable () -> Unit = {},
 ) {
     var note by remember { mutableStateOf("") }
     var noteSeverity by remember { mutableStateOf(AnnotationSeverity.Info) }
+    // A mark's only other evidence is a row appearing in the list below, a second later, off the
+    // bottom of the screen once the keyboard is up — which is no feedback at all at the moment the
+    // button is pressed. `mark()` already returns whether the mark landed; this is what shows it.
+    val snackbars = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val confirm: (Boolean, String) -> Unit = { landed, what ->
+        scope.launch {
+            // Dismissed rather than queued: several marks in quick succession is the normal case, and
+            // a backlog of stale confirmations would still be arriving after the moment had passed.
+            snackbars.currentSnackbarData?.dismiss()
+            snackbars.showSnackbar(
+                message = if (landed) "Marked \u2014 $what" else "Not marked \u2014 nothing is running",
+                duration = SnackbarDuration.Short,
+            )
+        }
+    }
 
     ScreenScaffold(
         title = "Mark event",
@@ -78,6 +107,8 @@ fun AnnotationScreen(
                 Icon(Icons.Default.Edit, contentDescription = "Edit buttons")
             }
         },
+        bottomBar = bottomBar,
+        snackbarHost = { SnackbarHost(snackbars) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -125,7 +156,7 @@ fun AnnotationScreen(
                 ) {
                     buttons.forEach { button ->
                         Button(
-                            onClick = { onMark(button) },
+                            onClick = { confirm(onMark(button), button.label) },
                             enabled = running,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = severityColor(button.severity),
@@ -163,7 +194,7 @@ fun AnnotationScreen(
                     }
                     Button(
                         onClick = {
-                            onNote(note, noteSeverity)
+                            confirm(onNote(note, noteSeverity), "note")
                             note = ""
                         },
                         enabled = running && note.isNotBlank(),
@@ -177,10 +208,14 @@ fun AnnotationScreen(
                 trailing = if (totalMarks > 0) totalMarks.toString() else null,
             )
             if (recent.isEmpty()) {
-                Text(
-                    if (running) "Nothing marked yet." else "Nothing marked.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                EmptyState(
+                    title = if (running) "Nothing marked yet" else "Nothing marked",
+                    body = if (running) {
+                        "Tap a button above the moment something happens — it goes onto the bus and " +
+                            "into the recording, stamped with the time of the press."
+                    } else {
+                        "Marks belong to a run. Start one and the buttons above become live."
+                    },
                 )
             } else {
                 Card(modifier = Modifier.fillMaxWidth()) {

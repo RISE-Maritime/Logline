@@ -53,6 +53,13 @@ data class RecordingStatus(
     /** When this run's recording began, for the elapsed clock. 0 when nothing is recording. */
     val startedAtEpochMillis: Long = 0,
     /**
+     * When it ended, so the elapsed clock stops there rather than running on after Stop.
+     *
+     * 0 while recording, which is what [startedAtEpochMillis] is read against — a card that took
+     * `now` for a finished recording would go on counting a file nothing is writing to.
+     */
+    val stoppedAtEpochMillis: Long = 0,
+    /**
      * The file being written, and its figures — **per file, not per run.**
      *
      * They restart at every 512 MB rotation, because they belong with `fileName` and answer "how is
@@ -247,7 +254,13 @@ class Recorder(private val appContext: Context) {
         if (free < MIN_FREE_BYTES) {
             val message = "only ${free / 1024 / 1024} MB free; not recording"
             Log.w(TAG, message)
-            _status.update { it.copy(recording = false, error = message) }
+            _status.update {
+                it.copy(
+                    recording = false,
+                    stoppedAtEpochMillis = System.currentTimeMillis(),
+                    error = message,
+                )
+            }
             return null
         }
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HHmmss", Locale.US).format(Date())
@@ -302,7 +315,13 @@ class Recorder(private val appContext: Context) {
             runCatching { runScope.coroutineContext[Job]?.cancelAndJoin() }
             // The estimate goes with the run that measured it: a stopped recording is not filling
             // anything, and a stale "40 min of space left" would outlive the thing it described.
-            _status.update { it.copy(recording = false, spaceRuntime = RuntimeEstimate.Unknown) }
+            _status.update {
+                it.copy(
+                    recording = false,
+                    stoppedAtEpochMillis = System.currentTimeMillis(),
+                    spaceRuntime = RuntimeEstimate.Unknown,
+                )
+            }
         }
     }
 

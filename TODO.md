@@ -96,3 +96,65 @@ definition of a wire format two projects already speak — crowsnest reconstruct
 generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
 
+
+
+## UI iteration (2026-08-19)
+
+The design review's ten priorities, implemented and walked on a Pixel 6. What follows is what the work
+turned up rather than what it did — the *what* is in the commit and in
+[docs/architecture.md](docs/architecture.md).You 
+
+- [ ] **A sensor can publish faster than the ceiling it advertises.** The subject rows now read
+      `55.3 Hz · max 50.0` for `linear_acceleration` on a Pixel 6 — the achieved rate is above the
+      maximum. Not a display bug: the ceiling is `Sensor.getMinDelay()`, which is what the sensor
+      *advertises*, and Android delivers whatever the fastest client on that sensor asked for, so a
+      rate above it is normal rather than impossible. Worth deciding whether the row should say so,
+      cap the display, or leave it — it currently looks like an inconsistency to anyone who has not
+      read `SensorCapabilities.kt`.
+
+- [ ] **`MAP_HEIGHT_EXPANDED` is now compensating for the navigation bar by hand.** Dropped 640 → 560dp
+      so the *visible* chart is the size it always was, with the bar kept on screen deliberately (a
+      control that disappears strands somebody on a full-screen map). A real fix reads the bar's height
+      rather than hard-coding the difference; this is measured against one device.
+
+- [ ] **The live view's chip row scrolls off the right edge** — "Rig calibratio" is clipped on a Pixel
+      6 at six groups. Correct behaviour now that it is horizontally scrollable, and it still looks
+      like a truncation bug at a glance. A fade or a narrower `chipName` for the calibration group
+      would settle it.
+
+- [ ] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
+      `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run
+      to write settings that did not change. Pre-existing, unrelated to the regroup, and visible on
+      every screenshot of that screen. `CalibrationScreen` gets this right (`dirty && …`).
+
+- [ ] **"Find a router" is filed under Advanced, which is a judgement call.** The plan's six-group
+      table had it under Connection and put the scout multicast address in Advanced on its own —
+      but that address is what the Scan button uses, and splitting them would leave a control in one
+      group and its input in another. The whole discovery section moved instead, on the grounds that
+      typing an endpoint is the normal path and scanning for one by multicast is not. Revisit if
+      anybody goes looking for it under Connection.
+
+- [ ] **Rig calibration lost its intro paragraph to the ⓘ, and gained a `BackHandler` it should have
+      had all along** — it was the one form screen where a system-back discarded unsaved edits
+      silently, unlike `SettingsScreen`, `AnnotationButtonsScreen` and `SubjectQosScreen`.
+
+- [ ] **The light theme has not been looked at since the session card was rewritten.** Everything in
+      this pass was walked in dark on a Pixel 6. The one genuinely new colour is `SignalGreenLight` /
+      `SignalGreenDark` in `ui/theme/Color.kt` — the router dot and the app-bar chip — which is not a
+      Material scheme role and so has had no contrast check against `surfaceContainer` in light.
+
+- [ ] **The tab bar is at five, and the fifth label only just fits.** `Files` rather than `Recordings`
+      because five `NavigationBarItem`s leave about 72 dp each and the longer word ellipsizes; the
+      screen itself is still titled Recordings. Material's guidance stops at five, so anything else
+      wanting a tab has to displace one rather than join them.
+
+- [ ] **`Actions` is pinned above the tab bar, and nothing has measured what that costs a short
+      phone.** The Start/Stop surface plus the bar is roughly 150 dp of permanent chrome at the bottom
+      of the Session screen. Fine on a Pixel 6 with every group collapsed; unknown on a small screen
+      with two groups open.
+
+- [ ] **`RecordingStatus.stoppedAtEpochMillis` is written in two places and read in one.** Added so the
+      detail panel's `Recording time` freezes at Stop instead of counting on over a closed file. Both
+      writers are in `Recorder` (the normal stop and the "not enough space" path); a third exit that
+      forgets it would leave the clock running, which no test would catch.
+

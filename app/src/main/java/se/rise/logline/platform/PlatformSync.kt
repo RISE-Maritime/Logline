@@ -150,6 +150,10 @@ class PlatformSync(private val appContext: Context) {
                     // it from the router's storage — see PlatformRegistry.
                     publishLibrary(opened, newConfig)
                 }
+                // The control case for the same logging in `ChecklistSync`: this half of the
+                // route-scoping was watched working on a device, so a run where this line appears and
+                // the checklist one does not points at the checklist gate rather than at the routing.
+                Log.i(TAG, "session open on ${newConfig.realm}")
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
@@ -201,6 +205,8 @@ class PlatformSync(private val appContext: Context) {
             openTokens.forEach { runCatching { it.undeclare() } }
             runCatching { openSubscribers.forEach { it.close() } }
             runCatching { open?.close() }
+            // After the close, for the reason given on `ChecklistSync.stop()`.
+            Log.i(TAG, "session closed")
         }
     }
 

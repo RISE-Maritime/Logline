@@ -32,6 +32,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
+import androidx.navigation.NavHostController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import se.rise.logline.ui.components.LoglineNavBar
+import se.rise.logline.ui.components.TopLevel
+import se.rise.logline.ui.SetupScreen
+import se.rise.logline.ui.Routes
+import se.rise.logline.ui.rigSummaryOf
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -327,10 +334,24 @@ private fun App(
     // odd thing to have to redo every time.
     var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Standard) }
     var liveSeaMarks by rememberSaveable { mutableStateOf(false) }
+    // Whether the live view plots the curated set or all of it. Defaults to the curated one: thirty-nine
+    // plots is a page nobody scrolls during a run, and `PublishedSubject.featured` names the few that
+    // answer "is this going well". Hoisted with the rest so it survives leaving the tab.
+    var liveBasicOnly by rememberSaveable { mutableStateOf(true) }
 
     // Which sensors this device simply does not have, so a row that will never publish can say so
     // rather than looking broken. Resolved here because it needs a Context; screens take data.
     val unavailable = remember { unavailableSubjects(context) }
+    // What each sensor can actually do, asked once. `SensorManager` reports a `minDelay` per sensor and
+    // nothing else here reports anything — the fused location provider publishes no rate limit, battery
+    // and radio are polled rather than sampled — so this map is deliberately partial and a subject
+    // missing from it shows its achieved rate with no ceiling beside it. Remembered because it is a
+    // property of the hardware: it cannot change while the process lives.
+    val maxRates = remember {
+        PublishedSubject.entries.mapNotNull { entry ->
+            sensorCapabilities(context, entry.subject).maxRateHz?.let { entry to it }
+        }.toMap()
+    }
     // Switched off rather than missing — the distinction the subject rows draw. The user's own set,
     // plus audio and the camera, which are off until someone asks for them; `offSubjects()` is the one
     // place those two are folded together, and the publisher's gate reads the same function.
@@ -367,7 +388,8 @@ private fun App(
     // covers both.
     val checklistState by app.checklist.state.collectAsState()
     val backStackEntry by nav.currentBackStackEntryAsState()
-    val inChecklists = backStackEntry?.destination?.route?.startsWith("checklist") == true
+    val currentRoute = backStackEntry?.destination?.route
+    val inChecklists = Routes.inChecklists(currentRoute)
     val checklistConfig = ChecklistConfig(
         endpoints = current.routerEndpoints,
         realm = current.checklistRealm,
@@ -388,7 +410,7 @@ private fun App(
     // the prefix for the same reason: the list, an editor and a sensor form are three destinations,
     // and tying the session to any one of them would cycle it every time somebody stepped between.
     val platformState by app.platforms.state.collectAsState()
-    val inRigScreens = backStackEntry?.destination?.route?.startsWith("calibration") == true
+    val inRigScreens = Routes.inRigScreens(currentRoute)
     val platformConfig = PlatformSyncConfig(
         endpoints = current.routerEndpoints,
         realm = current.realm,
@@ -404,23 +426,21 @@ private fun App(
         // this is what makes an endpoint or library change actually take effect rather than being
         // ignored until the screen is next opened.
         app.platforms.stop()
-        if (inRigScreens) app.platforms.start(platformConfig)
+        if (Routes.shouldSyncPlatforms(currentRoute)) app.platforms.start(platformConfig)
     }
 
     LaunchedEffect(inChecklists, current.checklistEnabled, checklistConfig) {
         // Unconditionally first: `start()` is a no-op while a session is up, so this is what makes an
         // endpoint or identity change actually take effect rather than being ignored until next time.
         app.checklist.stop()
-        if (inChecklists && current.checklistEnabled && current.hasChecklistIdentity()) {
-            app.checklist.start(checklistConfig)
-        }
+        if (Routes.shouldSyncChecklists(currentRoute, current)) app.checklist.start(checklistConfig)
     }
 
     // A tapped reminder notification lands here. Consumed once — see `reminderProcedureId`.
     LaunchedEffect(reminderProcedureId) {
         val procedureId = reminderProcedureId
         if (!procedureId.isNullOrEmpty()) {
-            nav.navigate("checklist/$procedureId")
+            nav.navigate("${Routes.CHECKLIST_PREFIX}/$procedureId")
             onReminderHandled()
         }
     }
@@ -469,6 +489,16 @@ private fun App(
         mutableStateOf(draftEntityId?.let { id -> current.rigs.firstOrNull { it.entityId == id } })
     }
     /** The library entry the draft is editing, or null while a new rig is being added. */
+    /**
+     * Which step of the rig survey is showing.
+     *
+     * Up here with the draft rather than inside `CalibrationScreen`, and for the same reason: editing a
+     * sensor pushes another destination and pops back, which destroys anything remembered in the screen
+     * itself. Without this, adding a sensor on step 4 would return you to step 1.
+     *
+     * `rememberSaveable` because it is one `Int`, so the step survives process death for free.
+     */
+    var calibrationStep by rememberSaveable { mutableIntStateOf(0) }
     val savedRig = draftEntityId?.let { id -> current.rigs.firstOrNull { it.entityId == id } }
 
     /** What the last import or library export did, shown on the rig list until it is left. */
@@ -565,8 +595,23 @@ private fun App(
         }
     }
 
-    NavHost(navController = nav, startDestination = "main", modifier = modifier) {
-        composable("main") {
+    // ── the navigation bar ──────────────────────────────────────────────────────────────────────
+    //
+    // Built once here and handed to the five top-level screens, which pass it into `ScreenScaffold`'s
+    // existing `bottomBar` slot. That slot is also where `FormActions` lives on the five form screens,
+    // and the two can never collide because no screen is both a tab and a form — a pushed destination
+    // simply never receives this.
+    //
+    // `popUpTo(start) { saveState = true }` is what stops Run→Live→Run→Live piling up back-stack
+    // entries, and `restoreState` is what lets Live keep its scroll position across a visit to Setup.
+    // System back on any tab therefore pops to Run and then exits, which is why "main" has to stay the
+    // start destination.
+    val navBar: @Composable () -> Unit = {
+        LoglineNavBar(current = currentRoute) { dest -> goToTab(nav, dest) }
+    }
+
+    NavHost(navController = nav, startDestination = Routes.MAIN, modifier = modifier) {
+        composable(Routes.MAIN) {
             // Pulled on a ticker like the live view, and for the same reason — but only the newest
             // value per subject, which is 29 floats rather than a quarter of a million.
             val live by produceState(LiveLatest(), app) {
@@ -594,25 +639,36 @@ private fun App(
                 freeBytes = freeBytes,
                 unavailableSubjects = unavailable,
                 disabledSubjects = disabled,
+                maxRatesHz = maxRates,
                 onStart = startPublishing,
                 onStop = { PublisherService.stop(context) },
                 onGrantLocation = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
-                onOpenSettings = { nav.navigate("settings") },
-                onOpenLive = { nav.navigate("live") },
-                onOpenAnnotations = { nav.navigate("annotations") },
-                onOpenRecordings = { nav.navigate("recordings") },
-                onOpenChecklists = { nav.navigate("checklists") },
-                onOpenCalibration = { nav.navigate("calibration") },
                 // Routed by registry entry, not subject: `radio_rssi_dbm` is published under two
                 // source ids, so the subject name no longer identifies a single card.
-                onOpenSubjectQos = { entry -> nav.navigate("qos/${entry.name}") },
+                onOpenSubjectQos = { entry -> nav.navigate(Routes.subjectQos(entry.name)) },
                 onToggleSubject = { entry, enabled -> toggleSubject(app, scope, current, entry, enabled) },
                 onToggleSubjects = { entries, enabled ->
                     scope.launch { app.settingsRepository.update(current.withSubjects(entries, enabled)) }
                 },
+                bottomBar = navBar,
             )
         }
-        composable("recordings") {
+        // The fourth tab: everything configured rather than operated. It only routes — the screens it
+        // opens are the same pushed destinations Home used to reach, so `route.startsWith(...)` session
+        // scoping below is untouched by the move.
+        composable(Routes.SETUP) {
+            SetupScreen(
+                rigSummary = rigSummaryOf(current),
+                checklistsEnabled = current.checklistEnabled,
+                identity = "${current.realm}/${current.entityId}",
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onOpenRigs = { nav.navigate(Routes.RIGS) },
+                onOpenChecklists = { nav.navigate(Routes.CHECKLISTS) },
+                onOpenAnnotationButtons = { nav.navigate(Routes.ANNOTATION_BUTTONS) },
+                bottomBar = navBar,
+            )
+        }
+        composable(Routes.RECORDINGS) {
             // Re-read whenever a delete bumps the revision, the same shape `tlsRevision` uses. On IO
             // because it is a MediaStore query plus a seek per file — cheap each, but not on main.
             var recordingsRevision by remember { mutableIntStateOf(0) }
@@ -629,11 +685,11 @@ private fun App(
                         recordingsRevision++
                     }
                 },
-                onBack = { nav.popBackStack() },
+                bottomBar = navBar,
             )
         }
 
-        composable("live") {
+        composable(Routes.LIVE) {
             // Pulled on a ticker rather than pushed: the publish path runs at ~217 samples/s and must
             // not drive recomposition. 5 Hz is smooth to look at and two orders of magnitude cheaper.
             // Pausing stops the pull, so the plots freeze while publishing carries on underneath —
@@ -679,10 +735,12 @@ private fun App(
                 onLayerChange = { liveLayer = it },
                 seaMarks = liveSeaMarks,
                 onSeaMarksChange = { liveSeaMarks = it },
-                onBack = { nav.popBackStack() },
+                basicOnly = liveBasicOnly,
+                onBasicOnlyChange = { liveBasicOnly = it },
+                bottomBar = navBar,
             )
         }
-        composable("qos/{entry}") { backStackEntry ->
+        composable(Routes.SUBJECT_QOS) { backStackEntry ->
             val registryEntry = PublishedSubject.forName(
                 backStackEntry.arguments?.getString("entry").orEmpty()
             )
@@ -729,7 +787,7 @@ private fun App(
                 onCancel = { nav.popBackStack() },
             )
         }
-        composable("annotations") {
+        composable(Routes.ANNOTATIONS) {
             // Pulled on a ticker, like every other view of publisher state. A mark is rare enough that
             // pushing would cost nothing — but one mechanism for reading the publisher is worth more
             // than a second one that happens to be cheap here.
@@ -753,12 +811,12 @@ private fun App(
                 nowMillis = nowMillis,
                 onMark = { button -> app.publisher.mark(button.label, button.severity, button.category) },
                 onNote = { text, severity -> app.publisher.mark(text, severity, NOTE_CATEGORY) },
-                onEditButtons = { nav.navigate("annotations/edit") },
+                onEditButtons = { nav.navigate(Routes.ANNOTATION_BUTTONS) },
                 onStart = startPublishing,
-                onBack = { nav.popBackStack() },
+                bottomBar = navBar,
             )
         }
-        composable("annotations/edit") {
+        composable(Routes.ANNOTATION_BUTTONS) {
             AnnotationButtonsScreen(
                 initial = current.annotationButtons,
                 // Deliberately *not* saveSettings(): that stops and restarts the publisher so it can
@@ -773,7 +831,7 @@ private fun App(
                 onCancel = { nav.popBackStack() },
             )
         }
-        composable("checklists") {
+        composable(Routes.CHECKLISTS) {
             ChecklistsScreen(
                 state = checklistState,
                 operatorName = current.operatorName,
@@ -799,13 +857,13 @@ private fun App(
                 },
                 onOpenProcedure = { procedureId ->
                     app.checklist.openProcedure(procedureId)
-                    nav.navigate("checklist/$procedureId")
+                    nav.navigate("${Routes.CHECKLIST_PREFIX}/$procedureId")
                 },
                 onPublishStarter = { app.checklist.publishStarterProcedures() },
                 onBack = { nav.popBackStack() },
             )
         }
-        composable("checklist/{procedureId}") { backStackEntry ->
+        composable(Routes.CHECKLIST) { backStackEntry ->
             val procedureId = backStackEntry.arguments?.getString("procedureId").orEmpty()
             val procedure = checklistState.procedure(procedureId)
             // Drives the ages on the rows and the countdown on a reminder, like the main screen's.
@@ -824,7 +882,7 @@ private fun App(
                     operatorRole = current.operatorRole,
                     rocSite = current.rocSite(),
                     onSaveIdentity = { _, _, _ -> },
-                    onOpenProcedure = { nav.navigate("checklist/$it") },
+                    onOpenProcedure = { nav.navigate("${Routes.CHECKLIST_PREFIX}/$it") },
                     onPublishStarter = { app.checklist.publishStarterProcedures() },
                     onBack = { nav.popBackStack() },
                 )
@@ -857,7 +915,7 @@ private fun App(
                 )
             }
         }
-        composable("calibration") {
+        composable(Routes.RIGS) {
             RigListScreen(
                 rigs = current.rigs,
                 activeEntityId = current.activeRigEntityId,
@@ -865,12 +923,17 @@ private fun App(
                 publishing = status.running,
                 onOpenRig = { entityId ->
                     draftEntityId = entityId
-                    nav.navigate("calibration/rig/${Uri.encode(entityId)}")
+                    // Opening a rig starts at the beginning of it. The step survives the trip into a
+                    // sensor and back, which is what it is for — but carrying step 4 across from the
+                    // last rig somebody edited into a different one would just be disorienting.
+                    calibrationStep = 0
+                    nav.navigate(Routes.rig(Uri.encode(entityId)))
                 },
                 onAddRig = {
                     draftEntityId = null
                     calibrationDraft = null
-                    nav.navigate("calibration/rig/$NEW_RIG")
+                    calibrationStep = 0
+                    nav.navigate(Routes.rig(NEW_RIG))
                 },
                 // Both of these change which publishers a run declares, so unlike the per-subject
                 // switches they go through saveSettings and restart it. The list is read-only while
@@ -967,7 +1030,7 @@ private fun App(
                 },
             )
         }
-        composable("calibration/rig/{entityId}") {
+        composable(Routes.RIG) {
             // A rig nobody has named yet: the draft materialises on the first edit, so opening the
             // screen and backing out again leaves nothing behind.
             val draft = calibrationDraft ?: RigCalibration.forName("")
@@ -1053,7 +1116,7 @@ private fun App(
                 },
                 onEditSensor = { index ->
                     capturedOffset = null
-                    nav.navigate("calibration/rig/${Uri.encode(draft.entityId)}/sensor/$index")
+                    nav.navigate(Routes.sensorMount(Uri.encode(draft.entityId), index))
                 },
                 onExport = {
                     scope.launch {
@@ -1104,9 +1167,11 @@ private fun App(
                     nav.popBackStack()
                 },
                 dirty = calibrationDraft != savedRig,
+                step = calibrationStep,
+                onStepChange = { calibrationStep = it },
             )
         }
-        composable("calibration/rig/{entityId}/sensor/{index}") { backStackEntry ->
+        composable(Routes.SENSOR_MOUNT) { backStackEntry ->
             val index = backStackEntry.arguments?.getString("index")?.toIntOrNull() ?: NEW_SENSOR
             val draft = calibrationDraft ?: RigCalibration.forName("")
             val existing = draft.sensors.getOrNull(index)
@@ -1154,7 +1219,7 @@ private fun App(
                 },
             )
         }
-        composable("scan-qr") {
+        composable(Routes.SCAN_QR) {
             QrScannerScreen(
                 onScanned = { text ->
                     val parsed = parseSettingsProfile(text)
@@ -1171,7 +1236,7 @@ private fun App(
             )
         }
 
-        composable("settings") {
+        composable(Routes.SETTINGS) {
             // The scan lives here, not in the screen: screens take data and lambdas, and this needs a
             // coroutine scope. Results are held per-visit — a stale list from last time would be worse
             // than an empty one.
@@ -1274,7 +1339,7 @@ private fun App(
                     profilePicker.launch(arrayOf("*/*"))
                 },
                 onShowConnectionQr = { showConnectionQr = true },
-                onScanConnectionQr = { nav.navigate("scan-qr") },
+                onScanConnectionQr = { nav.navigate(Routes.SCAN_QR) },
                 profileMessage = profileMessage,
                 offlineMaps = offlineMaps,
                 offlineMapMessage = offlineMapMessage,
@@ -1375,6 +1440,22 @@ private fun Settings.withSubjects(entries: List<PublishedSubject>, enabled: Bool
  * general settings form and the per-subject QoS screens — a QoS change only reaches the bus when the
  * publishers are redeclared.
  */
+/**
+ * Switch to a top-level destination.
+ *
+ * The three options are all load-bearing. `popUpTo(start) { saveState = true }` stops tab-hopping
+ * accumulating back-stack entries and remembers what each tab had; `restoreState` puts that back, so
+ * Live keeps its scroll and its map after a trip to Setup; `launchSingleTop` stops re-tapping the
+ * current tab stacking a second copy of it.
+ */
+private fun goToTab(nav: NavHostController, dest: TopLevel) {
+    nav.navigate(dest.route) {
+        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 private suspend fun saveSettings(app: LoglineApp, updated: Settings) {
     val wasRunning = app.publisher.status.value.running
     if (wasRunning) PublisherService.stop(app)

@@ -88,3 +88,15 @@ val SurfaceContainerHighestDark = Color(0xFF32353A)
 val InverseSurfaceDark = Color(0xFFE0E2E8)
 val InverseOnSurfaceDark = Color(0xFF2E3135)
 val InversePrimaryDark = Color(0xFF285EA7)
+
+/**
+ * The link's traffic light: green connected, amber recovering, red gone.
+ *
+ * Not `primary`, which is this app's blue and says "healthy" on a heading or a button — a reader
+ * checking whether a router is on the other end wants the convention every other piece of marine
+ * equipment uses, not a brand colour. Amber is the same hue as `tertiary`/`StatusTone.Warning` and red
+ * is `error`, so only the green needs defining; both are picked for contrast on their own surface
+ * rather than as a pair.
+ */
+val SignalGreenLight = Color(0xFF116B33)
+val SignalGreenDark = Color(0xFF6FDC96)

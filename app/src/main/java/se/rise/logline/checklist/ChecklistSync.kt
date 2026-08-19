@@ -134,6 +134,11 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
                 launch { watchConnection(opened) }
                 launch { heartbeat() }
                 launch { snapshotLoop() }
+                // The only signal that this worked. Everything else in this class logs a *failure*,
+                // so a session that opened correctly used to be indistinguishable from one that was
+                // never asked for — which is why the route-scoping this hangs off went unverified on
+                // a device for as long as it did. Same shape as `SensorPublisher`'s session logging.
+                Log.i(TAG, "session open on ${config.realm}/${config.entityId}")
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
@@ -166,6 +171,10 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
         closeScope.launch {
             runCatching { openSubscribers.forEach { it.close() } }
             runCatching { open?.close() }
+            // *After* the close, not beside the call: this is fire-and-forget on a scope that outlives
+            // the cancelled one, so logging at call time would report a teardown that had not happened
+            // yet — the same ordering trap `Recorder.stop()` documents.
+            Log.i(TAG, "session closed")
         }
     }
 

@@ -1,5 +1,11 @@
 package se.rise.logline.ui
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
@@ -67,3 +73,27 @@ internal fun formatRuntimeLeft(millis: Long): String {
     val rest = minutes % 60
     return if (rest == 0L) "$hours h" else "$hours h $rest min"
 }
+
+/**
+ * How far a unit sits from the number it belongs to.
+ *
+ * Degrees, percent and an SI-prefixed rate are written tight against the figure — `57°`, `89%`,
+ * `219Mbit/s` — and a word unit takes a space: `0.3 kn`. There were two of these, one in the live
+ * view's card header and one in its dashboard readings, each with its own list of exceptions, which
+ * is how `0.3 kn` and `2.2Gbit/s` came to be spaced by different rules on the same screen.
+ */
+internal fun unitGap(unit: String): Dp =
+    if (unit == "°" || unit == "%" || unit == "bit/s") 0.dp else 3.dp
+
+/**
+ * A wall-clock time, for "when did this start".
+ *
+ * The device's own zone and a fixed 24-hour pattern: this sits beside an elapsed duration on the same
+ * card, and a locale that chose `10:31:04 PM` would make the pair read as two different kinds of
+ * number. [DateTimeFormatter] rather than `SimpleDateFormat` because it is immutable and thread-safe,
+ * and this is called once a second from recomposition.
+ */
+private val CLOCK_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
+internal fun formatClock(epochMillis: Long): String =
+    Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(CLOCK_FORMAT)

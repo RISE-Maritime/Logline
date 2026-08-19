@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.Button
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -111,9 +114,19 @@ fun CalibrationScreen(
     onClear: () -> Unit,
     onCancel: () -> Unit,
     dirty: Boolean,
+    /**
+     * Which step is showing, 0..4.
+     *
+     * Hoisted into `MainActivity.App()` rather than remembered here, because editing a sensor is a
+     * *push* onto another destination and back — a `remember` in this composable dies with it, and
+     * coming back would land on step 1 having just added a sensor on step 4.
+     */
+    step: Int,
+    onStepChange: (Int) -> Unit,
 ) {
     var showFrameHelp by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmDiscard by remember { mutableStateOf(false) }
     var typedPosition by remember { mutableStateOf(false) }
     var typedHeading by remember { mutableStateOf(false) }
 
@@ -122,13 +135,32 @@ fun CalibrationScreen(
     var loa by remember { mutableStateOf(calibration.lengthOverAllM?.toString().orEmpty()) }
     var boa by remember { mutableStateOf(calibration.breadthOverAllM?.toString().orEmpty()) }
 
+    // The one form screen that had no guard on it: a system-back with a half-surveyed rig in the
+    // draft discarded it silently. Same `leave()` shape as `SettingsScreen`, and it matters more here
+    // — twenty seconds of standing still at a point is not something to lose to a stray gesture.
+    val leave = { if (dirty) confirmDiscard = true else onCancel() }
+    BackHandler(enabled = true) { leave() }
+
+    if (confirmDiscard) {
+        ConfirmDialog(
+            title = "Discard changes?",
+            body = "This rig has been edited and not saved.",
+            confirmLabel = "Discard",
+            onConfirm = {
+                confirmDiscard = false
+                onCancel()
+            },
+            onDismiss = { confirmDiscard = false },
+        )
+    }
+
     ScreenScaffold(
         title = "Rig calibration",
-        onBack = onCancel,
+        onBack = leave,
         bottomBar = {
             FormActions(
                 onSave = onSave,
-                onCancel = onCancel,
+                onCancel = leave,
                 saveEnabled = dirty && calibration.name.isNotBlank() &&
                     calibration.entityId.isNotBlank() && entityIdError == null,
                 hint = when {
@@ -147,212 +179,223 @@ fun CalibrationScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Describe a sensor rig once, with this phone: mark the rig's zero point, then place " +
-                    "each sensor relative to it. The result publishes as frame_transform and " +
-                    "configuration_json, and exports as a file keelson's platform connector reads.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            StepRail(
+                step = step,
+                calibration = calibration,
+                // A capture is a bounded act with somebody standing still holding the
+                // phone at a point. Wandering off to another step mid-way is how the
+                // twenty seconds get wasted, so the rail is closed while one runs.
+                enabled = capture !is CaptureState.Running,
+                onStepChange = onStepChange,
             )
 
-            // ---- the rig ------------------------------------------------------------------------
-            SectionHeader("Rig", onInfo = { showFrameHelp = true })
-            OutlinedTextField(
-                value = calibration.name,
-                onValueChange = { name ->
-                    // The ids follow the name until somebody edits one of them by hand. Without this a
-                    // rig named after the fact keeps the entity id of whatever it was called first.
-                    val followedEntity = calibration.entityId == defaultEntityId(calibration.name)
-                    val followedFrame = calibration.parentFrameId == defaultParentFrameId(calibration.name)
-                    onChange(
-                        calibration.copy(
-                            name = name,
-                            entityId = if (followedEntity) defaultEntityId(name) else calibration.entityId,
-                            parentFrameId = if (followedFrame) {
-                                defaultParentFrameId(name)
-                            } else {
-                                calibration.parentFrameId
-                            },
-                        )
-                    )
-                },
-                label = { Text("Rig name") },
-                supportingText = { Text("What the platform is called, e.g. SSRS18.") },
-                isError = calibration.name.isBlank(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = calibration.entityId,
-                onValueChange = { onChange(calibration.copy(entityId = it)) },
-                label = { Text("Rig entity ID") },
-                supportingText = {
-                    Text(
-                        entityIdError
-                            ?: ("The geometry publishes under this rather than under the phone — it " +
-                                "is the rig the data is about.")
-                    )
-                },
-                isError = calibration.entityId.isBlank() || entityIdError != null,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = calibration.description,
-                onValueChange = { onChange(calibration.copy(description = it)) },
-                label = { Text("Description") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PlatformType.entries.forEach { type ->
-                    FilterChip(
-                        selected = calibration.platformType == type,
-                        onClick = {
+            when (step) {
+                0 -> {
+                    SectionHeader("Rig", onInfo = { showFrameHelp = true })
+                    OutlinedTextField(
+                        value = calibration.name,
+                        onValueChange = { name ->
+                            // The ids follow the name until somebody edits one of them by hand. Without this a
+                            // rig named after the fact keeps the entity id of whatever it was called first.
+                            val followedEntity = calibration.entityId == defaultEntityId(calibration.name)
+                            val followedFrame = calibration.parentFrameId == defaultParentFrameId(calibration.name)
                             onChange(
                                 calibration.copy(
-                                    platformType = if (calibration.platformType == type) null else type
+                                    name = name,
+                                    entityId = if (followedEntity) defaultEntityId(name) else calibration.entityId,
+                                    parentFrameId = if (followedFrame) {
+                                        defaultParentFrameId(name)
+                                    } else {
+                                        calibration.parentFrameId
+                                    },
                                 )
                             )
                         },
-                        label = { Text(type.wire) },
+                        label = { Text("Rig name") },
+                        supportingText = { Text("What the platform is called, e.g. SSRS18.") },
+                        isError = calibration.name.isBlank(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                    OutlinedTextField(
+                        value = calibration.entityId,
+                        onValueChange = { onChange(calibration.copy(entityId = it)) },
+                        label = { Text("Rig entity ID") },
+                        supportingText = {
+                            Text(
+                                entityIdError
+                                    ?: ("The geometry publishes under this rather than under the phone — it " +
+                                        "is the rig the data is about.")
+                            )
+                        },
+                        isError = calibration.entityId.isBlank() || entityIdError != null,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = calibration.description,
+                        onValueChange = { onChange(calibration.copy(description = it)) },
+                        label = { Text("Description") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PlatformType.entries.forEach { type ->
+                            FilterChip(
+                                selected = calibration.platformType == type,
+                                onClick = {
+                                    onChange(
+                                        calibration.copy(
+                                            platformType = if (calibration.platformType == type) null else type
+                                        )
+                                    )
+                                },
+                                label = { Text(type.wire) },
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = loa,
+                            onValueChange = {
+                                loa = it
+                                onChange(calibration.copy(lengthOverAllM = it.toDoubleOrNull()))
+                            },
+                            label = { Text("Length overall") },
+                            suffix = { Text("m") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = boa,
+                            onValueChange = {
+                                boa = it
+                                onChange(calibration.copy(breadthOverAllM = it.toDoubleOrNull()))
+                            },
+                            label = { Text("Breadth") },
+                            suffix = { Text("m") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                1 -> {
+                    SectionHeader(
+                        "Zero point",
+                        trailing = if (calibration.zero?.hasPosition == true) "set" else null,
+                    )
+                    Text(
+                        "Stand at the rig's reference point and capture. Every sensor offset is measured from " +
+                            "here. A rig measured entirely with a tape needs no position at all.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ZeroCard(calibration.zero)
+                    CaptureRow(capture)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onCaptureZero,
+                            enabled = capture !is CaptureState.Running,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Capture position") }
+                        OutlinedButton(onClick = { typedPosition = true }, modifier = Modifier.weight(1f)) {
+                            Text("Type position")
+                        }
+                    }
+                }
+                2 -> {
+                    SectionHeader(
+                        "Forward axis",
+                        trailing = calibration.zero?.let {
+                            "${it.headingDeg.roundToInt()}° ${it.headingSource.label.lowercase()}"
+                        },
+                    )
+                    Text(
+                        "Which way the rig's +X points, true. Baseline: capture the zero, then a point ahead " +
+                            "on the centreline. Compass: hold the phone flat, screen up, top edge forward.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onCaptureBaseline,
+                            enabled = calibration.zero != null && capture !is CaptureState.Running,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Baseline") }
+                        OutlinedButton(
+                            onClick = onCaptureHeading,
+                            enabled = capture !is CaptureState.Running,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Compass") }
+                        OutlinedButton(onClick = { typedHeading = true }, modifier = Modifier.weight(1f)) {
+                            Text("Type")
+                        }
+                    }
+                }
+                3 -> {
+                    SectionHeader("Sensors", trailing = "${calibration.sensors.size}")
+                    if (calibration.sensors.isEmpty()) {
+                        Text(
+                            "No sensors yet. Nothing publishes until there is at least one.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    calibration.sensors.forEachIndexed { index, mount ->
+                        MountRow(mount) { onEditSensor(index) }
+                    }
+                    OutlinedButton(onClick = { onEditSensor(NEW_SENSOR) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Add sensor")
+                    }
+                }
+                else -> {
+                    SectionHeader("On the bus")
+                    StatusLine(
+                        text = if (publishing && calibration.isPublishable) {
+                            "Publishing"
+                        } else {
+                            "Publishes with the next run"
+                        },
+                        tone = if (publishing && calibration.isPublishable) {
+                            StatusTone.Positive
+                        } else {
+                            StatusTone.Neutral
+                        },
+                        detail = "$transformKey\nEvery ten seconds: one frame_transform per sensor, the whole " +
+                            "document on configuration_json, and — once a position has been captured — the " +
+                            "zero point itself on location_fix, stamped with the time it was surveyed.",
+                    )
+                    OutlinedButton(
+                        onClick = onExport,
+                        enabled = calibration.isPublishable,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Export platform-geometry JSON") }
+                    exportMessage?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Delete this calibration")
+                    }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = loa,
-                    onValueChange = {
-                        loa = it
-                        onChange(calibration.copy(lengthOverAllM = it.toDoubleOrNull()))
-                    },
-                    label = { Text("Length overall") },
-                    suffix = { Text("m") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = boa,
-                    onValueChange = {
-                        boa = it
-                        onChange(calibration.copy(breadthOverAllM = it.toDoubleOrNull()))
-                    },
-                    label = { Text("Breadth") },
-                    suffix = { Text("m") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
 
-            // ---- the zero -----------------------------------------------------------------------
-            SectionHeader(
-                "Zero point",
-                trailing = if (calibration.zero?.hasPosition == true) "set" else null,
-            )
-            Text(
-                "Stand at the rig's reference point and capture. Every sensor offset is measured from " +
-                    "here. A rig measured entirely with a tape needs no position at all.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ZeroCard(calibration.zero)
-            CaptureRow(capture)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = onCaptureZero,
-                    enabled = capture !is CaptureState.Running,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Capture position") }
-                OutlinedButton(onClick = { typedPosition = true }, modifier = Modifier.weight(1f)) {
-                    Text("Type position")
-                }
-            }
-
-            SectionHeader(
-                "Forward axis",
-                trailing = calibration.zero?.let {
-                    "${it.headingDeg.roundToInt()}° ${it.headingSource.label.lowercase()}"
-                },
-            )
-            Text(
-                "Which way the rig's +X points, true. Baseline: capture the zero, then a point ahead " +
-                    "on the centreline. Compass: hold the phone flat, screen up, top edge forward.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = onCaptureBaseline,
-                    enabled = calibration.zero != null && capture !is CaptureState.Running,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Baseline") }
-                OutlinedButton(
-                    onClick = onCaptureHeading,
-                    enabled = capture !is CaptureState.Running,
-                    modifier = Modifier.weight(1f),
-                ) { Text("Compass") }
-                OutlinedButton(onClick = { typedHeading = true }, modifier = Modifier.weight(1f)) {
-                    Text("Type")
-                }
-            }
-
-            // ---- the sensors --------------------------------------------------------------------
-            SectionHeader("Sensors", trailing = "${calibration.sensors.size}")
-            if (calibration.sensors.isEmpty()) {
-                Text(
-                    "No sensors yet. Nothing publishes until there is at least one.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            calibration.sensors.forEachIndexed { index, mount ->
-                MountRow(mount) { onEditSensor(index) }
-            }
-            OutlinedButton(onClick = { onEditSensor(NEW_SENSOR) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Add sensor")
-            }
-
-            // ---- what becomes of it -------------------------------------------------------------
-            SectionHeader("On the bus")
-            StatusLine(
-                text = if (publishing && calibration.isPublishable) {
-                    "Publishing"
-                } else {
-                    "Publishes with the next run"
-                },
-                tone = if (publishing && calibration.isPublishable) {
-                    StatusTone.Positive
-                } else {
-                    StatusTone.Neutral
-                },
-                detail = "$transformKey\nEvery ten seconds: one frame_transform per sensor, the whole " +
-                    "document on configuration_json, and — once a position has been captured — the " +
-                    "zero point itself on location_fix, stamped with the time it was surveyed.",
-            )
-            OutlinedButton(
-                onClick = onExport,
-                enabled = calibration.isPublishable,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Export platform-geometry JSON") }
-            exportMessage?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            TextButton(onClick = { confirmClear = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Delete this calibration")
-            }
+            StepNav(step = step, onStepChange = onStepChange)
         }
     }
 
     if (showFrameHelp) {
         InfoDialog(
             title = "The rig frame",
-            body = "X is positive forward, Y is positive to starboard, and Z is positive DOWN — " +
+            body = "Describe a sensor rig once, with this phone: mark the rig's zero point, then " +
+                "place each sensor relative to it. The result publishes as frame_transform and " +
+                "configuration_json, and exports as a file keelson's platform connector reads.\n\n" +
+                "X is positive forward, Y is positive to starboard, and Z is positive DOWN — " +
                 "maritime convention, not robotics. A sensor three metres up the mast has z = -3.\n\n" +
                 "Rotations are degrees, applied yaw, then pitch, then roll. Yaw is positive swinging " +
                 "the sensor to starboard.\n\n" +
@@ -421,6 +464,69 @@ private fun typedOnlyHeading(heading: Double) = RigZero(
     samples = 0,
     capturedAtEpochMillis = 0L,
 )
+
+/** The five steps, in order. The rail and the `when` in the body read from this one list. */
+private val CALIBRATION_STEPS = listOf("Rig", "Zero", "Forward", "Sensors", "Review")
+
+/**
+ * Where you are in the survey, and a way to any other part of it.
+ *
+ * Deliberately navigation rather than a gate: every step is reachable at any time, in any order, for
+ * a rig being described for the first time and for one being corrected two months later. A wizard
+ * that made somebody walk five screens to fix a typo in a name would be worse than the single long
+ * form this replaced. [StepNav] below is the obvious path for a first survey; it never blocks.
+ *
+ * The tick is *completeness*, not validity — a step with nothing in it yet reads as undone, which is
+ * the one thing a person coming back to a half-finished rig wants to know.
+ */
+@Composable
+private fun StepRail(
+    step: Int,
+    calibration: RigCalibration,
+    enabled: Boolean,
+    onStepChange: (Int) -> Unit,
+) {
+    val done = listOf(
+        calibration.name.isNotBlank() && calibration.entityId.isNotBlank(),
+        calibration.zero?.hasPosition == true,
+        calibration.zero != null,
+        calibration.sensors.isNotEmpty(),
+        calibration.isPublishable,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CALIBRATION_STEPS.forEachIndexed { index, label ->
+            FilterChip(
+                selected = index == step,
+                onClick = { onStepChange(index) },
+                enabled = enabled,
+                label = { Text(if (done[index]) "$label ✓" else label) },
+            )
+        }
+    }
+}
+
+/** Back and Next, for somebody working through a rig for the first time. */
+@Composable
+private fun StepNav(step: Int, onStepChange: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        if (step > 0) {
+            OutlinedButton(
+                onClick = { onStepChange(step - 1) },
+                modifier = Modifier.weight(1f),
+            ) { Text("Back") }
+        }
+        if (step < CALIBRATION_STEPS.lastIndex) {
+            Button(
+                onClick = { onStepChange(step + 1) },
+                modifier = Modifier.weight(1f),
+            ) { Text("Next") }
+        }
+    }
+}
 
 @Composable
 private fun ZeroCard(zero: RigZero?) {

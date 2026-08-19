@@ -2,6 +2,12 @@ package se.rise.logline.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -89,8 +95,9 @@ private fun Reading(
                 unit,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                // Degrees sit tight against the number; a unit like kn takes a space.
-                modifier = Modifier.padding(start = if (unit == "°") 0.dp else 2.dp, bottom = 3.dp),
+                // Spaced by the one shared rule — see `unitGap`. This used to be its own predicate,
+                // which is how "0.3 kn" here and "2.2Gbit/s" on a card were spaced differently.
+                modifier = Modifier.padding(start = unitGap(unit), bottom = 3.dp),
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -154,11 +161,26 @@ fun FixLine(fix: TrackPoint?, modifier: Modifier = Modifier) {
     }
 }
 
-/** One chip per group: the name, and whether it is behaving. Colour only when it is not. */
+/**
+ * One chip per group: the name, whether it is behaving, and — now — a filter.
+ *
+ * These were a read-only readout, which made a row of six low-value labels competing for the space
+ * just above the plots. Making them selectable turns the same pixels into the coarse "show me only
+ * this" control the plot list otherwise lacks: tap one to narrow, tap it again to go back to all.
+ *
+ * Horizontally scrollable because six groups do not fit across a phone once they are tap targets with
+ * padding rather than bare text.
+ */
 @Composable
-fun HealthChips(chips: List<HealthChip>, modifier: Modifier = Modifier) {
+fun HealthChips(
+    chips: List<HealthChip>,
+    modifier: Modifier = Modifier,
+    /** The group name currently filtered to, or null for all of them. */
+    selected: String? = null,
+    onSelect: ((String?) -> Unit)? = null,
+) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -168,11 +190,35 @@ fun HealthChips(chips: List<HealthChip>, modifier: Modifier = Modifier) {
             } else {
                 MaterialTheme.colorScheme.error
             }
+            val isSelected = selected == chip.name
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.readAsOneItem(
-                    "${chip.name} ${if (chip.healthy) "healthy" else "needs attention"}"
-                ),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .then(
+                        if (onSelect != null) {
+                            Modifier.clickable { onSelect(if (isSelected) null else chip.name) }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .background(
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            Color.Transparent
+                        }
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .readAsOneItem(
+                        buildString {
+                            append(chip.name)
+                            append(if (chip.healthy) " healthy" else " needs attention")
+                            if (onSelect != null) {
+                                append(if (isSelected) ", showing only this" else ", tap to show only this")
+                            }
+                        }
+                    ),
             ) {
                 Surface(color = colour, shape = CircleShape, modifier = Modifier.size(7.dp)) {}
                 Text(
@@ -184,6 +230,37 @@ fun HealthChips(chips: List<HealthChip>, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * The second line under the fix: is the data any good, and will the phone last.
+ *
+ * Four numbers that otherwise cost a scroll into GNSS, Radio and Device to answer "is this run
+ * healthy" — satellites solving, what kind of fix it is, the cellular link's quality and the battery.
+ * Each is skipped rather than shown as a dash when the platform has not reported it, the same rule the
+ * publish path follows: proto3 cannot tell an absent float from `0.0`, and neither can a reader.
+ */
+@Composable
+fun VitalsLine(
+    satellitesUsed: Float?,
+    fixQuality: String?,
+    sinrDb: Float?,
+    batteryPercent: Float?,
+    modifier: Modifier = Modifier,
+) {
+    val parts = buildList {
+        fixQuality?.let { add(it) }
+        satellitesUsed?.let { add("${it.roundToInt()} sats") }
+        sinrDb?.let { add("SINR ${it.roundToInt()} dB") }
+        batteryPercent?.let { add("${it.roundToInt()} %") }
+    }
+    if (parts.isEmpty()) return
+    Text(
+        parts.joinToString(" · "),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.fillMaxWidth(),
+    )
 }
 
 data class HealthChip(val name: String, val healthy: Boolean)

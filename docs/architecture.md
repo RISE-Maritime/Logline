@@ -383,7 +383,7 @@ all — `AlarmManager` plus a notification channel, re-armed from DataStore on b
 Every screen is built from the same small set of pieces in **`ui/components/Screen.kt`**, so
 navigation and actions sit in the same place on all of them:
 
-- `ScreenScaffold(title, onBack, titleIcon, bottomBar)` — the top bar with a real back arrow. Screens
+- `ScreenScaffold(title, onBack, titleIcon, bottomBar, snackbarHost)` — the top bar with a real back arrow. Screens
   used to print their own headline into the scroll and put "Back" or "Cancel" at the *bottom* of it, so
   leaving one meant scrolling to the end first. The bar uses `enterAlwaysScrollBehavior`, so it leaves
   with the content rather than parking a title over every list, and returns on the first upward flick —
@@ -392,6 +392,16 @@ navigation and actions sit in the same place on all of them:
   bar never hears about it.
 - `FormActions` — Save and Cancel pinned in the bottom bar. Reaching Save on the settings form
   previously took six swipes, on every edit.
+- `LoglineNavBar` and `TopLevel` — the five tabs (Session, Live, Events, Files, Setup) and the bar that draws
+  them. It shares `bottomBar` with `FormActions` rather than adding a second `Scaffold`, because a
+  nested one applies the status-bar inset twice; the slot is safe to share since a screen is either a
+  tab or a form and never both.
+- `ConnectionChip(running, connection)` — **Idle / Connecting / Running / No router**, the whole
+  vocabulary for *global* state. It was written twice before this and the two drifted: the start
+  screen said `Idle` and the live view said `IDLE`, from unrelated implementations.
+- `EmptyState(title, body, primary, secondary)` — one shape for "nothing here yet", where there had
+  been three (a `StatusLine` on the rig list, a centred column on the recordings list, a bare line of
+  body text on the annotation screen).
 - `SectionHeader`, `StatusLine` (icon + colour + text, never colour alone) and `ConfirmDialog`.
 - `Modifier.readAsOneItem(description)` — collapses a row into one TalkBack node, because a subject
   row is five `Text`s that only mean anything together.
@@ -410,6 +420,23 @@ on them — leaving them would have produced a blue app with lavender cards; and
 amber, because it is what `StatusTone.Warning` paints and a cool tertiary sat close enough to primary
 that a warning read as just another blue label. Passing `dynamicColor = true` hands the scheme back to
 the wallpaper.
+
+**Navigation is four tabs, and everything else is pushed on top of one of them.** Home used to carry
+six full-width buttons under its status card — Settings, Live view, Mark event, Rigs, Recordings,
+Checklists — which made the first screen a dashboard and a table of contents at once, and made `Start
+publishing` compete with five controls that do nothing during a run. Those four configuration
+destinations moved to a **Setup** hub (`ui/SetupScreen.kt`), whose rows carry as a subtitle the state
+their old button labels smuggled into themselves (`Rigs · SSRS18` became a row reading *Rigs* over
+*SSRS18*). What is left on Home is one filled button when stopped, and `Live view` / `Mark event` /
+`Stop` when running — observe, annotate, stop, in the order a run is worked in. The first two are tab
+switches duplicated out of the bar deliberately, because the moment being marked is passing while
+somebody hunts for the control.
+
+Two things about this are load-bearing and easy to break. The bar lives in `ScreenScaffold`'s existing
+`bottomBar` slot, so there is still exactly one `Scaffold` handling insets. And the checklist and
+platform sessions are scoped by route *prefix*, so moving Rigs and Checklists under Setup left them
+working — but a route rename would break them silently, since the screen still opens and simply finds
+nothing.
 
 **`MainScreen` is an operational display, not a status page for the plumbing.** Its rows show the
 *measurement* — `Speed over ground  0.2 kn`, `Position  57.4359°N 12.0326°E` — with the rate and the
@@ -449,7 +476,15 @@ dialog and a trip to system settings. A second, request-only launcher backs the 
 permission** button on the IMU-only warning, so the warning offers the fix rather than describing it.
 
 **`SettingsScreen`** is still a pure form — local `remember` state, `onSave`/`onCancel` lambdas, no
-repository access — with Save pinned, sections, and per-field helper text. It compares its edited
+repository access — with Save pinned and per-field helper text. Its twelve flat sections are now
+**six collapsible groups** (General, Connection, Recording, Sensors & media, Collaboration, Advanced),
+only General open by default, following the same rule the start screen's subject groups follow: the
+default is closed and the heading carries the summary. The old section headings survive *inside* each
+group, because they carry the per-section counts (`2/3 imported`) worth reading. The four longest
+explanatory paragraphs moved behind ⓘ via `InfoDialog`; the one-line `SettingSwitch` descriptions
+stayed inline, and the TLS clear-confirm and the battery-optimisation explanation stayed visible
+because both describe things that are hard to undo. Before this the screen was 811 lines and about
+twenty-three paragraphs deep, and it read as a configuration file; it now opens as one screenful. It compares its edited
 `Settings` against `initial` to know whether it is dirty, and a `BackHandler` turns a system-back with
 unsaved edits into *Discard changes?* instead of a silent loss. `validateEndpoint()` checks a typed
 locator as it is typed, and clearing a TLS credential is confirmed, naming what stops working.
@@ -462,12 +497,35 @@ existing override is never hidden.
 It drops the sampling-rate section entirely for an `eventDriven` subject: `log_message` has no stream
 to sample, and a rate control there would be a dial with nothing behind it.
 
-**`AnnotationScreen` is built for one tap with one hand on a moving boat.** The buttons come first and
+**`AnnotationScreen` is built for one tap with one hand on a moving boat.** The buttons already
+published immediately — `onMark` goes straight to `SensorPublisher.mark()` — but that call returns a
+`Boolean` saying whether the mark had anywhere to land, and the screen used to discard it. It now
+shows the answer as a snackbar, because the only other evidence was a row appearing a second later in
+a list below the fold, which is no feedback at all at the moment the button is pressed. Successive
+marks dismiss the previous confirmation rather than queueing: several in quick succession is the
+normal case, and a backlog of stale ones would still be arriving after the moment had passed. The buttons come first and
 they are large, because the moment being marked is passing while you look for them; the note field and
 the list of what has been marked sit below. That list is not a second copy of the recording — it is the
 answer to "did that register", which is the only question left by a button that gives no other
 feedback. Severity is the one thing coloured, and only when it is not routine, so colour still means
 "look at this" the way it does on the main screen.
+
+**Rig calibration is a five-step flow, and the rail is navigation rather than a gate.** The editor was
+one long form that exposed the whole data model at once — identity, zero point, forward axis, sensors,
+and the wire keys — with `frame_transform` and `configuration_json` in the first paragraph above the
+name field. It is now Rig / Zero / Forward / Sensors / Review, with every step reachable at any time
+in any order: a wizard that made somebody walk five screens to fix a typo would be worse than the form
+it replaced. `Next` exists for a first survey and never blocks.
+
+Three details are load-bearing. The step index is hoisted into `App()` beside the draft, because
+editing a sensor pushes another destination and pops back — a `remember` in the screen would return
+you to step 1 having just added a sensor on step 4. Save stays pinned across all five steps rather
+than becoming a step-5 action: `saveEnabled` needs only a name and a valid entity id while
+`isPublishable` additionally needs a sensor, so a half-surveyed rig is legitimately saveable and a
+wizard that only saved at the end would throw away a survey somebody was interrupted in. And the rail
+is disabled while a capture is running, because a twenty-second position capture has somebody standing
+still at a point. The screen also gained the `BackHandler` every other form already had — it was the
+one that discarded unsaved edits to a system-back silently.
 
 **`AnnotationButtonsScreen` is deliberately not part of Settings.** Saving Settings restarts the
 publisher so publishers are redeclared with a new key or QoS; none of that applies to a list of button
@@ -479,8 +537,17 @@ plain form otherwise, with the same `mutableStateListOf` / dirty / `FormActions`
 phone is, whether the data is healthy and what it is doing: the map with a position marker, accuracy
 circle and *two* vectors — course over ground from the fix and heading from the compass, which differ
 by the leeway — then the position line, then speed, course and heading as large readings, then one
-health chip per group. Below that a 30 s / 2 min / 10 min window and a **Pause**, and below that the
-plots, folded into the same sections as the main screen.
+health chip per group. Below that a 30 s / 2 min / 10 min window and a **Pause**, then a **Basic / All** control, and below
+that the plots, folded into the same sections as the main screen.
+
+Three additions there. `VitalsLine` puts satellites, fix kind, cellular SINR and charge on one line
+under the position, so "is this run healthy" no longer costs a scroll into three groups — each part is
+skipped rather than dashed when the platform has not reported it. The health chips became a *filter*:
+they were a read-only readout occupying a row just above the plots, and a tap now narrows to one
+group. And **Basic** plots only `PublishedSubject.featured`, with the count of what it is holding back
+stated beside it so it cannot read as data having gone missing — thirty-nine plots is a page nobody
+scrolls during a run. Card footers carry the unit as well as the range, since the footer is read on
+its own scanning down a column and a bare `12 – 18` says nothing about what it is 12 of.
 
 Four things there are less obvious than they look:
 
