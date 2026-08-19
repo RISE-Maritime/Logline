@@ -114,7 +114,7 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       upward and the number described nothing.
       Verified: 551 JVM tests, 5 instrumented, lint down from 16 categories to 15, and a real run on the
       bumped build publishing 48/48 streams over TLS.)*
-      Done in <sha>.
+      Done in 29f2aa7.
 
 - [ ] **Left deliberately un-bumped, and each wants its own pass.** protobuf 3.25.5 → **4.35.1** is a
       major version: generated-code and runtime compatibility is the whole risk, and this project both
