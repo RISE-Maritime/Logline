@@ -126,11 +126,24 @@ rewritten from the ground up. These are the consequences.
 ## P3 — product
 
 
-- [ ] **Export and import settings.** Provisioning a second phone means retyping realm, entity, source
+- [x] **Export and import settings.** Provisioning a second phone means retyping realm, entity, source
       ids, endpoints, per-subject switches, rates, QoS overrides and the operator identity through the
       settings screen. A JSON export and import (share sheet, or a QR code for the small case) makes a
       fleet reproducible. TLS credentials stay out of it — they are files, and the whole point of the
       backup exclusions is that they should not travel casually.
+      *(2026-08-19: **entity id deliberately does not travel**, against the wording above. It names this
+      hardware on the bus, and two phones sharing one publish on byte-identical keys — so it is absent
+      from `SettingsProfile` entirely, along with `operatorId`, `rigRegistryOrigin`,
+      `rigRegistryVersion` and `batteryExemptionAsked`. An import cannot copy them even by mistake. A
+      profile configures a phone; it does not clone one. Do not "fix" the omission.
+      Verified on the device: the exported file contains none of those five (checked against the
+      phone's real operator UUID read out of DataStore) and no TLS material; importing it back applied
+      cleanly and left the entity id as `phone`; and the QR shown on screen was screenshotted and
+      decoded off the pixels to the connection profile alone. **The camera scanner is the one part
+      never exercised on hardware** — a phone cannot read its own screen, so it needs two devices:
+      show the QR on one, Scan QR on the other, and confirm the endpoints arrive and the entity id does
+      not.)*
+      Done in ceb872b.
 
 - [ ] **Video: `video_compressed`, not WebRTC** — the answer to the old "can we use keelson webrtc for
       video?" question. Upstream's answer for WebRTC is `connectors/mediamtx`, which proxies MediaMTX's
