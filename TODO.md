@@ -59,7 +59,8 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-## Chcklist
+## Checklist
+
  [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
       previous item: a release has now shipped without messages this app builds against, and
       `ChecklistWireTest`'s golden bytes are the only thing pinning them. Reconstructed definitions
@@ -96,22 +97,24 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
       is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
-- [x] **CLAUDE.md's QoS note is stale in the same way** — it says only the three GNSS subjects differ
-      from Zenoh's defaults. It is eight subjects across four profiles today: five `elevated`
-      (`location_fix`, `speed_over_ground_knots`, `course_over_ground_deg`, `heading_magnetic_deg`,
-      `heading_true_north_deg`), two `transient` (`audio`, `image_compressed`), one `background`
-      (`log_message`).
-      *(2026-08-19: fixed — and **the count in this item was stale too**, which is the argument for
-      deriving it rather than writing it down. It is **ten** subjects, not eight: `raw_nmea0183` is
-      `background` and was missed here, and `video_compressed` is `transient` and postdates it. All ten
-      cross-checked against `0.6.0-pre.5`'s `qos.yaml` with no drift.)*
-      Done in f074931.
 
-- [ ] **No instrumented tests at all** — `app/src/androidTest` is an empty directory tree. The 39 JVM
+
+- [x] **No instrumented tests at all** — `app/src/androidTest` is an empty directory tree. The 39 JVM
       tests cover the wire format, the registry, the units and the formatting well; nothing covers a
       screen. A handful of Compose tests over `MainScreen`'s status states (not publishing / publishing
       / disconnected / stalled) would catch the class of regression that currently only shows up on a
       phone.
+      *(2026-08-19: five `MainScreenTest` cases now run on the device — idle, a finished run still
+      reported, publishing, a lost router, and a stalled subject counted in the detail. The count above
+      is stale by an order of magnitude, incidentally: it is 551 JVM tests across 59 classes.
+      **Espresso had to be bumped first.** 3.5.1 reflects on `InputManager.getInstance`, which Android
+      17 no longer has, so every instrumented test died in `Espresso.onIdle` before touching a
+      composable — nothing to do with the tests themselves. espresso-core 3.7.0 and ext-junit 1.3.0.
+      Two things the tests taught: the connection chip is `clearAndSetSemantics`, so what a screen
+      reader gets is "Router Connected" rather than the chip's own text, and that is what the
+      assertions read; and `formatCount` groups digits with U+202F, a narrow no-break space, so an
+      expectation typed with an ordinary space fails in a way that looks like the text being absent.)*
+      Done in <sha>.
 
 - [ ] **Dependency bumps.** Lint reports nine outdated dependencies, five with newer versions
       available, plus an AGP update. Worth one deliberate pass rather than drifting — and zenoh-kotlin
