@@ -85,11 +85,34 @@ rewritten from the ground up. These are the consequences.
       that repo does not. **Leave this open until #202 merges.**)*
 
 
-- [ ] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** The app answers
+- [x] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** *(Reconsidered — planned and done; see below.)* The app answers
       crowsnest's `get_config` probe but is not an RPC server in the interface/version sense, and §3.6's
       **full-interface implementation rule** means declaring the token commits to serving all of
       `configurable/v1`. That is a commitment to make deliberately, not in passing while fixing the
       pubsub tiers. Noted here so the omission is a decision rather than an oversight.
+      *(2026-08-19: **the reading above was too pessimistic, and the work is done.** §3.6 requires a
+      *typed answer* to every procedure, not compliance with every procedure — "never silence" — and
+      names `ErrorResponse` on `reply_err` for interfaces like this one, whose replies carry no
+      `CommandResult`. `configurable/v1` is two procedures; `get_config` was already served and
+      `set_config` is now refused in a way a caller can decode. Verified against the live bus.)*
+      Done in 6f3b071.
+
+- [ ] **`keelson.interfaces.ErrorResponse` has no `UNSUPPORTED` code**, and §3.6 asks for exactly that
+      distinction — a *permanent* structural refusal against a conditional one a caller may retry. The
+      enum offers `PERMISSION_DENIED` ("lock-down rules") and `UNAVAILABLE` ("backend not ready"), and
+      neither says "this will never work". The app uses `PERMISSION_DENIED` and puts the word
+      "permanent" in `error_description`, which is then the only place the distinction survives: a
+      consumer reading the enum alone will offer a retry that can never succeed. Worth an upstream
+      issue against `interfaces/ErrorResponse.proto`, alongside `keelson#201` and `#202`.
+
+- [ ] **The config RPC is served only while a rig screen is open**, because `PlatformSync`'s session is
+      scoped to `route.startsWith("calibration")`. A phone that is *logging* therefore advertises no
+      `configurable/v1` and answers no `get_config` — a fleet tool probing it finds nothing. That is
+      spec-correct (§3.5 forbids holding a token for an interface a source is not currently serving),
+      and the token at least makes the intermittency visible rather than silent, but the interface is
+      unavailable exactly when the phone is most in use. Making it always available means a second
+      Zenoh session open for the life of the app — against the deliberate design note in CLAUDE.md,
+      with a battery cost during runs. A product decision, not a bug.
 
 ## P3 — product
 
