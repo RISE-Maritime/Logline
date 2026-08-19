@@ -48,6 +48,15 @@ data class Settings(
      */
     val backfillEnabled: Boolean = true,
     /**
+     * Whether the battery-optimisation exemption has been asked for, so it is asked **once**.
+     *
+     * Not whether it was granted — that is the system's answer and is read from `PowerManager`, which
+     * is the only thing that can be trusted after a user has been through Android settings. This only
+     * remembers that the question was put, because a prompt on every Start is how a person learns to
+     * dismiss prompts without reading them.
+     */
+    val batteryExemptionAsked: Boolean = false,
+    /**
      * Capture the microphone and publish it as `audio`.
      *
      * **Off by default, and that is a deliberate choice rather than a cautious one.** A phone logging

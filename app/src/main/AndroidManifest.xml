@@ -21,6 +21,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Lets the app put the exemption dialog in front of the user rather than sending them to find
+         this app in a system list. Play policy restricts this permission to a short list of eligible
+         app types; this is an in-house tool that is never published to a store. Asked for at the first
+         Start and never again — see BatteryOptimisation.kt. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Checklist reminders only. AlarmManager forgets everything on reboot, so without this a
          reminder set before a restart never arrives and nothing says why. Deliberately not
          SCHEDULE_EXACT_ALARM: these are inexact by design — see ChecklistReminders. -->

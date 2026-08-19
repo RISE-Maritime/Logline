@@ -941,6 +941,21 @@ people to stop reading the row.
 `ACCESS_BACKGROUND_LOCATION` is deliberately not requested — the service is always started from a
 visible Activity, which is the exemption that makes it unnecessary.
 
+**The battery-optimisation exemption is asked for once, at the first Start.** A foreground service and
+a partial wake lock are enough on a Pixel and are not enough everywhere: several manufacturers' battery
+managers stop an app that has been in the background for hours, which is the shape of every logging
+run. The prompt comes at the first Start rather than at first launch, because nothing is running when
+the app opens and a question about background execution has no context to be understood in there. It is
+asked once whatever the answer — a prompt on every Start is how people learn to dismiss prompts — and
+**Settings → Background running** shows the current state and offers the dialog again, which is the way
+back for anyone who dismissed it. The state is read from `PowerManager` on every resume, because
+nothing announces a change to it.
+
+> The `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission behind that dialog is restricted by Play policy
+> to a short list of eligible app types. This is an in-house tool that is never published to a store;
+> anyone considering publishing it should expect to drop the direct dialog and send users to the system
+> list instead.
+
 ## Verify it is working
 
 From a machine with a Zenoh client, subscribe to everything the phone emits (locators use Zenoh's

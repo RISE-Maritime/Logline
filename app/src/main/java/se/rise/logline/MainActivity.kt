@@ -67,6 +67,8 @@ import se.rise.logline.sensors.AudioProvider
 import se.rise.logline.sensors.sensorCapabilities
 import se.rise.logline.sensors.unavailableSubjects
 import se.rise.logline.publish.PublisherService
+import se.rise.logline.publish.requestBatteryExemption
+import se.rise.logline.publish.isBatteryOptimised
 import se.rise.logline.publish.PublisherStatus
 import se.rise.logline.publish.LiveLatest
 import se.rise.logline.publish.LiveSnapshot
@@ -106,6 +108,13 @@ class MainActivity : ComponentActivity() {
     private var locationGranted by mutableStateOf(false)
 
     /**
+     * Same shape, same reason: the exemption is granted in a system dialog or in Android settings, and
+     * neither tells the app anything. `PowerManager` is the only answer that can be trusted, and the
+     * moment to re-read it is when the user comes back.
+     */
+    private var batteryOptimised by mutableStateOf(false)
+
+    /**
      * The procedure a reminder notification asked for, or null.
      *
      * Held here rather than read from `intent` inside Compose: a tapped notification can arrive while
@@ -125,6 +134,7 @@ class MainActivity : ComponentActivity() {
                 // bar inset twice — a band of dead space above each title.
                 App(
                     locationGranted = locationGranted,
+                    batteryOptimised = batteryOptimised,
                     reminderProcedureId = reminderProcedureId,
                     onReminderHandled = { reminderProcedureId = null },
                     modifier = Modifier.fillMaxSize(),
@@ -142,12 +152,14 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         locationGranted = hasLocationPermission(this)
+        batteryOptimised = isBatteryOptimised(this)
     }
 }
 
 @Composable
 private fun App(
     locationGranted: Boolean,
+    batteryOptimised: Boolean,
     reminderProcedureId: String?,
     onReminderHandled: () -> Unit,
     modifier: Modifier = Modifier,
@@ -178,9 +190,40 @@ private fun App(
         }
     }
 
+    // Nothing to do with the result: the system dialog reports back through onResume, which re-reads
+    // PowerManager. A launcher rather than startActivity so the Activity result plumbing is the same
+    // as everything else here.
+    val batteryExemptionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { }
+
+    /**
+     * Asked at the first Start of a run, and never again.
+     *
+     * Not on first launch: at that point nothing is running, and a prompt about background execution
+     * has no context to be understood in. A run beginning is exactly the moment it means something —
+     * and the moment the answer starts to matter.
+     *
+     * Recorded as asked whether or not it is granted, and through `update` rather than `saveSettings`:
+     * the latter stops and restarts the service to redeclare publishers, which would tear down the run
+     * that has just been started to record the fact that a question was asked.
+     */
+    val askBatteryExemptionOnce: () -> Unit = ask@{
+        val settings = settings ?: return@ask
+        if (settings.batteryExemptionAsked || !isBatteryOptimised(context)) return@ask
+        scope.launch { app.settingsRepository.update(settings.copy(batteryExemptionAsked = true)) }
+        requestBatteryExemption(context) { batteryExemptionLauncher.launch(it) }
+    }
+
+    /** Start a run, then ask the one question that decides whether it survives being left alone. */
+    val startRun: () -> Unit = {
+        PublisherService.start(context)
+        askBatteryExemptionOnce()
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { PublisherService.start(context) }
+    ) { startRun() }
 
     // Separate from the one above on purpose: this one only asks. Granting from the IMU-only warning
     // must not also start a run, and `locationGranted` refreshes in onResume when the dialog closes.
@@ -220,7 +263,7 @@ private fun App(
         val missing = settings?.let(::startupPermissions).orEmpty().filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isEmpty()) PublisherService.start(context) else permissionLauncher.launch(missing.toTypedArray())
+        if (missing.isEmpty()) startRun() else permissionLauncher.launch(missing.toTypedArray())
     }
 
     val current = settings ?: run {
@@ -843,6 +886,12 @@ private fun App(
                 scanning = scanning,
                 scanResults = scanResults,
                 scanMessage = scanMessage,
+                batteryOptimised = batteryOptimised,
+                // The same dialog the first Start offers, so somebody who dismissed it then has a way
+                // back to it that is not a hunt through Android settings.
+                onRequestBatteryExemption = {
+                    requestBatteryExemption(context) { batteryExemptionLauncher.launch(it) }
+                },
                 onScan = { address ->
                     val granted = ContextCompat.checkSelfPermission(
                         context, Manifest.permission.ACCESS_LOCAL_NETWORK

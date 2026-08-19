@@ -58,6 +58,9 @@ fun SettingsScreen(
     /** Why the result list is empty, when it is — an empty scan must not look like a dead button. */
     scanMessage: String?,
     onScan: (String) -> Unit,
+    /** Read from `PowerManager` on every resume — the system never announces a change to this. */
+    batteryOptimised: Boolean,
+    onRequestBatteryExemption: () -> Unit,
     onSave: (Settings) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -364,6 +367,39 @@ fun SettingsScreen(
                 checked = backfillEnabled,
                 onCheckedChange = { backfillEnabled = it },
             )
+
+            SectionHeader("Background running")
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        if (batteryOptimised) "Android may stop long runs" else "Exempt from battery optimisation",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        if (batteryOptimised) {
+                            "The foreground service and wake lock are enough on some phones and not on " +
+                                "others — several manufacturers' battery managers stop an app that has " +
+                                "been in the background for hours, which is the shape of every logging " +
+                                "run. The exemption is the documented way out of that."
+                        } else {
+                            "Android will leave this app running in the background, which is what an " +
+                                "unattended run needs."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (batteryOptimised) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    // Only when there is something to ask for. A button that opens a dialog saying
+                    // "already allowed" is a button that teaches people the screen is not to be
+                    // trusted — and the state above already says so.
+                    if (batteryOptimised) {
+                        OutlinedButton(onClick = onRequestBatteryExemption) { Text("Ask Android to allow it") }
+                    }
+                }
+            }
 
             SectionHeader("Audio")
             SettingSwitch(

@@ -69,6 +69,10 @@ class SettingsRepositoryTest {
         // device slug. A build that confused the two would publish where nothing is listening.
         assertEquals("crowsnest", settings.checklistRealm)
         assertEquals("checklist", settings.checklistEntityId)
+        // Absent means the battery-optimisation question has not been put yet, so the first run asks
+        // it. Defaulting the other way would mean a fresh install silently never asks — and the phones
+        // that need the exemption are exactly the ones nobody is watching.
+        assertEquals(false, settings.batteryExemptionAsked)
     }
 
     // ---- checklist identity ----
@@ -164,6 +168,9 @@ class SettingsRepositoryTest {
             rocSiteId = "deck",
             checklistRealm = "crowsnest",
             checklistEntityId = "checklist",
+            // Set to the non-default here on purpose: it defaults to false, so a version of this test
+            // that left it alone would pass just as well against a write path that never stored it.
+            batteryExemptionAsked = true,
         )
 
         val prefs = mutablePreferencesOf()

@@ -295,6 +295,17 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   exclude list rather than `allowBackup="false"`.
 - **`tcp/127.0.0.1:7447` is the phone's own loopback**, not the dev machine's. Testing against a
   laptop router needs the LAN IP, or `adb reverse tcp:7447 tcp:7447`.
+- **The battery-optimisation prompt is asked once, and recorded with `update()`, never `saveSettings()`.**
+  It fires at the first Start — not first launch, where a question about background execution has
+  nothing running to be about — and `Settings.batteryExemptionAsked` remembers only that it was *asked*,
+  never the answer: whether it was granted comes from `PowerManager` on every resume, which is the only
+  thing a trip through Android settings cannot leave stale. Writing the flag through `saveSettings()`
+  would stop and restart the service to redeclare publishers, i.e. tear down the run that was just
+  started, to record that a question had been put. Note also that `requestBatteryExemption()` launches
+  and catches `ActivityNotFoundException` rather than asking `resolveActivity` first — package
+  visibility on Android 11+ can hide a perfectly launchable activity, which would send some devices
+  down the fallback path for no reason. The permission is Play-policy restricted; that is deliberate
+  and `@SuppressLint("BatteryLife")` says why.
 - **The foreground service type is chosen per start.** `location` when `ACCESS_FINE_LOCATION` is
   granted, `dataSync` (IMU only) when it isn't. `dataSync` carries a ~6 h/24 h cap on Android 15+,
   which is why `PublisherService.onTimeout()` exists — removing it turns a cap into a crash.

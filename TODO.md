@@ -12,12 +12,6 @@ measured as a claim to confirm on a device.
 
 ## P1 — a long unattended run should not lie, and should not die quietly
 
-- [ ] **Ask for a battery-optimisation exemption.** A foreground service and a partial wake lock are
-      enough on a Pixel; several OEM battery managers still kill a multi-hour background run. Standard
-      mitigation is a one-time `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` prompt, shown once, from
-      the same conditional shape as the other permissions — not on first launch, but the first time a
-      run is started.
-
 - [ ] **Start on boot, opt-in.** `RECEIVE_BOOT_COMPLETED` is already declared (the checklist reminders
       need it) and `PublisherService` is already `START_STICKY`, so a process kill resumes — but a
       reboot does not. For a phone left wired into a rig this is the difference between an unattended
