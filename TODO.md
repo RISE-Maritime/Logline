@@ -21,24 +21,6 @@ measured as a claim to confirm on a device.
   is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
 
-- [x] **Lint nits**, all one-liners: two `AutoboxingStateCreation` (`ChecklistScreen.kt:365`,
-  `SensorMountScreen.kt:87` — `mutableIntStateOf` / `mutableLongStateOf`), `UseKtx` in
-  `ChecklistReminders.kt:120` (`String.toUri`), and a `RedundantLabel` in the manifest.
-  `UsableSpace` in `Recorder.kt` is
-  *not* one of these: `getAllocatableBytes` counts clearable cache the recorder cannot actually
-  have, and the floor being predicted is real free space.
-  *(2026-08-19: all four gone — `mutableIntStateOf` / `mutableLongStateOf`, `String.toUri`, and the
-  activity's `android:label` dropped so the launcher falls back to the application's, verified with
-  `aapt2 dump badging`: the activity now reports `label=''` and `application-label:'Logline'` stands.
-  `UsableSpace` left exactly as this item says. What lint still reports is the three deferred version
-  bumps, that `UsableSpace`, `HighSamplingRate` — the app genuinely samples the IMU at 50 Hz — and
-  three `InlinedApi` in `MainActivity`. None of those is a one-liner.)*
-  Done in 0356e27.
-
-
-
-- [ ] **Rename to Logline**: The repo folder on disk is still `KeelsonLogger`.
-
 ## PLatfrom Config 
 
 Left over from the rig library, and each is a finding rather than a fix. All five are filed together
