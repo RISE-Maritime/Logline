@@ -10,7 +10,9 @@ measured as a claim to confirm on a device.
 
 - [ ] **Rename to Logline**: The repo folder on disk is still `KeelsonLogger`.
 
+## P1 
 
+- [ ] The phone should be able to hold multiple calibration rigs at ones as we using multipel rigs when data logging, keelson have something called platforms If you look at crowsenst there is one "own ship slector" or platform selector I think we should be synced with that one. 
 
 ## P2 — subjects this phone could publish and does not
 
@@ -21,13 +23,6 @@ app publishes 34 distinct subjects across 36 registry entries today (`radio_rssi
 and its QoS assignment was checked against `dev` — no drift.
 
 Highest value first:
-
-- [ ] **`location_fix_satellites_used`, `location_fix_satellites_visible`** (`TimestampedInt`) and
-      **`location_fix_quality`** (`keelson.LocationFixQuality`) — from `GnssStatus`, via
-      `LocationManager.registerGnssStatusCallback` (API 30, which is minSdk). "Is this fix any good"
-      is the question a marine log gets asked most often afterwards, and right now the file cannot
-      answer it. `LocationFixQuality` is a message of its own — upstream's
-      `messages/payloads/LocationFixQuality.proto` — so it needs vendoring like the rest.
 
 - [ ] **`location_fix_accuracy_horizontal_m`, `location_fix_accuracy_vertical_m`**
       (`TimestampedFloat`) — `loc.accuracy` and `loc.verticalAccuracyMeters` are already read in

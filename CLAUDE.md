@@ -131,7 +131,7 @@ lite bindings are generated at build time into `app/build/generated/source/proto
 | Local | Upstream |
 | --- | --- |
 | `Envelope.proto` | `../keelson/messages/Envelope.proto` |
-| `Primitives.proto`, `Decomposed3DVector.proto`, `Audio.proto` | `../keelson/messages/payloads/` |
+| `Primitives.proto`, `Decomposed3DVector.proto`, `Audio.proto`, `LocationFixQuality.proto` | `../keelson/messages/payloads/` |
 | `Checklist{Event,State,Presence,Procedure}.proto` | `../keelson/messages/payloads/` |
 | `foxglove/{LocationFix,Quaternion,Vector3,CompressedImage,Log,FrameTransform}.proto` | `../keelson/messages/payloads/foxglove/` |
 
@@ -426,6 +426,17 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   The callback's timestamp is **checked, not trusted**: documented as epoch millis, read as a boot
   clock below `EPOCH_FLOOR_MILLIS`, because the older `GpsStatus.NmeaListener` supplied one and
   publishing it raw dates the stream to 1970. `NmeaTest` pins both branches.
+- **`location_fix_quality` says `FIX_NO` while a position is on the bus, and that is the point.** The
+  fix this app publishes is the *fused* one, which Android will derive from wifi and cell with the GNSS
+  engine solving nothing — and from every other subject that is indistinguishable from a good fix,
+  because a position arrives either way. `fixQualityOf()` reads `usedInFix == 0` as the receiver's own
+  statement that it is not solving, and the satellite count is trusted rather than second-guessed with
+  a threshold of ours: if a receiver marks satellites used, it is solving, which is what the flag
+  means. 2D versus 3D comes from whether the *fix* carried an altitude, shared from the location
+  collector through `lastFixHadAltitude` the same way the declination already is. `rtk_status` and
+  `integrity` are deliberately left unset — Android reports neither, their zero values already mean
+  "not reported", and a plausible guess would be worse than the truth. `GnssStatusTest` pins the
+  mapping, including that the live row's word and the published enum cannot drift apart.
 - **The compass is derived, not a sensor, and three of its four subjects are conditional.**
   `heading_magnetic_deg` is `getOrientation`'s azimuth off `TYPE_ROTATION_VECTOR` — the direction of the
   phone's **+Y axis**, which is meaningless when +Y points at the sky. `heading_true_north_deg` and

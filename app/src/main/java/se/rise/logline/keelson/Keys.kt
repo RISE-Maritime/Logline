@@ -26,6 +26,9 @@ object Subjects {
     const val HEADING_ACCURACY_DEG = "heading_accuracy_deg"
     const val MAGNETIC_VARIATION_DEG = "magnetic_variation_deg"
     const val RAW_NMEA0183 = "raw_nmea0183"
+    const val LOCATION_FIX_SATELLITES_USED = "location_fix_satellites_used"
+    const val LOCATION_FIX_SATELLITES_VISIBLE = "location_fix_satellites_visible"
+    const val LOCATION_FIX_QUALITY = "location_fix_quality"
     const val AIR_PRESSURE_PA = "air_pressure_pa"
     const val ILLUMINANCE_LUX = "illuminance_lux"
 

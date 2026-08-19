@@ -265,6 +265,23 @@ that is what is used when it looks like one; a value below 2001-09-09 is read as
 older `GpsStatus.NmeaListener` supplied and converted, because publishing that raw would date the whole
 stream to 1970 — decodable, plausibly paced, and off by decades.
 
+### How good is the fix
+
+Three subjects answer that, all from `GnssStatus` and all on the same 1 Hz callback:
+`location_fix_satellites_visible`, `location_fix_satellites_used`, and `location_fix_quality`
+(`keelson.LocationFixQuality`).
+
+The gap between visible and used is the reading. Twenty satellites in view and none of them used is a
+phone under a steel deck — and from every other subject that looks exactly like a good fix, because
+Android's fused provider hands back a position either way, derived from wifi and cell if it has to.
+
+That is also why **`FIX_NO` can appear while a position is being published, and is not a
+contradiction**: the fix exists, and it is not a GNSS fix. `FIX_2D` and `FIX_3D` are told apart by
+whether the fix carried an altitude. `pos_type` is `POS_TYPE_SINGLE` when the receiver is solving and
+`POS_TYPE_NO_SOLUTION` when it is not — a phone does single-point positioning and nothing it can
+prove, since no Android API exposes SBAS, RTK or PPP. `rtk_status` and `integrity` are left unset for
+the same reason: their zero values mean "not reported", which is the truth.
+
 ### The compass
 
 `heading_magnetic_deg` is the same rotation vector read as one angle: **degrees clockwise from magnetic

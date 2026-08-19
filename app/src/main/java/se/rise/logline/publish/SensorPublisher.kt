@@ -32,7 +32,10 @@ import se.rise.logline.sensors.BatteryProvider
 import se.rise.logline.sensors.CameraProvider
 import se.rise.logline.sensors.ImuProvider
 import se.rise.logline.sensors.LocationProvider
+import se.rise.logline.sensors.FixKind
+import se.rise.logline.sensors.GnssStatusProvider
 import se.rise.logline.sensors.NmeaProvider
+import se.rise.logline.sensors.fixQualityOf
 import se.rise.logline.sensors.nmeaEpochNanos
 import se.rise.logline.sensors.LocationUpdate
 import se.rise.logline.sensors.RadioProvider
@@ -64,6 +67,7 @@ import keelson.Primitives.TimestampedFloat
 import keelson.Primitives.TimestampedInt
 import keelson.Primitives.TimestampedInt64
 import keelson.Primitives.TimestampedQuaternion
+import keelson.LocationFixQualityOuterClass.LocationFixQuality
 import keelson.Primitives.TimestampedString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -291,6 +295,7 @@ class SensorPublisher(private val appContext: Context) {
                 supervised("location", LOCATION_SUBJECTS) {
                     coroutineScope {
                         launch { runNmea(opened, publishers.of(PublishedSubject.RAW_NMEA0183)) }
+                        launch { runGnssStatus(opened, publishers) }
                         runLocation(opened, publishers, settings)
                     }
                 }
@@ -573,6 +578,17 @@ class SensorPublisher(private val appContext: Context) {
     @Volatile
     private var declinationDegrees: Float? = null
 
+    /**
+     * Whether the last fix carried an altitude, for the fix-quality collector to tell 2D from 3D.
+     *
+     * The same shape as [declinationDegrees] and for the same reason: written by the location
+     * collector, read by another on `Dispatchers.Default`, and null means "no fix yet" — a state the
+     * quality reading has to survive rather than paper over, since before the first fix there is
+     * genuinely nothing to describe.
+     */
+    @Volatile
+    private var lastFixHadAltitude: Boolean? = null
+
     private suspend fun runLocation(
         session: KeelsonSession,
         publishers: Map<PublishedSubject, AdvancedPublisher>,
@@ -685,6 +701,7 @@ class SensorPublisher(private val appContext: Context) {
                     observedAtMillis,
                 ).declination
                 declinationDegrees = declination
+                lastFixHadAltitude = loc.hasAltitude()
                 variationSink.emit(
                     variationPub,
                     timestampedFloat(observedAt, declination).toByteArray(),
@@ -733,6 +750,81 @@ class SensorPublisher(private val appContext: Context) {
                     .setValue(nmea.sentence)
                     .build()
                 sink.emit(publisher, payload.toByteArray(), nmea.sentence.length.toFloat())
+            }
+        }
+    }
+
+    /**
+     * The receiver reporting on itself: how much sky it can hear, how much it is using, and what kind
+     * of solution that adds up to.
+     *
+     * Three subjects off one callback, which is why they share a rate. Like the sentences, nothing here
+     * starts the GNSS engine — `GnssStatus` reports on one that is running, so this lives on the
+     * location collector and goes quiet when that stops.
+     *
+     * The quality payload leaves `rtk_status` and `integrity` unset. Android reports neither, and
+     * their zero values already mean "not reported", which is the truth — see [fixQualityOf] for the
+     * rest of the mapping, including why `FIX_NO` alongside a published position is a real state
+     * rather than a contradiction.
+     */
+    private suspend fun runGnssStatus(
+        session: KeelsonSession,
+        publishers: Map<PublishedSubject, AdvancedPublisher>,
+    ) {
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "ACCESS_FINE_LOCATION not granted; skipping the GNSS status publisher")
+            GNSS_STATUS_SUBJECTS.forEach {
+                statusStore.failed(it, "Location permission was not granted for this run")
+            }
+            return
+        }
+        val visibleSink = SubjectSink(PublishedSubject.SATELLITES_VISIBLE, session)
+        val usedSink = SubjectSink(PublishedSubject.SATELLITES_USED, session)
+        val qualitySink = SubjectSink(PublishedSubject.FIX_QUALITY, session)
+        val visiblePub = publishers.of(PublishedSubject.SATELLITES_VISIBLE)
+        val usedPub = publishers.of(PublishedSubject.SATELLITES_USED)
+        val qualityPub = publishers.of(PublishedSubject.FIX_QUALITY)
+
+        qualitySink.guard {
+            GnssStatusProvider(appContext).status().collect { sample ->
+                // The callback carries no timestamp of its own and describes the receiver's state
+                // right now, so this is one of the few places the observation time genuinely is now.
+                val at = protoTimestamp()
+                visibleSink.emit(
+                    visiblePub,
+                    timestampedInt(at, sample.visible).toByteArray(),
+                    sample.visible.toFloat(),
+                )
+                usedSink.emit(
+                    usedPub,
+                    timestampedInt(at, sample.used).toByteArray(),
+                    sample.used.toFloat(),
+                )
+
+                val quality = fixQualityOf(sample.used, lastFixHadAltitude)
+                val payload = LocationFixQuality.newBuilder()
+                    .setTimestamp(at)
+                    .setFixType(
+                        when (quality.kind) {
+                            FixKind.NoFix -> LocationFixQuality.FixType.FIX_NO
+                            FixKind.TwoD -> LocationFixQuality.FixType.FIX_2D
+                            FixKind.ThreeD -> LocationFixQuality.FixType.FIX_3D
+                        }
+                    )
+                    .setPosType(
+                        // A phone does single-point positioning and nothing else it can prove: no
+                        // SBAS, RTK or PPP is exposed through any Android API, so claiming one would
+                        // be inventing precision. Not solving at all is its own value.
+                        if (quality.solving) {
+                            LocationFixQuality.PosType.POS_TYPE_SINGLE
+                        } else {
+                            LocationFixQuality.PosType.POS_TYPE_NO_SOLUTION
+                        }
+                    )
+                    .build()
+                qualitySink.emit(qualityPub, payload.toByteArray(), quality.kind.ordinal.toFloat())
             }
         }
     }

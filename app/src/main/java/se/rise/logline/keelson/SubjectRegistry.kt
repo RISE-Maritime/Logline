@@ -137,6 +137,35 @@ enum class PublishedSubject(
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
     ),
+    /**
+     * How much of the sky the receiver can hear, and how much of it it is using.
+     *
+     * The gap between the two is the reading: twenty visible and none used is a phone under a steel
+     * deck, and from everywhere else in this app that looks identical to a good fix — a position
+     * arrives either way. These three are what a log gets asked afterwards, when the question is
+     * whether a track can be trusted rather than where it went.
+     *
+     * On `GnssStatus`, which reports on a running engine without starting one, so they ride the fused
+     * request the same way the raw sentences do.
+     */
+    SATELLITES_VISIBLE(
+        subject = Subjects.LOCATION_FIX_SATELLITES_VISIBLE,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
+    SATELLITES_USED(
+        subject = Subjects.LOCATION_FIX_SATELLITES_USED,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
+    FIX_QUALITY(
+        subject = Subjects.LOCATION_FIX_QUALITY,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
     LINEAR_ACCEL(
         subject = Subjects.LINEAR_ACCELERATION_MPSS,
         defaultRate = SensorRate.Hz(50.0),

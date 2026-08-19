@@ -2,6 +2,7 @@ package se.rise.logline.ui
 
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
+import se.rise.logline.sensors.FixKind
 import kotlin.math.abs
 
 /**
@@ -35,6 +36,11 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     // Named for what it is rather than for the subject string: "NMEA" is what anyone on a boat calls
     // it, and the row shows how long the last sentence was, there being no single value in a sentence.
     Subjects.RAW_NMEA0183 -> SubjectLabel("NMEA sentences", "chars")
+    // "Satellites used" reads better than the wire name, and the two rows sit next to each other so
+    // the gap between them — which is the actual reading — is visible at a glance.
+    Subjects.LOCATION_FIX_SATELLITES_VISIBLE -> SubjectLabel("Satellites in view")
+    Subjects.LOCATION_FIX_SATELLITES_USED -> SubjectLabel("Satellites used")
+    Subjects.LOCATION_FIX_QUALITY -> SubjectLabel("Fix quality")
 
     Subjects.LINEAR_ACCELERATION_MPSS -> SubjectLabel("Linear acceleration", "m/s²")
     Subjects.ANGULAR_VELOCITY_RADPS -> SubjectLabel("Angular velocity", "rad/s")
@@ -134,12 +140,20 @@ fun formatLiveValue(entry: PublishedSubject, value: Float): String = when (entry
     Subjects.RADIO_PHYSICAL_CELL_ID,
     Subjects.RADIO_EARFCN -> formatCount(value.toLong())
 
-    // A count of sensors, so a whole number. The general fallback below would render three of them
-    // as "3.00", which reads as a measurement rather than a tally.
-    // A character count, so no decimals: the generic fallback would render a 72-character sentence
-    // as "72.00", which reads as a measurement rather than a length.
+    // Tallies and lengths, not measurements: the general fallback below would render three sensors as
+    // "3.00" and a 72-character sentence as "72.00", which reads as something that was measured.
     Subjects.RAW_NMEA0183,
+    Subjects.LOCATION_FIX_SATELLITES_VISIBLE,
+    Subjects.LOCATION_FIX_SATELLITES_USED,
     Subjects.CONFIGURATION_JSON -> "%.0f".fmt(value)
+
+    // The live value is a [FixKind] ordinal, so the row reads the way a person would say it rather
+    // than as the number the wire carries. Mapped through the enum so the two cannot drift apart.
+    Subjects.LOCATION_FIX_QUALITY -> when (FixKind.entries.getOrNull(value.toInt())) {
+        FixKind.ThreeD -> "3D"
+        FixKind.TwoD -> "2D"
+        else -> "No fix"
+    }
 
     // Everything vector-valued is stored as magnitude; three or four significant figures is all any of
     // these mean.

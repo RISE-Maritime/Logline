@@ -29,6 +29,20 @@ val LOCATION_SUBJECTS = setOf(
     // true in both directions — switch every other GNSS subject off and leave this one on, and the
     // collector stays up, the request stays alive, and the receiver keeps talking.
     PublishedSubject.RAW_NMEA0183,
+    // `GnssStatus` is the same shape of thing: it reports on a running engine and does not start one.
+    PublishedSubject.SATELLITES_VISIBLE,
+    PublishedSubject.SATELLITES_USED,
+    PublishedSubject.FIX_QUALITY,
+)
+
+/**
+ * The three that come off `GnssStatus` rather than off the `Location` — named so the collector can
+ * report a refused permission on all of them at once, the way the fix subjects do.
+ */
+val GNSS_STATUS_SUBJECTS = setOf(
+    PublishedSubject.SATELLITES_VISIBLE,
+    PublishedSubject.SATELLITES_USED,
+    PublishedSubject.FIX_QUALITY,
 )
 
 /** The rotation vector, as a quaternion and as three headings. */
