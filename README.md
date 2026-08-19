@@ -826,6 +826,15 @@ app mid-run: 4709 messages across all 25 channels came back.
 If the queue to the writer ever overflows, the main screen shows a **DROPPED** count. It is never
 hidden — a recording with an unreported hole is worse than one that admits to it.
 
+**The summary stays on screen after Stop.** `Recording saved · 41 203 messages · 38.4 MB · 1 file in
+Downloads/Logline`, with the file name, the folder and `Ran for 01:23:45` behind the tap. It used to
+vanish the instant a run ended, which left "did it actually save?" to be answered with a file manager.
+
+Two things about that line are worth knowing. **`Saved` counts only copies that reached Downloads** —
+a failed copy leaves the file in app storage, recoverable with `adb`, and is reported as a problem
+rather than counted as a save. And the message count and size are **for the last file, not the run**:
+they restart at each 512 MB rotation, which is what the file count is there to complete.
+
 ## Filling in a dropped link
 
 A Zenoh `put` succeeds when there is no router — ~9000 of them landed on an empty bus during a measured

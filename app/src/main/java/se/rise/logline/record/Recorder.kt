@@ -28,9 +28,23 @@ data class RecordingStatus(
     val recording: Boolean = false,
     /** When this run's recording began, for the elapsed clock. 0 when nothing is recording. */
     val startedAtEpochMillis: Long = 0,
+    /**
+     * The file being written, and its figures — **per file, not per run.**
+     *
+     * They restart at every 512 MB rotation, because they belong with `fileName` and answer "how is
+     * this file doing". [filesCompleted] is the run-level number, and the two are read together.
+     */
     val fileName: String? = null,
     val messagesWritten: Long = 0,
     val bytesWritten: Long = 0,
+    /**
+     * Files that reached Downloads/Logline, counted only once the copy succeeded.
+     *
+     * The last file counts too — it did not use to, so an ordinary run that never reached a rotation
+     * ended with this at zero having written and saved a file perfectly well. A failed copy is
+     * deliberately not counted: the file is still in app storage and recoverable, and a screen saying
+     * it was saved is how somebody comes to wipe the phone with the run still on it.
+     */
     val filesCompleted: Int = 0,
     /**
      * Samples the queue could not accept.
@@ -171,8 +185,9 @@ class Recorder(private val appContext: Context) {
                 }
                 if (session.shouldRotate()) {
                     session.close()
-                    publish(session.path)
-                    _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+                    if (publish(session.path)) {
+                        _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+                    }
                     session = openSession(descriptor, maxBytes) ?: return
                 }
             }
@@ -180,8 +195,15 @@ class Recorder(private val appContext: Context) {
             Log.e(TAG, "recording stopped", t)
             _status.update { it.copy(error = t.message ?: t.javaClass.simpleName) }
         } finally {
+            // The last file counts too. It used to not: `filesCompleted` was incremented at rotation
+            // only, so an ordinary run — one that never reached 512 MB — ended having written and saved
+            // a file while the screen said nothing had been saved at all.
             runCatching { session.close() }
-            runCatching { publish(session.path) }
+            val saved = runCatching { publish(session.path) }.getOrDefault(false)
+            if (saved) _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+            // Only the count. `fileName`, `messagesWritten` and `bytesWritten` describe the last file
+            // that actually took a sample, and after a rotation the final session can be empty — so
+            // restating them here would replace a real file's figures with an empty one's zeroes.
         }
     }
 
@@ -216,20 +238,29 @@ class Recorder(private val appContext: Context) {
         }
     }
 
-    /** Copy a finished file into Downloads, where the user can actually get at it, then delete it. */
-    private fun publish(file: File) {
-        if (!file.exists() || file.length() == 0L) return
-        try {
+    /**
+     * Copy a finished file into Downloads, where the user can actually get at it, then delete it.
+     *
+     * Returns whether it arrived — which is what [RecordingStatus.filesCompleted] counts, because that
+     * number is read as the answer to "did it save?". Counting the copies that failed would be worse
+     * than counting nothing: the file is still recoverable from app storage, and a screen claiming it
+     * was saved is how somebody comes to wipe the phone with the run still on it.
+     */
+    private fun publish(file: File): Boolean {
+        if (!file.exists() || file.length() == 0L) return false
+        return try {
             saveToDownloads(appContext, file.name, "application/octet-stream") { out ->
                 file.inputStream().use { it.copyTo(out) }
             }
             file.delete()
             Log.i(TAG, "published ${file.name} to Downloads/Logline")
+            true
         } catch (t: Throwable) {
             // Keep the local file if publishing failed — it is still recoverable with adb, whereas
             // deleting it would lose the run outright.
             Log.e(TAG, "could not publish ${file.name} to Downloads; leaving it in app storage", t)
             _status.update { it.copy(error = "could not save to Downloads: ${t.message}") }
+            false
         }
     }
 

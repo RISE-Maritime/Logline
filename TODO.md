@@ -12,12 +12,6 @@ measured as a claim to confirm on a device.
 
 ## P1 — a long unattended run should not lie, and should not die quietly
 
-- [ ] **The recording vanishes from the screen the moment you press Stop.** The recording card is
-      rendered only while `recording.recording` is true, so the last thing a run tells you — file name,
-      message count, size, that it was copied to Downloads/Logline — disappears at exactly the moment
-      somebody wants to read it. A short post-run summary (duration, samples published, files written
-      and where they went) would answer "did it save?" without a file manager.
-
 - [ ] **The notification's sample count is ungrouped.** `strings.xml` has `notification_samples` as
       `%1$d samples`, so the lock screen reads `681204 samples` while every other surface in the app
       reads `681 204`. `formatCount` is right there. (Lint also flags this string as a plurals
@@ -128,6 +122,13 @@ Highest value first:
       `adb logcat -s BootReceiver:V SensorPublisher:V`. The specific risk is that the run is refused
       with a `ForegroundServiceStartNotAllowedException` even as a `location` service, which would put
       "boot starts are not possible at all on Android 15+" in place of the current design.
+
+- [ ] **Samples queued at Stop are dropped rather than drained.** `Recorder.stop()` closes the queue
+      and then `cancelAndJoin`s the drain scope, and cancellation beats the `for (sample in queue)`
+      loop's remaining buffered elements — so up to `QUEUE_CAPACITY` samples can be lost from the tail
+      of every recording. In practice the drain keeps up and the queue is nearly empty, which is why
+      nothing has been noticed; it is still a hole the file does not admit to, which is the one thing
+      the recorder is careful about everywhere else. Noticed while adding the post-run summary.
 
 ## P4 — housekeeping
 

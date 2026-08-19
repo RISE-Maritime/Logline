@@ -2,7 +2,9 @@ package se.rise.logline
 
 import se.rise.logline.publish.ConnectionState
 import se.rise.logline.keelson.PublishedSubject
+import se.rise.logline.publish.PublisherStatus
 import se.rise.logline.publish.PublisherStatusStore
+import se.rise.logline.publish.SubjectStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,6 +18,62 @@ import org.junit.Test
 private const val TICKS = 25_000
 
 class PublisherStatusStoreTest {
+
+    /**
+     * The run length a finished run reports, taken from the samples rather than from a pair of clock
+     * readings — the first sample of any subject to the last of any subject.
+     *
+     * Derived on purpose: a stored start and stop would be a second answer to the same question, free
+     * to disagree with the first, and it would keep counting after every collector had died.
+     */
+    @Test
+    fun `a run spans its first sample to its last`() {
+        val status = PublisherStatus(
+            subjects = mapOf(
+                // The barometer starts first and stops early.
+                PublishedSubject.AIR_PRESSURE to SubjectStatus(
+                    samplesPublished = 10,
+                    firstPublishEpochMillis = 1_000L,
+                    lastPublishEpochMillis = 60_000L,
+                ),
+                // GNSS starts later and runs on, so the span is 1_000 to 300_000.
+                PublishedSubject.LOCATION_FIX to SubjectStatus(
+                    samplesPublished = 10,
+                    firstPublishEpochMillis = 30_000L,
+                    lastPublishEpochMillis = 300_000L,
+                ),
+            ),
+        )
+
+        assertEquals(299_000L, status.publishedSpanMillis)
+    }
+
+    /** A subject that never published has zeroed timestamps, and must not drag the start back to 1970. */
+    @Test
+    fun `a subject that never published is not part of the span`() {
+        val status = PublisherStatus(
+            subjects = mapOf(
+                PublishedSubject.AIR_PRESSURE to SubjectStatus(
+                    samplesPublished = 10,
+                    firstPublishEpochMillis = 100_000L,
+                    lastPublishEpochMillis = 160_000L,
+                ),
+                PublishedSubject.LOCATION_FIX to SubjectStatus(),
+            ),
+        )
+
+        assertEquals(60_000L, status.publishedSpanMillis)
+    }
+
+    @Test
+    fun `a run that published nothing spans nothing`() {
+        assertEquals(0L, PublisherStatus().publishedSpanMillis)
+        assertEquals(
+            0L,
+            PublisherStatus(subjects = mapOf(PublishedSubject.AIR_PRESSURE to SubjectStatus()))
+                .publishedSpanMillis,
+        )
+    }
 
     /**
      * A failure that resolves before it can publish again.

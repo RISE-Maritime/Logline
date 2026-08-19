@@ -63,6 +63,24 @@ data class PublisherStatus(
     operator fun get(subject: PublishedSubject): SubjectStatus = subjects[subject] ?: SubjectStatus()
 
     val totalSamplesPublished: Long get() = subjects.values.sumOf { it.samplesPublished }
+
+    /**
+     * How long this run's samples span — first sample to last, across every subject.
+     *
+     * Derived rather than stored: the per-subject first and last publish times are already kept, and a
+     * separate pair of run timestamps would be a second answer to the same question, free to disagree
+     * with the first. It is also the more honest number for a summary — it measures the data, not how
+     * long a session object existed, so a run whose collectors died an hour ago does not claim the
+     * hour. Zero until something has been published.
+     */
+    val publishedSpanMillis: Long
+        get() {
+            val first = subjects.values
+                .filter { it.firstPublishEpochMillis > 0 }
+                .minOfOrNull { it.firstPublishEpochMillis } ?: return 0
+            val last = subjects.values.maxOfOrNull { it.lastPublishEpochMillis } ?: return 0
+            return (last - first).coerceAtLeast(0)
+        }
 }
 
 /**

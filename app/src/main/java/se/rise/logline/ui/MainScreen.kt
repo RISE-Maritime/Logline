@@ -282,7 +282,15 @@ private fun StatusCard(
                     text = "Not publishing",
                     tone = StatusTone.Neutral,
                     detail = if (status.totalSamplesPublished > 0) {
-                        "Last run published ${formatCounted(status.totalSamplesPublished, "sample")}."
+                        buildString {
+                            append("Last run published ")
+                            append(formatCounted(status.totalSamplesPublished, "sample"))
+                            // The span of the data, not of the session — see publishedSpanMillis. Left
+                            // off when there is only one sample to span, where it would read 00:00:00.
+                            val span = status.publishedSpanMillis
+                            if (span >= 1_000L) append(" over ${duration(span)}")
+                            append(".")
+                        }
                     } else {
                         "Start to put this phone's sensors on the bus."
                     },
@@ -305,20 +313,38 @@ private fun StatusCard(
                 )
             }
 
-            if (recording.recording || recording.error != null || recording.dropped > 0) {
+            // Kept on screen after the run, which it did not use to be: the card was gated on
+            // `recording` alone, so the file name, the count and the fact that it reached Downloads all
+            // disappeared at exactly the moment somebody wanted to read them — leaving "did it save?"
+            // to be answered with a file manager.
+            val finishedRecording = !recording.recording &&
+                (recording.messagesWritten > 0 || recording.filesCompleted > 0)
+            if (recording.recording || finishedRecording || recording.error != null || recording.dropped > 0) {
                 StatusLine(
                     text = when {
                         recording.dropped > 0 ->
                             "Recording — ${formatCounted(recording.dropped, "sample")} dropped"
                         recording.error != null -> "Recording problem"
-                        else -> "Recording  ${elapsed(recording.startedAtEpochMillis, nowMillis)}"
+                        recording.recording -> "Recording  ${elapsed(recording.startedAtEpochMillis, nowMillis)}"
+                        // Only once a copy has actually landed in Downloads. `filesCompleted` counts
+                        // successful copies only, so this cannot claim a save that failed.
+                        recording.filesCompleted > 0 -> "Recording saved"
+                        else -> "Recording finished"
                     },
                     tone = when {
                         recording.dropped > 0 || recording.error != null -> StatusTone.Error
                         else -> StatusTone.Neutral
                     },
-                    detail = "${formatCounted(recording.messagesWritten, "message")} · " +
-                        "%.1f MB".fmt(recording.bytesWritten / 1_048_576.0),
+                    detail = buildString {
+                        append(formatCounted(recording.messagesWritten, "message"))
+                        append(" · ")
+                        append("%.1f MB".fmt(recording.bytesWritten / 1_048_576.0))
+                        if (finishedRecording && recording.filesCompleted > 0) {
+                            append(" · ")
+                            append(formatCounted(recording.filesCompleted.toLong(), "file"))
+                            append(" in Downloads/Logline")
+                        }
+                    },
                 )
             }
 
@@ -387,20 +413,29 @@ private fun StatusCard(
                     settings.routerEndpoints.singleOrNull()
                         ?: "${settings.routerEndpoints.size} configured",
                 )
-                if (recording.recording) {
+                if (recording.recording || finishedRecording) {
                     Detail("File", recording.fileName ?: "starting…")
                     Detail("Folder", "Downloads/Logline")
                     // On its own line rather than folded into the headline, so the disk figure is
-                    // readable on a run where the battery is the limit that binds.
-                    Detail(
-                        "Space",
-                        (recording.spaceRuntime as? RuntimeEstimate.Remaining)
-                            ?.let { "${formatRuntimeLeft(it.millis)} left" }
-                            ?: "measuring…",
-                    )
+                    // readable on a run where the battery is the limit that binds. Live only: the
+                    // estimate is cleared at Stop, and a finished run showing "measuring…" would be
+                    // reporting on a drain that is not happening.
+                    if (recording.recording) {
+                        Detail(
+                            "Space",
+                            (recording.spaceRuntime as? RuntimeEstimate.Remaining)
+                                ?.let { "${formatRuntimeLeft(it.millis)} left" }
+                                ?: "measuring…",
+                        )
+                    }
                     if (recording.filesCompleted > 0) {
                         Detail("Saved", formatCounted(recording.filesCompleted.toLong(), "file"))
                     }
+                }
+                // Answers "how long did that run for?" without arithmetic on two clock times. Only
+                // once it is over: while it is running the headline already carries a live clock.
+                if (!status.running && status.publishedSpanMillis >= 1_000L) {
+                    Detail("Ran for", duration(status.publishedSpanMillis))
                 }
                 recording.error?.let { Detail("Error", it) }
                 if (status.replayed > 0) Detail("Replayed", formatCounted(status.replayed, "sample"))
@@ -542,7 +577,18 @@ private fun endingOf(limit: RuntimeLimit): String = when (limit) {
 /** `00:12:34` — how long this recording has been going, which is what a log entry wants. */
 internal fun elapsed(startedAtMillis: Long, nowMillis: Long): String {
     if (startedAtMillis <= 0L) return "00:00:00"
-    val seconds = ((nowMillis - startedAtMillis) / 1000L).coerceAtLeast(0L)
+    return duration(nowMillis - startedAtMillis)
+}
+
+/**
+ * The same clock, for a span that has already finished.
+ *
+ * Not [formatRuntimeLeft], which rounds to the minute because an estimate off a fuel gauge has no
+ * business claiming seconds. This is a measurement, and it should read the way the live clock beside
+ * it reads — a run that says `00:12:34` while going should not become "13 min" the moment it stops.
+ */
+internal fun duration(millis: Long): String {
+    val seconds = (millis / 1000L).coerceAtLeast(0L)
     return "%02d:%02d:%02d".fmt(seconds / 3600, (seconds % 3600) / 60, seconds % 60)
 }
 

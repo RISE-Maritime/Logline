@@ -523,6 +523,17 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   `PublisherStatus.replayLost` carries the run total and is recomputed on every poll *including while
   the gap is open* — reporting it only after the reconnect would mean the one screen anybody looks at
   during an outage says nothing, and then says "Replayed 32 768 samples" as if it had caught up.
+- **`RecordingStatus` outlives the run, and the main screen now shows it.** `Recorder.stop()` flips
+  `recording` to false and leaves every other field standing, which is what makes a post-run summary
+  possible without new state — the card used to be gated on `recording` alone and took the file name,
+  the count and the destination off screen at the moment somebody wanted them. Two traps in there.
+  `filesCompleted` counts **successful copies to Downloads only** — it is the answer to "did it save?",
+  and a failed copy leaves the file recoverable in app storage, so counting it would be how somebody
+  comes to wipe the phone with the run still on it. It also counts the **last** file: it used to be
+  incremented at rotation only, so an ordinary run that never reached 512 MB ended reporting zero files
+  saved having saved one. And `fileName`/`messagesWritten`/`bytesWritten` are **per file, not per run** —
+  they restart at every rotation, which is why the final `_status.update` deliberately touches nothing
+  but the count: an empty final session would otherwise replace a real file's figures with zeroes.
 - **The outbox fills unconditionally, never on `Disconnected`.** `isConnectedToRouter()` reads Zenoh's
   transport table and is polled every 2 s, and Zenoh only empties that table once its keepalive gives
   up — so the state changes *seconds* after samples actually started going nowhere. A buffer gated on
