@@ -72,6 +72,10 @@ fun policyQosForSubject(subject: String): QosProfile = when (subject) {
     // `log_message: background` upstream — "raw passthrough, logging and audit trails. Correctness
     // over latency, lowest priority so it never crowds out live data." Reliable, so a mark that is
     // worth making is not shed; DATA_LOW, so making one costs the navigation stream nothing.
+    // `raw_nmea0183: background` upstream, under the same heading and for the same reason — "raw
+    // passthrough, logging and audit trails". Reliable, so a sentence is not shed; DATA_LOW, so a
+    // receiver talking at eight messages a second never crowds out the live navigation data.
+    Subjects.RAW_NMEA0183,
     Subjects.LOG_MESSAGE -> QosProfile.BACKGROUND
     else -> QosProfile.DEFAULT
 }

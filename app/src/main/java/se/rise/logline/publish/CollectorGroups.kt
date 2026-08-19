@@ -23,6 +23,12 @@ val LOCATION_SUBJECTS = setOf(
     PublishedSubject.SPEED_OVER_GROUND,
     PublishedSubject.COURSE_OVER_GROUND,
     PublishedSubject.MAGNETIC_VARIATION,
+    // The raw sentences have their own listener rather than riding the `Location` callback, and still
+    // belong here: nothing in `NmeaProvider` starts the GNSS engine, so the sentences only flow while
+    // this collector's fused request is keeping the chip going. Sharing the group is what makes that
+    // true in both directions — switch every other GNSS subject off and leave this one on, and the
+    // collector stays up, the request stays alive, and the receiver keeps talking.
+    PublishedSubject.RAW_NMEA0183,
 )
 
 /** The rotation vector, as a quaternion and as three headings. */

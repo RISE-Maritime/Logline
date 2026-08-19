@@ -90,6 +90,7 @@ class QosTest {
             Subjects.HEADING_MAGNETIC_DEG,
             Subjects.HEADING_TRUE_NORTH_DEG,
             Subjects.LOG_MESSAGE,
+            Subjects.RAW_NMEA0183,
         )
         PublishedSubject.entries
             .filterNot { it.subject in listedUpstream }

@@ -32,6 +32,8 @@ import se.rise.logline.sensors.BatteryProvider
 import se.rise.logline.sensors.CameraProvider
 import se.rise.logline.sensors.ImuProvider
 import se.rise.logline.sensors.LocationProvider
+import se.rise.logline.sensors.NmeaProvider
+import se.rise.logline.sensors.nmeaEpochNanos
 import se.rise.logline.sensors.LocationUpdate
 import se.rise.logline.sensors.RadioProvider
 import se.rise.logline.sensors.ScalarSensorProvider
@@ -283,7 +285,15 @@ class SensorPublisher(private val appContext: Context) {
                 // switching a whole sensor off releases its listener rather than merely dropping its
                 // samples at the sink. The names are matched against COLLECTOR_GROUPS, which a test
                 // holds to covering every registry entry exactly once.
-                supervised("location", LOCATION_SUBJECTS) { runLocation(opened, publishers, settings) }
+                // Two flows, one collector. They are separate Android listeners but a single
+                // lifecycle: see LOCATION_SUBJECTS for why the sentences cannot outlive the fused
+                // request that produces them.
+                supervised("location", LOCATION_SUBJECTS) {
+                    coroutineScope {
+                        launch { runNmea(opened, publishers.of(PublishedSubject.RAW_NMEA0183)) }
+                        runLocation(opened, publishers, settings)
+                    }
+                }
                 supervised("accel", setOf(PublishedSubject.LINEAR_ACCEL)) {
                     runAccel(opened, publishers.of(PublishedSubject.LINEAR_ACCEL), settings.imuSource, settings.rate(Subjects.LINEAR_ACCELERATION_MPSS))
                 }
@@ -680,6 +690,49 @@ class SensorPublisher(private val appContext: Context) {
                     timestampedFloat(observedAt, declination).toByteArray(),
                     declination,
                 )
+            }
+        }
+    }
+
+    /**
+     * The GNSS chip's own sentences, passed through untouched.
+     *
+     * Nothing here starts the GNSS engine — [NmeaProvider] only listens to one that is already
+     * running, which on this app means the location collector's fused request. So this subject can be
+     * switched on with every other GNSS subject off and go quiet a few seconds later, which is honest:
+     * there is no receiver talking.
+     *
+     * The value retained for the live view is the sentence's **length**, because a sentence has no
+     * single number in it and a row that plotted, say, the fix quality would be plotting one sentence
+     * type and ignoring the rest. Length at least moves with what the receiver is saying.
+     */
+    private suspend fun runNmea(session: KeelsonSession, publisher: AdvancedPublisher) {
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "ACCESS_FINE_LOCATION not granted; skipping the NMEA publisher")
+            statusStore.failed(
+                PublishedSubject.RAW_NMEA0183,
+                "Location permission was not granted for this run",
+            )
+            return
+        }
+        val sink = SubjectSink(PublishedSubject.RAW_NMEA0183, session)
+        sink.guard {
+            NmeaProvider(appContext).sentences().collect { nmea ->
+                // The callback's own instant, not now: sentences arrive in bursts once per fix, and
+                // stamping them at publish time would spread one fix's worth across the gaps between
+                // them. See `nmeaEpochNanos` for why the value is checked rather than trusted.
+                val observedAtNanos = nmeaEpochNanos(
+                    timestampMillis = nmea.timestampMillis,
+                    elapsedNanosNow = SystemClock.elapsedRealtimeNanos(),
+                    wallMillisNow = System.currentTimeMillis(),
+                )
+                val payload = TimestampedString.newBuilder()
+                    .setTimestamp(protoTimestamp(observedAtNanos))
+                    .setValue(nmea.sentence)
+                    .build()
+                sink.emit(publisher, payload.toByteArray(), nmea.sentence.length.toFloat())
             }
         }
     }

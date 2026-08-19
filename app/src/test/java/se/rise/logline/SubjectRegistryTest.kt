@@ -108,6 +108,7 @@ class SubjectRegistryTest {
                 "location_fix",
                 "speed_over_ground_knots",
                 "course_over_ground_deg",
+                "raw_nmea0183",
                 "linear_acceleration_mpss",
                 "angular_velocity_radps",
                 "orientation_quaternion",

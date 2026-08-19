@@ -10,7 +10,7 @@ measured as a claim to confirm on a device.
 
 - [ ] **Rename to Logline**: The repo folder on disk is still `KeelsonLogger`.
 
-## P1 — a long unattended run should not lie, and should not die quietly
+
 
 ## P2 — subjects this phone could publish and does not
 
@@ -21,14 +21,6 @@ app publishes 34 distinct subjects across 36 registry entries today (`radio_rssi
 and its QoS assignment was checked against `dev` — no drift.
 
 Highest value first:
-
-- [ ] **`raw_nmea0183`** (`keelson.TimestampedString`) — Android hands the GNSS chip's raw sentences
-      straight out through `LocationManager.addNmeaListener` / `OnNmeaMessageListener`, under the
-      `ACCESS_FINE_LOCATION` this app already holds. That is a phone acting as a plain NMEA source on
-      the bus, which is what most of the rest of the fleet speaks, and it carries DOP, fix quality and
-      satellite detail that the fused `Location` object throws away. Rate is the phone's fix rate, so
-      the cost is small. Note the sentences are the *chip's*, not the fused position — which is a
-      feature: it is the only unfiltered GNSS this app can offer.
 
 - [ ] **`location_fix_satellites_used`, `location_fix_satellites_visible`** (`TimestampedInt`) and
       **`location_fix_quality`** (`keelson.LocationFixQuality`) — from `GnssStatus`, via
@@ -124,6 +116,13 @@ Highest value first:
       of every recording. In practice the drain keeps up and the queue is nearly empty, which is why
       nothing has been noticed; it is still a hole the file does not admit to, which is the one thing
       the recorder is careful about everywhere else. Noticed while adding the post-run summary.
+
+- [ ] **Confirm the Pixel 6 actually emits NMEA.** `raw_nmea0183` is implemented and unit-tested, but
+      no sentence has been seen: it needs a publishing run, and `addNmeaListener` delivers only while
+      something is requesting position. Worth checking on the first run — the subject's row rate, and
+      `adb logcat -s SensorPublisher:V` — because a receiver that reports nothing looks identical to a
+      collector that failed to register, and the two want different fixes. Check the timestamp branch
+      while there: sentences dated to 1970 mean the callback is on the boot clock after all.
 
 ## P4 — housekeeping
 

@@ -241,6 +241,30 @@ world frame — x east, y north, z up — so it is what converts the readings ab
 ones. Everything else is direction-free: the scalars carry no axis, `location_fix` is WGS-84, and
 `course_over_ground_deg` is degrees clockwise from true north.
 
+### The raw sentences
+
+`raw_nmea0183` carries what the GNSS chip actually said, sentence by sentence, exactly as it said it.
+Everything else this app publishes about position comes from Android's **fused** provider — GNSS
+blended with wifi and cell, handed back as a `Location` with fix quality, DOP, satellite count and
+constellation already discarded. The sentences carry all of it, in the form the rest of the fleet
+already speaks, which makes the phone a plain NMEA source like any other box on the boat.
+
+Several arrive per fix — a typical receiver emits GGA, RMC, GSA, VTG and a handful of GSV each second
+— so at the 1 Hz default this is the busiest GNSS subject by message count and among the smallest by
+bytes. Upstream puts it on the `background` QoS profile: reliable, so a sentence is not shed, and
+`DATA_LOW`, so a talkative receiver never crowds out live navigation data.
+
+Two things follow from how Android exposes it. **Nothing here starts the GNSS engine** — the listener
+only hears one that is already running, which is the location collector's own request. So this subject
+shares that collector: switch every other GNSS subject off and leave this one on, and the request stays
+alive and the receiver keeps talking. Switch *all* of them off and the sentences stop a few seconds
+later, which is honest — there is no receiver running to quote.
+
+And the callback's timestamp is **checked, not trusted**. It is documented as epoch milliseconds and
+that is what is used when it looks like one; a value below 2001-09-09 is read as the boot clock the
+older `GpsStatus.NmeaListener` supplied and converted, because publishing that raw would date the whole
+stream to 1970 — decodable, plausibly paced, and off by decades.
+
 ### The compass
 
 `heading_magnetic_deg` is the same rotation vector read as one angle: **degrees clockwise from magnetic

@@ -32,6 +32,9 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     Subjects.SPEED_OVER_GROUND_KNOTS -> SubjectLabel("Speed over ground", "kn")
     Subjects.COURSE_OVER_GROUND_DEG -> SubjectLabel("Course over ground", "°")
     Subjects.MAGNETIC_VARIATION_DEG -> SubjectLabel("Magnetic variation", "°")
+    // Named for what it is rather than for the subject string: "NMEA" is what anyone on a boat calls
+    // it, and the row shows how long the last sentence was, there being no single value in a sentence.
+    Subjects.RAW_NMEA0183 -> SubjectLabel("NMEA sentences", "chars")
 
     Subjects.LINEAR_ACCELERATION_MPSS -> SubjectLabel("Linear acceleration", "m/s²")
     Subjects.ANGULAR_VELOCITY_RADPS -> SubjectLabel("Angular velocity", "rad/s")
@@ -133,6 +136,9 @@ fun formatLiveValue(entry: PublishedSubject, value: Float): String = when (entry
 
     // A count of sensors, so a whole number. The general fallback below would render three of them
     // as "3.00", which reads as a measurement rather than a tally.
+    // A character count, so no decimals: the generic fallback would render a 72-character sentence
+    // as "72.00", which reads as a measurement rather than a length.
+    Subjects.RAW_NMEA0183,
     Subjects.CONFIGURATION_JSON -> "%.0f".fmt(value)
 
     // Everything vector-valued is stored as magnitude; three or four significant figures is all any of

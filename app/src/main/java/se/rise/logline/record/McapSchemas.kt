@@ -27,6 +27,7 @@ internal val subjectSchemaNames: Map<String, String> = mapOf(
     Subjects.AUDIO to "keelson.Audio",
     Subjects.IMAGE_COMPRESSED to "foxglove.CompressedImage",
     Subjects.FRAME_TRANSFORM to "foxglove.FrameTransform",
+    Subjects.RAW_NMEA0183 to "keelson.TimestampedString",
     Subjects.CONFIGURATION_JSON to "keelson.TimestampedString",
     Subjects.LOG_MESSAGE to "foxglove.Log",
     Subjects.BATTERY_STATE_OF_CHARGE_PCT to "keelson.TimestampedFloat",

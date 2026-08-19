@@ -416,6 +416,16 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   defeated the point. Also note the unit needs **no conversion** — Android reports lux and the subject
   is lux, which is the exception to the rule below.
 
+- **`raw_nmea0183` shares the location collector, and `rateOwner` is what forces that.** It has its own
+  Android listener rather than riding the `Location` callback, so it looks like a candidate for a
+  collector of its own — `CollectorGroupsTest` rejects that, and rightly: a subject that follows
+  another's rate has to share its lifecycle. Here the reason is physical. `NmeaProvider` does not start
+  the GNSS engine, it only hears one that is running, and the fused request in `runLocation` is what
+  keeps the chip talking. Sharing the group makes that work in both directions — NMEA alone keeps the
+  collector and the request alive, and switching every GNSS subject off stops the sentences too.
+  The callback's timestamp is **checked, not trusted**: documented as epoch millis, read as a boot
+  clock below `EPOCH_FLOOR_MILLIS`, because the older `GpsStatus.NmeaListener` supplied one and
+  publishing it raw dates the stream to 1970. `NmeaTest` pins both branches.
 - **The compass is derived, not a sensor, and three of its four subjects are conditional.**
   `heading_magnetic_deg` is `getOrientation`'s azimuth off `TYPE_ROTATION_VECTOR` — the direction of the
   phone's **+Y axis**, which is meaningless when +Y points at the sky. `heading_true_north_deg` and

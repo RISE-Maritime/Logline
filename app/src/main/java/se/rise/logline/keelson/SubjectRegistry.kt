@@ -119,6 +119,24 @@ enum class PublishedSubject(
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
     ),
+    /**
+     * The receiver's own sentences, which is the only unfiltered GNSS this app can offer.
+     *
+     * Everything above comes from the *fused* provider — GNSS blended with wifi and cell, handed back
+     * as a `Location` with fix quality, DOP and satellite detail already discarded. These carry all of
+     * it, and in the form the rest of the fleet already speaks.
+     *
+     * Rides `location_fix` because the chip sets the pace and the fused request is what sets the chip
+     * going: nothing here starts the GNSS engine, it only listens to one that is running. Several
+     * sentences arrive per fix, so at the 1 Hz default this is the busiest of the GNSS subjects by
+     * message count while being among the smallest by bytes.
+     */
+    RAW_NMEA0183(
+        subject = Subjects.RAW_NMEA0183,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
     LINEAR_ACCEL(
         subject = Subjects.LINEAR_ACCELERATION_MPSS,
         defaultRate = SensorRate.Hz(50.0),

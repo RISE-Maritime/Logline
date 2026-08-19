@@ -25,6 +25,7 @@ object Subjects {
     const val HEADING_TRUE_NORTH_DEG = "heading_true_north_deg"
     const val HEADING_ACCURACY_DEG = "heading_accuracy_deg"
     const val MAGNETIC_VARIATION_DEG = "magnetic_variation_deg"
+    const val RAW_NMEA0183 = "raw_nmea0183"
     const val AIR_PRESSURE_PA = "air_pressure_pa"
     const val ILLUMINANCE_LUX = "illuminance_lux"
 
