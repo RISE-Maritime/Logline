@@ -1,8 +1,10 @@
 # TODO
 
 Outstanding work only, roughly in the order it should be picked up. Finished items are removed rather
-than ticked — what was done, and why it was done that way, is in the git history and in the gotchas in
-[CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where somebody would actually go looking.
+than ticked, **by hand and by the person who asked for the work** — what was done, and why it was done
+that way, is in the git history and in the gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md),
+which is where somebody would actually go looking. Nothing else edits an item here; new findings are
+added to the end of the section they belong to.
 
 Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `dev`, plus lint. Most of
 what is below was found by reading the code rather than running it, so treat anything not marked as
