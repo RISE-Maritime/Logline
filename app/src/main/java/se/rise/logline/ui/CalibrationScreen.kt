@@ -99,6 +99,14 @@ fun CalibrationScreen(
     onEditSensor: (Int) -> Unit,
     onExport: () -> Unit,
     exportMessage: String?,
+    /**
+     * Why this entity id cannot be used, if it cannot.
+     *
+     * Only ever a collision with another rig in the library. It blocks Save rather than warning:
+     * every key this rig publishes on is built from the id, so two rigs sharing one would put two
+     * rigs' geometry on the same three keys and neither would be readable.
+     */
+    entityIdError: String? = null,
     onSave: () -> Unit,
     onClear: () -> Unit,
     onCancel: () -> Unit,
@@ -121,8 +129,10 @@ fun CalibrationScreen(
             FormActions(
                 onSave = onSave,
                 onCancel = onCancel,
-                saveEnabled = dirty && calibration.name.isNotBlank() && calibration.entityId.isNotBlank(),
+                saveEnabled = dirty && calibration.name.isNotBlank() &&
+                    calibration.entityId.isNotBlank() && entityIdError == null,
                 hint = when {
+                    entityIdError != null -> entityIdError
                     calibration.name.isBlank() -> "Give the rig a name first."
                     !calibration.isPublishable -> "Add at least one sensor before this can publish."
                     else -> "Saving restarts publishing so the new geometry goes out."
@@ -178,11 +188,12 @@ fun CalibrationScreen(
                 label = { Text("Rig entity ID") },
                 supportingText = {
                     Text(
-                        "The geometry publishes under this rather than under the phone — it is the " +
-                            "rig the data is about."
+                        entityIdError
+                            ?: ("The geometry publishes under this rather than under the phone — it " +
+                                "is the rig the data is about.")
                     )
                 },
-                isError = calibration.entityId.isBlank(),
+                isError = calibration.entityId.isBlank() || entityIdError != null,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )

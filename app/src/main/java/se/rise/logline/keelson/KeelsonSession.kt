@@ -8,6 +8,8 @@ import io.zenoh.bytes.ZBytes
 import io.zenoh.keyexpr.intoKeyExpr
 import io.zenoh.handlers.Callback
 import io.zenoh.pubsub.Subscriber
+import io.zenoh.query.Query
+import io.zenoh.query.Queryable
 import io.zenoh.query.Reply
 import io.zenoh.query.intoSelector
 import io.zenoh.sample.Sample
@@ -91,6 +93,66 @@ class KeelsonSession private constructor(private val session: Session) {
         return session.declareSubscriber(
             keyExpr,
             Callback<Sample> { sample -> onSample(sample.keyExpr.toString(), sample.payload.toBytes()) },
+        ).getOrThrow()
+    }
+
+    /**
+     * Which entities are alive, from their liveliness tokens.
+     *
+     * The only bus-level enumeration keelson has. There is no subject, interface or well-known key
+     * that lists platforms — the protocol specification's §5 liveliness tiers are it — so discovering
+     * "what is out there" means asking for tokens and reading the entity chunk out of each key.
+     *
+     * Returns the matching token keys. Presence only: a token says a producer is alive and says
+     * nothing about its name, its dimensions or its geometry, all of which have to come from
+     * elsewhere.
+     *
+     * Wrapped in a `Result` rather than throwing because this is the newest native call site in the
+     * app and the least load-bearing: an empty answer costs a nicety on a discovery screen, and
+     * nothing else in the app depends on it.
+     */
+    suspend fun livelinessGet(
+        selector: String,
+        timeout: Duration = QUERY_TIMEOUT,
+    ): Result<List<String>> =
+        runCatching {
+            val keyExpr = selector.intoKeyExpr().getOrThrow()
+            val replies = session.liveliness()
+                .get(keyExpr, Channel<Reply>(Channel.UNLIMITED), timeout)
+                .getOrThrow()
+            val out = mutableListOf<String>()
+            // Zenoh closes the channel when the query finishes or times out, so this terminates.
+            for (reply in replies) {
+                reply.result.getOrNull()?.let { out += it.keyExpr.toString() }
+            }
+            out
+        }
+
+    /**
+     * Answer queries on [key] with bytes computed at reply time.
+     *
+     * **[reply] runs on a Zenoh thread**, like [declareSubscriber]'s callback, so it must do nothing
+     * slow: it is on Zenoh's receive path and a blocked reply blocks more than this query. Reading a
+     * pre-rendered string out of a field is the intended shape.
+     *
+     * `complete = true` declares this queryable as a complete answer for the key rather than a partial
+     * one, which is what a configuration reply is — there is no second responder to merge with.
+     *
+     * Note this is the one place in the app that puts **unwrapped** bytes on the wire. Everything on
+     * pubsub is enclosed in a `core.Envelope`; an RPC reply in keelson's `configurable` interface is
+     * raw JSON (`op.reply_ok(json.dumps(...).encode())` in the Python scaffolding), and wrapping it
+     * would break every consumer that already speaks it.
+     */
+    fun declareQueryable(key: String, reply: () -> ByteArray): Queryable<Unit> {
+        val keyExpr = key.intoKeyExpr().getOrThrow()
+        return session.declareQueryable(
+            keyExpr,
+            Callback<Query> { query ->
+                runCatching {
+                    query.reply(query.keyExpr, ZBytes.from(reply()), encoding = Encoding.APPLICATION_JSON)
+                }
+            },
+            complete = true,
         ).getOrThrow()
     }
 

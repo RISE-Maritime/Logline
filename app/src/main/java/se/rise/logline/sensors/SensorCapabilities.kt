@@ -2,6 +2,7 @@ package se.rise.logline.sensors
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.Sensor
 import android.hardware.SensorManager
 import se.rise.logline.keelson.PublishedSubject
 
@@ -38,6 +39,27 @@ fun sensorCapabilities(context: Context, subject: String): SensorCapabilities {
 }
 
 /**
+ * Android's string type for the IMU's own temperature, as Google's HAL names it.
+ *
+ * There is no platform constant: `TYPE_TEMPERATURE` is deprecated and `TYPE_AMBIENT_TEMPERATURE`
+ * measures the air rather than the chip. A Pixel 6 exposes neither and does expose this — the
+ * LSM6DSR's own sensor, which is what `imu_temperature_celsius` names.
+ */
+const val IMU_TEMPERATURE_STRING_TYPE = "com.google.sensor.gyro_temperature"
+
+/**
+ * That sensor, or null on a device that does not have it.
+ *
+ * Walks the full list because a vendor sensor's numeric type is assigned by the vendor — 65538 here —
+ * and means nothing on another phone. The string is the stable name.
+ */
+fun imuTemperatureSensor(context: Context): Sensor? {
+    val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    return manager.getSensorList(Sensor.TYPE_ALL)
+        .firstOrNull { it.stringType == IMU_TEMPERATURE_STRING_TYPE }
+}
+
+/**
  * Subjects this device has no sensor for.
  *
  * A phone without a barometer still shows an `air_pressure_pa` row, and a row that never publishes is
@@ -55,5 +77,14 @@ fun unavailableSubjects(context: Context): Set<PublishedSubject> {
     return buildSet {
         addAll(bySensor)
         if (noCamera) add(PublishedSubject.IMAGE_COMPRESSED)
+        // Not hardware but an OS version, and the row cannot tell the difference: mean-sea-level
+        // altitude needs API 34, and without this an Android 13 phone would show two rows waiting for
+        // a first sample that can never arrive.
+        // A vendor sensor, so the registry's `sensorType` cannot answer for it — asked directly.
+        if (imuTemperatureSensor(context) == null) add(PublishedSubject.IMU_TEMPERATURE)
+        if (!supportsMslAltitude()) {
+            add(PublishedSubject.ALTITUDE_ABOVE_MSL)
+            add(PublishedSubject.FIX_UNDULATION)
+        }
     }
 }

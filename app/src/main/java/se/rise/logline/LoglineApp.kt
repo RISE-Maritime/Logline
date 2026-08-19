@@ -3,6 +3,7 @@ package se.rise.logline
 import android.app.Application
 import se.rise.logline.checklist.ChecklistRepository
 import se.rise.logline.checklist.ChecklistSync
+import se.rise.logline.platform.PlatformSync
 import se.rise.logline.config.SettingsRepository
 import se.rise.logline.publish.SensorPublisher
 
@@ -26,4 +27,13 @@ class LoglineApp : Application() {
      * when a checklist screen asks for it and closed when the last one leaves.
      */
     val checklist: ChecklistSync by lazy { ChecklistSync(this, checklistRepository) }
+
+    /**
+     * The platform peer: discovery, `get_config`, and the shared rig library.
+     *
+     * Here for the same reason [checklist] is, and with the same lifetime rule — its own Zenoh
+     * session, opened when a rig screen asks for it and closed when the last one leaves. Rigs are
+     * surveyed with logging stopped, so it deliberately shares nothing with [publisher].
+     */
+    val platforms: PlatformSync by lazy { PlatformSync(this) }
 }

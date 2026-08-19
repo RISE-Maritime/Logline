@@ -31,6 +31,16 @@ object Subjects {
     const val LOCATION_FIX_QUALITY = "location_fix_quality"
     const val LOCATION_FIX_ACCURACY_HORIZONTAL_M = "location_fix_accuracy_horizontal_m"
     const val LOCATION_FIX_ACCURACY_VERTICAL_M = "location_fix_accuracy_vertical_m"
+    const val ALTITUDE_ABOVE_MSL_M = "altitude_above_msl_m"
+    const val LOCATION_FIX_UNDULATION_M = "location_fix_undulation_m"
+    const val ROLL_DEG = "roll_deg"
+    const val PITCH_DEG = "pitch_deg"
+    const val YAW_DEG = "yaw_deg"
+    const val ROLL_RATE_DEGPS = "roll_rate_degps"
+    const val PITCH_RATE_DEGPS = "pitch_rate_degps"
+    const val YAW_RATE_DEGPS = "yaw_rate_degps"
+    const val DEVICE_UPTIME_DURATION = "device_uptime_duration"
+    const val IMU_TEMPERATURE_CELSIUS = "imu_temperature_celsius"
     const val AIR_PRESSURE_PA = "air_pressure_pa"
     const val ILLUMINANCE_LUX = "illuminance_lux"
 
@@ -100,9 +110,75 @@ fun pubsubKey(realm: String, entityId: String, subject: String, sourceId: String
 /**
  * Key for a source's liveliness token, per the Keelson protocol specification §5.1.
  *
- * The `*` in the subject position is literal, not a placeholder: one token per *source*, declaring
- * that the process is alive and may produce output on any subject. The spec is explicit that this is
- * a presence signal, not a capability declaration — so this is deliberately not one token per subject.
+ * The `*` is literal, not a placeholder, and it sits in the **category** slot — where `pubsub` or
+ * `@rpc` would be — because source-level presence is category-agnostic. That position is load-bearing:
+ * §5.5 classifies a received token by inspecting the chunk after the entity, so moving this one chunk
+ * along produces a token indistinguishable from [legacyLivelinessKey] and silently mis-tiered.
+ *
+ * One token per producing *identity* — the `(entity_id, source_id)` pair — declaring that the producer
+ * is present, and nothing about what it publishes. Which subjects it claims is the separate
+ * subject-level tier: those tokens are the publisher keys themselves, so there is no function for them
+ * here (see `SensorPublisher.declareLiveliness`).
  */
-fun livelinessKey(realm: String, entityId: String, sourceId: String): String =
+fun sourceLivelinessKey(realm: String, entityId: String, sourceId: String): String =
+    "$realm/@v0/$entityId/*/$sourceId"
+
+/**
+ * The coarse token this app declared before the three-tier structure — specification §5.7.
+ *
+ * Still declared alongside [sourceLivelinessKey], and deliberately: §5.7 asks aggregators to subscribe
+ * to both shapes during the transition window, so an aggregator that has not migrated needs this one
+ * to see the phone at all. It costs one token per source.
+ *
+ * **Delete it once the consumers of operational interest read the three-tier tokens** — for this fleet
+ * that means keelson's `entity_health` connector (which already classifies both) and crowsnest. Note
+ * what upstream does with it in the meantime: `entity_health2keelson.py` counts a `*` subject chunk as
+ * *presence but not advertisement*, so this token alone leaves every subject `NOT_ADVERTISED`. It is a
+ * fallback, not a substitute.
+ */
+fun legacyLivelinessKey(realm: String, entityId: String, sourceId: String): String =
     "$realm/@v0/$entityId/pubsub/*/$sourceId"
+
+/**
+ * Key for a request/reply procedure, per the Keelson protocol specification §3.1:
+ * `{realm}/@v0/{entity_id}/@rpc/{interface}/{version}/{procedure}/{responder_id}`.
+ *
+ * Note that a wildcard never crosses `@rpc` any more than it crosses `@v0`, so RPC discovery needs a
+ * selector that spells both out. Nothing in this app discovers RPCs, but the same rule is why the
+ * chunk positions are pinned by `KeysTest` rather than spelled inline at the call site.
+ */
+fun rpcKey(
+    realm: String,
+    entityId: String,
+    interfaceName: String,
+    version: String,
+    procedure: String,
+    responderId: String,
+): String = "$realm/@v0/$entityId/@rpc/$interfaceName/$version/$procedure/$responderId"
+
+/**
+ * The key crowsnest actually probes for a platform's configuration.
+ *
+ * **Not the specification's shape**, and that is the point of it having its own function. Crowsnest
+ * builds `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` — a pre-interface layout with no
+ * `{interface}/{version}` chunks — in `src/apps/os_config/index.jsx`, and declares it in every entry
+ * of `src/DB/platform_registry.json`. A current keelson connector serves [rpcKey]'s shape and nothing
+ * answers crowsnest's probe.
+ *
+ * The phone serves both so it is useful today and correct later. Drop this one once crowsnest moves.
+ */
+fun legacyPlatformConfigKey(realm: String, entityId: String): String =
+    "$realm/@v0/$entityId/@rpc/get_config/connector_platform"
+
+/**
+ * The `{entity_id}` chunk of a keelson key, or null when the key is not one.
+ *
+ * Split here rather than at the call site for the same reason the builders live here: the position is
+ * protocol, not formatting, and a discovery path that guessed it would report entity ids that are
+ * really subjects. `@v0` is verbatim, so a key not carrying it is not a keelson key at all.
+ */
+fun entityIdFromKey(key: String): String? {
+    val chunks = key.split('/')
+    if (chunks.size < 3 || chunks[1] != "@v0") return null
+    return chunks[2].takeIf { it.isNotBlank() && it != "*" && it != "**" }
+}

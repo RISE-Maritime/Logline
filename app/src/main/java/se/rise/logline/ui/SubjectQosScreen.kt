@@ -171,6 +171,14 @@ fun SubjectQosScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    SensorFrame.DeviceAngle -> Text(
+                        "An angle about one of the phone's own axes — pitch about +X, roll about +Y, " +
+                            "yaw about +Z — not the vessel's. What it means for the boat is the rig " +
+                            "calibration's frame transform.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
                     SensorFrame.Bearing -> Text(
                         "Degrees clockwise from ${if (subject == Subjects.HEADING_TRUE_NORTH_DEG) "true" else "magnetic"} " +
                             "north, of the phone's +Y axis — the top edge, marked below. It is where the " +

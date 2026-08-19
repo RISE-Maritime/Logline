@@ -157,6 +157,10 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     implementation(libs.zenoh.kotlin.android)
+    // Reading platform-geometry documents: imports, bus discovery, the shared library.
+    // Already on the runtime classpath via zenoh-kotlin; declared so the parser's unit
+    // tests run the same implementation the device does. Runtime API only — no plugin.
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.protobuf.javalite)
     implementation(libs.protobuf.kotlin.lite)
     implementation(libs.play.services.location)
@@ -170,6 +174,13 @@ dependencies {
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
+    // `camera-view` is only for the QR scanner's PreviewView — the time-lapse needs no preview at all,
+    // which is why it was not here before.
+    implementation(libs.androidx.camera.view)
+
+    // QR codes, for handing a phone its connection settings without typing them. The pure-Java core:
+    // no Play Services, no scanner Activity, no second camera stack beside CameraX.
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

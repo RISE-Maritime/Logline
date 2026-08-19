@@ -5,6 +5,7 @@ import se.rise.logline.keelson.protoTimestamp
 import core.EnvelopeOuterClass.Envelope
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import se.rise.logline.keelson.protoDuration
 import org.junit.Test
 import java.time.Instant
 
@@ -53,5 +54,46 @@ class EnvelopesTest {
         val parsed = Envelope.parseFrom(enclose(ByteArray(0)))
 
         assertEquals(0, parsed.payload.size())
+    }
+
+    /**
+     * A `Duration` is not a `Timestamp` and the sign rule is the difference.
+     *
+     * `Timestamp` wants a non-negative `nanos` even when `seconds` is negative, so [protoTimestamp]
+     * floors. `Duration` requires both parts to carry the **same** sign, so this truncates. Nothing in
+     * the app produces a negative duration — an uptime cannot run backwards — but a helper that
+     * silently emitted an invalid message for one would be waiting for whoever writes the next
+     * subject that can.
+     */
+    @Test
+    fun `a duration splits into seconds and nanos`() {
+        val oneAndAHalf = protoDuration(1_500L)
+        assertEquals(1L, oneAndAHalf.seconds)
+        assertEquals(500_000_000, oneAndAHalf.nanos)
+
+        val whole = protoDuration(3_600_000L)
+        assertEquals(3_600L, whole.seconds)
+        assertEquals(0, whole.nanos)
+
+        val zero = protoDuration(0L)
+        assertEquals(0L, zero.seconds)
+        assertEquals(0, zero.nanos)
+    }
+
+    /** Both parts negative together, which is what protobuf requires of a negative duration. */
+    @Test
+    fun `a negative duration keeps one sign`() {
+        val back = protoDuration(-1_500L)
+
+        assertEquals(-1L, back.seconds)
+        assertEquals(-500_000_000, back.nanos)
+    }
+
+    /** Three weeks of uptime in milliseconds is well inside a Long, and must not lose precision. */
+    @Test
+    fun `a long uptime survives the conversion`() {
+        val threeWeeks = 21L * 24 * 3_600_000L
+
+        assertEquals(21L * 24 * 3_600L, protoDuration(threeWeeks).seconds)
     }
 }

@@ -293,6 +293,76 @@ whether the fix carried an altitude. `pos_type` is `POS_TYPE_SINGLE` when the re
 prove, since no Android API exposes SBAS, RTK or PPP. `rtk_status` and `integrity` are left unset for
 the same reason: their zero values mean "not reported", which is the truth.
 
+### Which altitude
+
+`location_fix.altitude` is `Location.getAltitude()`, which Android defines as height above the **WGS84
+reference ellipsoid**. Foxglove's proto says only "Altitude in meters", so nothing on the wire says
+which surface it is measured from — and in Sweden the two answers are **30-35 m apart**, which reads
+as a broken sensor rather than as a different reference.
+
+Two subjects settle it. `altitude_above_msl_m` is height above mean sea level, the number anybody
+means by "altitude". `location_fix_undulation_m` is the geoid separation, **N = h − H** — ellipsoidal
+minus mean-sea-level, the standard geodetic sign — so a consumer can convert between the two rather
+than guessing which they were given. It is positive across northern Europe and negative over much of
+the Indian Ocean, which is why it is published rather than assumed.
+
+**Reported when the fix carries it, derived when it does not.** `Location.getMslAltitudeMeters()`
+arrived in API 34 and is an *optional* property of a fix that Android's fused provider commonly omits,
+so a strictly-reported version would be a subject that never publishes on most phones. Where it is
+missing, `AltitudeConverter` fills it in from the same ellipsoidal height. The cost is that a series
+can change provenance between samples — reported on one fix, derived on the next — with no field to
+say which; that is accepted because both describe the same quantity to within the geoid model's own
+accuracy, and the alternative is no series at all.
+
+Below API 34 both rows read **"Not on this device"** rather than waiting for a sample that can never
+arrive. Both are skipped, never zeroed, when there is no value — and that matters more here than
+almost anywhere else in this app, because on a vessel `0.0 m` above sea level is *plausible*, so a
+defaulted zero would not look wrong to anybody reading it later.
+
+### Roll, pitch and yaw
+
+`orientation_quaternion` carries the phone's attitude exactly and unreadably — nobody looks at a plot
+of `w` and knows how much the boat was moving. `roll_deg`, `pitch_deg` and `yaw_deg` are the same
+information in the form a person reads, and they cost nothing to produce: `getOrientation` was already
+computing all three to derive the heading, and two of them were being thrown away. `yaw_deg` is the
+heading in signed ±180° form, which is how an Euler triple is read; `heading_magnetic_deg` is the same
+measurement as a 0-360° compass bearing.
+
+`roll_rate_degps`, `pitch_rate_degps` and `yaw_rate_degps` are the gyro's three axes named and
+converted — `angular_velocity_radps` already carries the same vector in rad/s, but a scalar can be
+plotted and alarmed on where a vector component cannot. **They are body rates, not the derivatives of
+the three angles**: the two agree only near level and diverge exactly where the motion is interesting.
+
+Two things to know before reading any of them:
+
+- **They describe the phone, not the vessel.** Pitch turns about the device's +X axis, roll about +Y,
+  yaw about +Z — Android's own convention, the same one the heading uses. What that means for the boat
+  the phone is strapped to is the rig calibration's `frame_transform`. The subject's own screen says so.
+- **They run at 10 Hz by default, not the IMU's 50.** Their own dial, on their own sensor
+  registration, because riding the rotation vector would have put ~150 messages a second on the bus for
+  three subjects describing motion with a period of seconds. Six subjects at 10 Hz is ~60/s and about
+  13 MB/h.
+
+### IMU temperature, and the sensor Android has no name for
+
+`imu_temperature_celsius` is the temperature of the IMU chip itself — what explains gyro bias drift on
+a phone that has been sitting in the sun. It is the *chip's*, not the air's, and the difference is the
+point: the die runs hotter than what is around it.
+
+Getting it is not what you would expect. `Sensor.TYPE_TEMPERATURE` is deprecated,
+`TYPE_AMBIENT_TEMPERATURE` measures the air, and a **Pixel 6 has neither** — `dumpsys sensorservice`
+lists no `android.sensor.temperature` and no `android.sensor.ambient_temperature` at all. What it does
+list is `com.google.sensor.gyro_temperature`: the LSM6DSR's own sensor, continuous, 1.62–52 Hz, no
+permission. So the sensor is found by **string type**, since a vendor sensor's numeric type is assigned
+by the vendor and means nothing on another phone.
+
+A device without that exact sensor publishes nothing and the row reads "Not on this device". There is
+deliberately **no fallback to the ambient sensor**: publishing air temperature under a subject that
+names the IMU would be a plausible wrong number, and the whole reason to log this one is that the two
+differ. The first reading is checked against the chip's own −40…125 °C range and logged if it falls
+outside — a vendor sensor's scaling is not guaranteed by any contract, and a raw count would arrive
+looking like a temperature.
+
 ### The compass
 
 `heading_magnetic_deg` is the same rotation vector read as one angle: **degrees clockwise from magnetic
@@ -404,6 +474,15 @@ location-gated, and those are not published. The radio technology is inferred fr
 `CellSignalStrength` subclass reports real values, specifically to avoid `getDataNetworkType()` and the
 `READ_PHONE_STATE` it requires.
 
+### Uptime, and why a recording carries it
+
+`device_uptime_duration` is `SystemClock.elapsedRealtime()` on the battery poll — the phone's time
+since boot, deep sleep included, because the phone was up and merely asleep.
+
+It earns its place months later. A gap in a recording has two explanations that are indistinguishable
+from the data — the app was stopped and started, or the phone went down and came back — and for an
+unattended rig they mean very different things. Uptime resetting across the gap says which.
+
 ### Speed and course are always published
 
 `speed_over_ground_knots` and `course_over_ground_deg` go out on **every** fix. When the platform
@@ -485,39 +564,73 @@ running. Measured here: `keelson/**` returned 0 messages over the same window in
 `keelson/@v0/**` returned thousands.
 
 The protocol does this deliberately — the verbatim chunk isolates major versions, so a `@v0` consumer
-can never accidentally receive `@v1` traffic (protocol specification §5.4).
+can never accidentally receive `@v1` traffic (protocol specification §5.8).
 
 ## Liveliness
 
-While publishing, the app declares a Zenoh liveliness token so consumers can discover the phone before
+While publishing, the app declares Zenoh liveliness tokens so consumers can discover the phone before
 its first sample and get a leave event when it goes away — including when the process is killed, since
-Zenoh drops the token with the session. The key follows the
-[protocol specification §5](https://github.com/RISE-Maritime/keelson) convention, with a **literal `*`
-in the subject position**:
+Zenoh drops the tokens with the session. The protocol
+([specification §5](https://github.com/RISE-Maritime/keelson)) structures these into **three tiers**;
+the phone declares two of them, and a transitional third.
+
+**Source tier** — one token per producing `(entity_id, source_id)` identity, saying the process is
+present without saying what it publishes. The `*` is literal and sits in the *category* slot:
 
 ```
-rise/@v0/pixel_6/pubsub/*/phone
-```
-
-One token per *source*, not per subject: it says the process is alive and may produce output on any
-subject, not which subjects it actually publishes. The three configurable source ids all default to
-`phone`, and the two radio links add their own fixed ids, so a default run declares **three** tokens no
-matter how many subjects are published:
-
-```
-rise/@v0/pixel_6/pubsub/*/phone
-rise/@v0/pixel_6/pubsub/*/cellular
-rise/@v0/pixel_6/pubsub/*/wifi
+rise/@v0/pixel_6/*/phone
+rise/@v0/pixel_6/*/cellular
+rise/@v0/pixel_6/*/wifi
 ```
 
 `cellular` and `wifi` are not configurable — they name which radio measured the value, which is a
 hardware fact rather than a preference. Configuring distinct location, IMU and device source ids yields
-one token each on top.
+one token each on top, and each publishing rig adds one under the rig's own entity id.
+
+**Subject tier** — one token per subject the phone claims, on exactly the key that subject publishes on:
+
+```
+rise/@v0/pixel_6/pubsub/location_fix/phone
+rise/@v0/pixel_6/pubsub/angular_velocity_radps/phone
+… ~50 more
+```
+
+This is the tier a health monitor actually needs. Upstream's `entity_health` connector reads a source
+that declares only a coarse token as advertising *nothing* and drops every subject it was watching as
+`NOT_ADVERTISED` — treated as a fault in the monitor's own configuration — so without these tokens a
+perfectly healthy phone contributes nothing to a vessel's health score.
+
+A token is a claim of **capability, not activity**, and the specification forbids withdrawing one
+because data has stopped. `heading_true_north_deg` keeps its token while it waits for the first fix,
+and `log_message` keeps one through a run nobody annotates. Two things do remove a token: hardware the
+device does not have, and **a subject switched off in Settings** — a configuration change rather than
+silence. That is the one place a per-subject switch is visible beyond the phone: switching a subject
+off now withdraws the claim, so a monitor sees it retracted rather than waiting for samples that are
+never coming.
+
+**Legacy coarse token** — the pre-3-tier shape, still declared beside the source tier:
+
+```
+rise/@v0/pixel_6/pubsub/*/phone
+```
+
+The specification asks aggregators to read both shapes during the transition window, so this stays
+until the consumers of interest have migrated. It is a fallback, not a substitute: on its own it leaves
+every subject unadvertised.
 
 ```python
-replies = session.liveliness().get("rise/@v0/pixel_6/pubsub/**")   # currently live
-session.liveliness().declare_subscriber("rise/@v0/**/pubsub/**")   # join/leave events
+# What this phone claims to publish:
+replies = session.liveliness().get("rise/@v0/pixel_6/pubsub/**")
+# Presence of every producer on the bus, any category:
+session.liveliness().declare_subscriber("rise/@v0/*/*/**", callback)
 ```
+
+Note two Zenoh matching facts the specification calls out. A `*` matches exactly one chunk, so patterns
+end in `**` wherever a multi-chunk `source_id` may follow; and wildcards never cross a verbatim chunk,
+so `rise/**` matches nothing at all and RPC-tier tokens need a subscription spelling out `@rpc`. A
+subscriber on `.../pubsub/*/**` also receives the source-level and legacy tokens, whose own wildcards
+intersect `pubsub` — which is why a consumer classifies a token by its literal chunks rather than by
+counting them.
 
 ## Requirements
 
@@ -757,6 +870,78 @@ Nothing about this touches the publish path beyond one lock and two array writes
 to a ring, and the screen pulls a snapshot at 5 Hz. Measured with the view open, the IMU subjects still
 publish at 55.3 Hz and 0.29% of frames were janky.
 
+### The chart, and its layers
+
+The live view opens on a 400dp chart with an **Expand** control that gives it the screen — reading a
+chart and reading numbers are different jobs and neither wants half a display. The layer button offers:
+
+| Layer | Source | Notes |
+| --- | --- | --- |
+| **Map** | OpenStreetMap standard | The default. |
+| **Satellite** | Esri World Imagery | Global, no key. osmdroid's own `USGS_SAT` is the United States only and draws nothing over Sweden. |
+| **Sea marks** | OpenSeaMap | An *overlay*, not a base layer — buoys, lights and seamarks drawn over whichever of the above is showing. |
+
+**Attribution is drawn, and until now it was not.** `CopyrightOverlay` has to be added explicitly;
+osmdroid does not draw the notice on its own, and this map never added one. It reads the current
+source's notice, so it follows the layer — `© OpenStreetMap contributors` or `Esri, Maxar, Earthstar
+Geographics`. Both licences require it.
+
+> Esri's World Imagery is used without a key, as most open-source apps do, with the attribution their
+> terms ask for. Esri's terms nominally expect an ArcGIS account for use in an application, so treat
+> this as a pragmatic default rather than a settled licence — it is one constant in `TrackMap` to
+> change if RISE would rather point at Lantmäteriet or its own imagery.
+
+Note the Esri URL is `/tile/{z}/{y}/{x}` — **row before column**, unlike the `{z}/{x}/{y}` that
+`XYTileSource` builds — which is why it is a custom source. Swap them and every tile still loads, from
+the wrong place.
+
+### Offline maps
+
+The live view's map draws from OpenStreetMap over the network, which at sea is a blank grid. **Settings
+→ Offline map** imports a tile archive — `.mbtiles`, `.gemf`, `.zip` or `.sqlite` — and the map draws
+from it wherever it covers, with online tiles filling in the rest. **Offline tiles only** turns the
+network off for the map entirely: out of coverage the downloader otherwise queues every tile the
+archive does not cover and waits for each to time out.
+
+**The app cannot fetch an area for you, and that is not an omission.** OpenStreetMap's tile usage
+policy forbids bulk downloading, and osmdroid enforces it in code: `TileSourceFactory.MAPNIK` carries
+`FLAG_NO_BULK`, so every `CacheManager` constructor throws `TileSourcePolicyException` for OSM tiles.
+Prepare an archive ashore instead — MOBAC, QGIS or `tilemaker` all produce one — from a source that
+permits it or from your own tile server.
+
+An archive is also the better artefact than a warmed cache. osmdroid's tile cache is an LRU it trims at
+600 MB, so tiles browsed into it can evaporate; an archive is a file and stays until it is removed. It
+lives in app-private storage, is excluded from Android's backups like the recordings are, and competes
+with them for the same volume — a 400 MB archive is 400 MB fewer of recording, which the main screen's
+capacity line will show.
+
+### Setting up a second phone
+
+**Settings → Configuration.** *Export…* writes a JSON profile to `Downloads/Logline`; *Import…* reads
+one back after showing what it will overwrite. *Show QR* and *Scan QR* carry the connection half
+without a file at all, which is the part that is the same across a fleet and tedious to type.
+
+**A profile configures a phone; it does not clone one.** Five fields never travel, and each breaks
+something different if it does:
+
+| Stays behind | Because |
+| --- | --- |
+| `entity_id` | Names *this hardware*. Two phones sharing one publish on byte-identical keys and their samples interleave with nothing to tell them apart. |
+| `operator_id` | De-duplicates this phone's own presence heartbeat coming back on the wildcard subscription. |
+| `rig_registry_origin` | The same job for the rig library: without a distinct origin a phone applies its own library back over itself on every reconnect. |
+| `rig_registry_version` | Sync bookkeeping — an imported version would claim a place in the last-writer-wins ordering it has not earned. |
+| `battery_exemption_asked` | A record that *this* device was asked; a new phone should still be asked. |
+
+The operator's **name, role and site** do travel, with a tick on the import screen to leave them
+behind — right for your own second phone, wrong for provisioning five.
+
+The QR carries the realm, router endpoints, source ids and scout address only. Switched-off subjects,
+rates, QoS overrides and annotation buttons need the file: a QR holds a few hundred bytes, and
+squeezing more in produces a code that will not scan rather than one that carries less.
+
+TLS credentials are in neither. They are files, imported per device, and the whole point of keeping
+them out of Android's backups is that they should not travel casually.
+
 ## Checklists
 
 Optional, off by default. Turn it on under **Checklists** in Settings and give the phone a name and a
@@ -796,9 +981,16 @@ Checklist activity is **not** written to the MCAP recording.
 
 ## Rig calibration
 
-Optional, and nothing publishes until a rig is described. **Rig calibration** on the main screen (while
-stopped) records where a sensor rig's zero point is and where each sensor sits relative to it: X
-forward, Y to starboard, **Z down**, metres, with rotations in degrees applied yaw → pitch → roll.
+Optional, and nothing publishes until a rig is described. **Rigs** on the main screen (while stopped)
+records where a sensor rig's zero point is and where each sensor sits relative to it: X forward, Y to
+starboard, **Z down**, metres, with rotations in degrees applied yaw → pitch → roll.
+
+The phone holds a **library** of rigs, not one. A rig is a keelson *platform* — `entity_id` is the
+platform name — so the list is the counterpart to crowsnest's own-ship selector: one rig is **active**
+(the rig the phone is on), and any number of others can be switched on beside it, because a campaign
+often wants every rig in the water logged and not only the one the phone is bolted to. Each publishing
+rig gets its own publishers, its own keys and its own liveliness token, so changing the selection
+restarts a run — unlike the per-subject switches, which do not.
 
 Offsets are either **typed** — a tape measure, and for a small rig the only honest option — or
 **captured**, by standing the phone at the sensor and averaging twenty seconds of fixes. The screen
@@ -814,6 +1006,18 @@ rise/@v0/ssrs18/pubsub/frame_transform/calibration
 rise/@v0/ssrs18/pubsub/configuration_json/calibration
 rise/@v0/ssrs18/pubsub/location_fix/calibration
 ```
+
+The phone's own sensors are unaffected by which rig is selected: a battery reading is about the phone
+whichever rig it is bolted to, so everything it measures stays under the phone's entity id.
+
+Four things line the library up with crowsnest's platform list, each its own control on the screen:
+**Export all** writes the whole library in crowsnest's registry shape and **Import** reads it back (or
+a single platform-geometry file, or an older `keelson-platforms` `config.json`); **Scan the bus** finds
+platforms already publishing and offers them for adoption; the phone **answers `get_config`** for every
+rig it holds while a rig screen is open; and an opt-in **shared library** publishes the whole list on a
+deliberately non-keelson key, last-writer-wins, where other stations can read it. What each of those
+does and does not carry — and why crowsnest's `get_config` key shape needs the phone to serve two — is
+in [docs/calibration.md](docs/calibration.md).
 
 The third one is the rig's **zero point**, which anchors the transforms to the earth. It is stamped
 with the time it was surveyed rather than the time it was published, sits on a different key from the
@@ -886,6 +1090,24 @@ Two things about that line are worth knowing. **`Saved` counts only copies that 
 a failed copy leaves the file in app storage, recoverable with `adb`, and is reported as a problem
 rather than counted as a save. And the message count and size are **for the last file, not the run**:
 they restart at each 512 MB rotation, which is what the file count is there to complete.
+
+### Getting recordings off the phone
+
+**Recordings → Share** on the main screen, when nothing is running. It lists everything the app has put
+in `Downloads/Logline` — recordings and the rig calibration's platform-geometry export — newest first,
+with size, message count and duration, and offers a share sheet and a delete.
+
+The count and duration come out of each file's own MCAP `Statistics` record, read through the footer:
+two seeks and about forty bytes, so a 74 MB recording costs what a small one does and nothing is
+scanned. A file that says **`no summary`** is not broken — it is a recording rescued from a killed
+process, where `McapRecovery` rebuilt the footer with no statistics section. Every message is there;
+the file simply does not carry a count any more.
+
+The file being written right now is deliberately not in the list: it stays in app-private storage until
+it is closed, and the status card already reports it live.
+
+> Android ties a `Downloads` entry to the app that wrote it, so if this list is ever empty when you know
+> there are files, look in `Downloads/Logline` with a file manager before concluding anything is lost.
 
 ## Filling in a dropped link
 
@@ -1115,12 +1337,14 @@ To pull in upstream changes, copy the files across and rebuild — never hand-ed
 [TODO.md](TODO.md) tracks these alongside the rest of the pending work, prioritised. They are
 deliberate omissions in the current state, not hidden bugs:
 
-- **No QoS profiles.** Keelson's `qos.yaml` assigns priority/congestion/reliability per subject; this
-  app declares plain publishers and gets Zenoh defaults for everything.
-- **No liveliness tokens.** The Keelson protocol expects publishers to declare
-  `{realm}/@v0/{entity_id}/pubsub/*/{source_id}` so consumers can discover them.
-- **`applicationId` is still `se.rise.logline`** — the Android Studio template default.
-- **No real tests.** `ExampleUnitTest` and `ExampleInstrumentedTest` are the stock scaffolding.
+- **No RPC interface liveliness.** The app answers crowsnest's `get_config` probe but does not declare
+  an interface-level token, because §3.6's full-interface rule would commit it to serving all of
+  `configurable/v1`.
+- **No instrumented tests.** 533 JVM tests cover the wire format, the registry, the units and the
+  formatting; `app/src/androidTest` is empty, so nothing covers a screen.
+- **`entity_health` is not published**, deliberately — upstream forbids a connector computing its own.
+  The subject-level liveliness above is what lets an aggregator compute it instead.
+- **Emulators are not usable.** GNSS, IMU and the camera all need a physical device.
 
 ## Related repositories
 

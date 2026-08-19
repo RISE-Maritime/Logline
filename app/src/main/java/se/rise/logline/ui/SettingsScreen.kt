@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.rise.logline.config.Settings
+import se.rise.logline.map.OfflineMap
 import se.rise.logline.config.TlsCredential
 import se.rise.logline.config.TlsCredentialState
 import se.rise.logline.keelson.DiscoveredRouter
@@ -61,6 +62,19 @@ fun SettingsScreen(
     /** Read from `PowerManager` on every resume — the system never announces a change to this. */
     batteryOptimised: Boolean,
     onRequestBatteryExemption: () -> Unit,
+    /** Tile archives already imported, largest first. */
+    offlineMaps: List<OfflineMap>,
+    onImportOfflineMap: () -> Unit,
+    onDeleteOfflineMap: (OfflineMap) -> Unit,
+    /** Why the last import failed, in a sentence, or null. */
+    offlineMapMessage: String?,
+    /** Hand this phone's configuration to another one, or take one from it. */
+    onExportProfile: () -> Unit,
+    onImportProfile: () -> Unit,
+    onShowConnectionQr: () -> Unit,
+    onScanConnectionQr: () -> Unit,
+    /** What the last export or import came to, in a sentence, or null. */
+    profileMessage: String?,
     onSave: (Settings) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -74,6 +88,7 @@ fun SettingsScreen(
     var recordingEnabled by remember { mutableStateOf(initial.recordingEnabled) }
     var backfillEnabled by remember { mutableStateOf(initial.backfillEnabled) }
     var startOnBoot by remember { mutableStateOf(initial.startOnBoot) }
+    var offlineTilesOnly by remember { mutableStateOf(initial.offlineTilesOnly) }
     var audioEnabled by remember { mutableStateOf(initial.audioEnabled) }
     var audioSampleRateHz by remember { mutableIntStateOf(initial.audioSampleRateHz) }
     var audioChannels by remember { mutableIntStateOf(initial.audioChannels) }
@@ -102,6 +117,7 @@ fun SettingsScreen(
         recordingEnabled = recordingEnabled,
         backfillEnabled = backfillEnabled,
         startOnBoot = startOnBoot,
+        offlineTilesOnly = offlineTilesOnly,
         scoutAddress = scoutAddress.trim().ifEmpty { Settings.DEFAULT_SCOUT_ADDRESS },
         audioEnabled = audioEnabled,
         audioSampleRateHz = audioSampleRateHz,
@@ -412,6 +428,67 @@ fun SettingsScreen(
                 }
             }
 
+            SectionHeader("Configuration")
+            Text(
+                "Hand this phone's settings to another one. The file carries everything shareable — " +
+                    "endpoints, source ids, switched-off subjects, rates, QoS overrides, annotation " +
+                    "buttons; the QR carries the connection alone, which is the part that is the same " +
+                    "across a fleet. Neither carries this phone's entity id or its identity on the " +
+                    "bus: a profile configures a phone, it does not clone one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            profileMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onExportProfile, modifier = Modifier.weight(1f)) { Text("Export…") }
+                OutlinedButton(onClick = onImportProfile, modifier = Modifier.weight(1f)) { Text("Import…") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onShowConnectionQr, modifier = Modifier.weight(1f)) { Text("Show QR") }
+                OutlinedButton(onClick = onScanConnectionQr, modifier = Modifier.weight(1f)) { Text("Scan QR") }
+            }
+
+            SectionHeader(
+                "Offline map",
+                trailing = if (offlineMaps.isEmpty()) null else formatBytes(offlineMaps.sumOf { it.sizeBytes }),
+            )
+            Text(
+                "The live view's map draws from OpenStreetMap over the network. Import a tile archive " +
+                    "— .mbtiles, .gemf, .zip or .sqlite — and it draws from that instead wherever the " +
+                    "archive covers, with no network at all. Prepare one ashore for the water you are " +
+                    "going to: OpenStreetMap's own tiles may not be bulk-downloaded, which is why the " +
+                    "app cannot fetch an area for you.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            offlineMapMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+            offlineMaps.forEach { map ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(map.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            formatBytes(map.sizeBytes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { onDeleteOfflineMap(map) }) { Text("Remove") }
+                    }
+                }
+            }
+            OutlinedButton(onClick = onImportOfflineMap) { Text("Import a tile archive…") }
+            SettingSwitch(
+                title = "Offline tiles only",
+                description = "Draw only from imported archives. Out of coverage the downloader still " +
+                    "queues every tile an archive does not cover and waits for each to time out, so " +
+                    "this is what stops a map that has what it needs grinding on the ones it does not.",
+                checked = offlineTilesOnly,
+                onCheckedChange = { offlineTilesOnly = it },
+            )
+
             SectionHeader("Audio")
             SettingSwitch(
                 title = "Record audio",
@@ -655,10 +732,6 @@ internal fun cameraMegabytesPerHour(width: Int, height: Int, framesPerSecond: Do
  * gets somebody a bill. Move it if a real deployment measures otherwise, and move `FormatTest` with it.
  */
 private const val BYTES_PER_PIXEL_Q80 = 0.10
-
-/** The publisher's own bounds, mirrored so the quoted data rate is the one that will actually run. */
-private const val MIN_FRAME_INTERVAL_MILLIS = 500L
-private const val MAX_FRAME_INTERVAL_MILLIS = 600_000L
 
 /** `0.5` reads as `one frame every 2 s`; anything at or above 1 Hz reads as a rate. */
 internal fun formatFrameRate(hz: Double): String = when {

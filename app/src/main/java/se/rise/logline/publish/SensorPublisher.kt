@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.config.SYSTEM_CATEGORY
+import se.rise.logline.calibrate.RigCalibration
 import se.rise.logline.calibrate.normaliseSignedDegrees
 import se.rise.logline.calibrate.toPlatformGeometryJson
 import se.rise.logline.calibrate.toQuaternion
@@ -17,13 +18,17 @@ import se.rise.logline.config.Settings
 import se.rise.logline.config.TlsCredentialStore
 import se.rise.logline.keelson.KeelsonSession
 import se.rise.logline.keelson.PublishedSubject
+import se.rise.logline.keelson.SourceKind
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.diagonalEnuCovariance
 import se.rise.logline.keelson.enclose
-import se.rise.logline.keelson.livelinessKey
+import se.rise.logline.keelson.legacyLivelinessKey
+import se.rise.logline.keelson.protoDuration
 import se.rise.logline.keelson.protoTimestamp
 import se.rise.logline.keelson.pubsubKey
 import se.rise.logline.keelson.qosForSubject
+import se.rise.logline.keelson.sourceLivelinessKey
+import se.rise.logline.keelson.subjectLivelinessKeys
 import se.rise.logline.record.RecordSample
 import se.rise.logline.record.Recorder
 import se.rise.logline.record.RecordingStatus
@@ -32,6 +37,8 @@ import se.rise.logline.sensors.BatteryProvider
 import se.rise.logline.sensors.CameraProvider
 import se.rise.logline.sensors.ImuProvider
 import se.rise.logline.sensors.LocationProvider
+import se.rise.logline.sensors.MslAltitudeResolver
+import se.rise.logline.sensors.undulationMetres
 import se.rise.logline.sensors.FixKind
 import se.rise.logline.sensors.GnssStatusProvider
 import se.rise.logline.sensors.NmeaProvider
@@ -46,10 +53,12 @@ import se.rise.logline.sensors.thumbnail
 import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.hectopascalToPascal
 import se.rise.logline.sensors.metresPerSecondToKnots
+import se.rise.logline.sensors.attitudeRatesOf
 import se.rise.logline.sensors.normaliseHeadingDegrees
 import se.rise.logline.sensors.microteslaToGauss
 import se.rise.logline.sensors.toIntervalMillis
 import se.rise.logline.sensors.toRateUs
+import se.rise.logline.sensors.unavailableSubjects
 import com.google.protobuf.ByteString
 import com.google.protobuf.Timestamp
 import foxglove.CompressedImageOuterClass.CompressedImage
@@ -63,6 +72,7 @@ import io.zenoh.pubsub.AdvancedPublisher
 import keelson.AudioOuterClass.Audio
 import keelson.Decomposed3DVectorOuterClass.Decomposed3DVector
 import keelson.Primitives.TimestampedBool
+import keelson.Primitives.TimestampedDuration
 import keelson.Primitives.TimestampedFloat
 import keelson.Primitives.TimestampedInt
 import keelson.Primitives.TimestampedInt64
@@ -107,6 +117,14 @@ private const val FRAME_ID_FRONT = "camera_front"
 /** Ten seconds is the default; this is only the floor a "Max" rate setting is held to. */
 private const val MIN_CALIBRATION_INTERVAL_MILLIS = 1_000L
 
+/**
+ * The LSM6DSR's own operating range, used only to notice a vendor sensor reporting something that is
+ * not degrees. Deliberately the *chip's* range rather than a comfortable one: −40 °C is a real reading
+ * on a foredeck in winter, and this must not cry wolf about it.
+ */
+private const val MIN_PLAUSIBLE_DIE_CELSIUS = -40f
+private const val MAX_PLAUSIBLE_DIE_CELSIUS = 125f
+
 private const val REPLAY_BATCH = 40
 private const val REPLAY_BATCH_PAUSE_MILLIS = 100L
 
@@ -135,6 +153,24 @@ class SensorPublisher(private val appContext: Context) {
     private var keys: Map<PublishedSubject, String> = emptyMap()
     /** Hoisted out of `start()` so the reconnect flusher can reach a publisher for a buffered entry. */
     private var publishers: Map<PublishedSubject, AdvancedPublisher> = emptyMap()
+
+    /**
+     * One rig's geometry publishers.
+     *
+     * The calibration subjects are the one place the "one publisher per registry entry" rule breaks,
+     * and it breaks for a reason that is not going away: a `PublishedSubject` names an entry, an entry
+     * names a subject, and several *rigs* publish the same three subjects under different entity ids.
+     * There is no entity for `Settings.entityFor` to return, so these three are left out of the global
+     * [keys] and [publishers] maps entirely and built per rig here — which keeps exactly one publisher
+     * per key, as before.
+     */
+    private class RigPublishers(
+        val rig: RigCalibration,
+        val keys: Map<PublishedSubject, String>,
+        val publishers: Map<PublishedSubject, AdvancedPublisher>,
+    )
+
+    private var rigPublishers: List<RigPublishers> = emptyList()
 
     /**
      * Recent samples, for filling in a dropped link. Filled unconditionally — see [OutboxBuffer].
@@ -253,10 +289,12 @@ class SensorPublisher(private val appContext: Context) {
 
                 // One publisher per registry entry, so adding a subject to PublishedSubject is all it
                 // takes to get it declared with the right key and the right QoS.
-                // The entity comes from the registry entry too, not from `settings.entityId` directly:
-                // the rig calibration publishes under the *rig*, everything else under the phone. See
-                // Settings.entityFor.
-                keys = PublishedSubject.entries.associateWith { entry ->
+                //
+                // Every entry except the three calibration ones: those publish under a *rig's* entity
+                // and there may be several rigs, so one entry no longer means one key. They are
+                // declared per rig below — see [RigPublishers].
+                val phoneEntries = PublishedSubject.entries.filter { it.source != SourceKind.CALIBRATION }
+                keys = phoneEntries.associateWith { entry ->
                     pubsubKey(
                         settings.realm,
                         settings.entityFor(entry),
@@ -265,7 +303,7 @@ class SensorPublisher(private val appContext: Context) {
                     )
                 }
 
-                publishers = PublishedSubject.entries.associateWith { entry ->
+                publishers = phoneEntries.associateWith { entry ->
                     opened.declarePublisher(
                         keys.getValue(entry),
                         qosForSubject(entry.subject, settings.qosOverrides),
@@ -273,7 +311,26 @@ class SensorPublisher(private val appContext: Context) {
                 }
                 val publishers = publishers
 
+                rigPublishers = settings.publishingRigs().map { rig ->
+                    val rigKeys = settings.rigKeys(rig)
+                    RigPublishers(
+                        rig = rig,
+                        keys = rigKeys,
+                        publishers = rigKeys.mapValues { (entry, key) ->
+                            opened.declarePublisher(
+                                key,
+                                qosForSubject(entry.subject, settings.qosOverrides),
+                            )
+                        },
+                    )
+                }
+                val rigs = rigPublishers
+
                 declareLiveliness(opened, settings)
+                // The subject tier, on the run's scope: it tracks the per-subject switches, which
+                // change without restarting the run. The rig maps come along because a rig's three
+                // calibration subjects are claimed under the *rig's* entity id, not the phone's.
+                launch { runSubjectLiveliness(opened, listOf(keys) + rigs.map { it.keys }) }
 
                 // One mark at the head of every run, and not only for tidiness: MCAP channels are
                 // registered lazily on the first sample, so a run nobody annotates would have no
@@ -308,6 +365,16 @@ class SensorPublisher(private val appContext: Context) {
                 supervised("orientation", ORIENTATION_SUBJECTS) {
                     runOrientation(opened, publishers, settings.imuSource, settings.rate(Subjects.ORIENTATION_QUATERNION))
                 }
+                supervised("imuTemperature", IMU_TEMPERATURE_SUBJECTS) {
+                    runImuTemperature(opened, publishers.of(PublishedSubject.IMU_TEMPERATURE),
+                        settings.rate(Subjects.IMU_TEMPERATURE_CELSIUS))
+                }
+                supervised("attitude", ATTITUDE_SUBJECTS) {
+                    runAttitude(opened, publishers, settings.imuSource, settings.rate(Subjects.ROLL_DEG))
+                }
+                supervised("attitudeRates", ATTITUDE_RATE_SUBJECTS) {
+                    runAttitudeRates(opened, publishers, settings.rate(Subjects.ROLL_RATE_DEGPS))
+                }
                 supervised("magnetometer", setOf(PublishedSubject.MAGNETIC_FIELD)) {
                     runMagnetometer(opened, publishers.of(PublishedSubject.MAGNETIC_FIELD), settings.imuSource, settings.rate(Subjects.MAGNETIC_FIELD_GAUSS))
                 }
@@ -337,7 +404,7 @@ class SensorPublisher(private val appContext: Context) {
                     runRadio(opened, publishers, settings.rate(Subjects.RADIO_RSRP_DBM))
                 }
                 supervised("calibration", CALIBRATION_SUBJECTS) {
-                    runCalibration(opened, publishers, settings)
+                    runCalibration(opened, rigs, settings)
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "start failed", t)
@@ -368,6 +435,7 @@ class SensorPublisher(private val appContext: Context) {
         scope = null
         session = null
         publishers = emptyMap()
+        rigPublishers = emptyList()
         livelinessTokens = emptyList()
         statusStore.stopped()
         recorder.stop()
@@ -398,31 +466,125 @@ class SensorPublisher(private val appContext: Context) {
     }
 
     /**
-     * One token per distinct (entity, source) pair — the protocol models liveliness per *source*,
-     * while this app publishes under several. The three configurable ids all default to `phone`, and
-     * the two radio links add fixed `cellular` and `wifi` ids, so a default run declares three tokens
-     * no matter how many subjects there are. A calibrated rig adds a fourth, under the rig's own
-     * entity: the pair is what a token identifies, and publishing a rig's geometry under a token that
-     * only ever named the phone would leave a consumer watching the rig with nothing to see.
+     * The source tier — one token per distinct (entity, source) pair, specification §5.1.
+     *
+     * The protocol models presence per *source* while this app publishes under several. The three
+     * configurable ids all default to `phone`, and the two radio links add fixed `cellular` and `wifi`
+     * ids, so a default run declares three source tokens no matter how many subjects there are. A
+     * calibrated rig adds one more under the rig's own entity: the pair is what a token identifies, and
+     * publishing a rig's geometry under a token that only ever named the phone would leave a consumer
+     * watching the rig with nothing to see.
+     *
+     * Each pair also gets the [legacyLivelinessKey] shape, for one release — see that function.
+     *
+     * The **subject** tier is not here: it changes with the per-subject switches while a run is going,
+     * so it lives in [runSubjectLiveliness] on the run's own scope. This half is fixed for the run.
      *
      * Declared for the configured sources even in IMU-only mode: the token says the process is alive,
-     * not that GNSS is flowing (protocol specification §5.1). Failing to declare is not fatal —
-     * liveliness is discovery, not the data path, and a logging run should survive losing it.
+     * not that GNSS is flowing. Failing to declare is not fatal — liveliness is discovery, not the data
+     * path, and a logging run should survive losing it.
      */
     private fun declareLiveliness(session: KeelsonSession, settings: Settings) {
         // Every source this run actually publishes under, taken from the registry rather than listed by
         // hand — otherwise the radio links would publish on keys no liveliness token covers, and a
         // consumer watching for the source would never see it join.
         val sources = PublishedSubject.entries
+            .filter { it.source != SourceKind.CALIBRATION }
             .map { settings.entityFor(it) to settings.sourceFor(it) }
-            .toSet()
-        livelinessTokens = sources.mapNotNull { (entityId, sourceId) ->
-            val key = livelinessKey(settings.realm, entityId, sourceId)
-            try {
-                session.declareLivelinessToken(key)
-            } catch (t: Throwable) {
-                Log.w(TAG, "liveliness token for $key failed; continuing without it", t)
-                null
+            .toMutableSet()
+        // One more pair per publishing rig. The rig entities are not reachable through `entityFor`
+        // any more — several rigs share the three calibration entries — so without this a consumer
+        // watching for a rig would never see it join, even while its geometry was on the bus.
+        settings.publishingRigs().forEach {
+            sources += it.entityId to settings.calibrationSource
+        }
+        val startedAt = SystemClock.uptimeMillis()
+        livelinessTokens = sources
+            .flatMap { (entityId, sourceId) ->
+                listOf(
+                    sourceLivelinessKey(settings.realm, entityId, sourceId),
+                    legacyLivelinessKey(settings.realm, entityId, sourceId),
+                )
+            }
+            .mapNotNull { key -> declareToken(session, key) }
+        Log.i(
+            TAG,
+            "declared ${livelinessTokens.size} source tokens in " +
+                "${SystemClock.uptimeMillis() - startedAt} ms",
+        )
+    }
+
+    /**
+     * One token or none — a failure here costs discovery of one key, never the run.
+     *
+     * Shared by both tiers because the subject tier declares ~52 of these: a throw on the fiftieth
+     * would otherwise take the run down over a key nothing publishes to yet.
+     */
+    private fun declareToken(session: KeelsonSession, key: String): LivelinessToken? = try {
+        session.declareLivelinessToken(key)
+    } catch (t: Throwable) {
+        Log.w(TAG, "liveliness token for $key failed; continuing without it", t)
+        null
+    }
+
+    /**
+     * The subject tier — one token per subject this phone claims, specification §5.2, kept in step with
+     * the per-subject switches for as long as the run lasts.
+     *
+     * **This is what makes the phone legible to a health monitor.** Upstream's `entity_health` connector
+     * reads a source that declares only the coarse token as advertising *nothing*, and drops every
+     * subject it was watching as `NOT_ADVERTISED` — a statement about the monitor's own config — so the
+     * phone contributes nothing to a vessel's score however well it is running. These tokens are what
+     * let it tell "advertised but silent" from "never claimed".
+     *
+     * Collected off [offSubjects] rather than declared once, because the per-subject switches are the
+     * one setting that does not restart the run: a switch that changed nothing on the wire would leave
+     * the phone claiming a subject it has been told to stop publishing. The diff against `held` is what
+     * keeps one switch to one token — rebuilding the set would undeclare and redeclare all fifty-two,
+     * and every consumer would see the whole surface leave and rejoin.
+     *
+     * Note this is the first time a per-subject switch does anything on the wire; see the README.
+     *
+     * Owns its tokens, and `stopInternal()` deliberately does not: the `finally` runs when the run's
+     * scope is cancelled, which is the same moment. Two owners would undeclare the same token twice.
+     */
+    private suspend fun runSubjectLiveliness(
+        session: KeelsonSession,
+        keyMaps: List<Map<PublishedSubject, String>>,
+    ) {
+        val held = mutableMapOf<String, LivelinessToken>()
+        // Fixed for the run: absent hardware has no capability to declare, and a phone does not grow a
+        // barometer mid-run.
+        val unavailable = unavailableSubjects(appContext)
+        try {
+            offSubjects.collect { off ->
+                val wanted = subjectLivelinessKeys(keyMaps, off, unavailable)
+                (held.keys - wanted).forEach { key ->
+                    try {
+                        held.remove(key)?.undeclare()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "liveliness undeclare failed for $key", t)
+                    }
+                }
+                val startedAt = SystemClock.uptimeMillis()
+                val added = (wanted - held.keys).count { key ->
+                    declareToken(session, key)?.also { held[key] = it } != null
+                }
+                if (added > 0) {
+                    Log.i(
+                        TAG,
+                        "declared $added subject tokens in ${SystemClock.uptimeMillis() - startedAt} " +
+                            "ms; ${held.size} claimed",
+                    )
+                }
+            }
+        } finally {
+            held.values.forEach {
+                try {
+                    it.undeclare()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "liveliness undeclare failed", t)
+                }
             }
         }
     }
@@ -619,6 +781,13 @@ class SensorPublisher(private val appContext: Context) {
         val verticalPub = publishers.of(PublishedSubject.ACCURACY_VERTICAL)
         val horizontalSink = SubjectSink(PublishedSubject.ACCURACY_HORIZONTAL, session)
         val verticalSink = SubjectSink(PublishedSubject.ACCURACY_VERTICAL, session)
+        val mslPub = publishers.of(PublishedSubject.ALTITUDE_ABOVE_MSL)
+        val undulationPub = publishers.of(PublishedSubject.FIX_UNDULATION)
+        val mslSink = SubjectSink(PublishedSubject.ALTITUDE_ABOVE_MSL, session)
+        val undulationSink = SubjectSink(PublishedSubject.FIX_UNDULATION, session)
+        // One per run: the converter caches the geoid model, so the first fix pays for loading it and
+        // the rest are cheap. See MslAltitudeResolver for why it is asked at all.
+        val msl = MslAltitudeResolver(appContext)
         val sink = SubjectSink(PublishedSubject.LOCATION_FIX, session)
         sink.guard {
             LocationProvider(appContext).updates(intervalMillis = rate.toIntervalMillis()).collect { update ->
@@ -711,6 +880,34 @@ class SensorPublisher(private val appContext: Context) {
                         timestampedFloat(observedAt, loc.verticalAccuracyMeters).toByteArray(),
                         loc.verticalAccuracyMeters,
                     )
+                }
+
+                // Altitude above mean sea level, and the geoid correction that explains why it is
+                // tens of metres from the ellipsoidal one in `location_fix`. Reported when the fix
+                // carries it and derived from the same ellipsoidal height when it does not — see
+                // MslAltitudeResolver, including what that costs in provenance.
+                //
+                // Skipped rather than zeroed when there is none, like the accuracies above and unlike
+                // speed and course. Sharper here than anywhere else in this app: on a vessel `0.0 m`
+                // above sea level is *plausible*, so a defaulted zero would not look wrong to anyone.
+                val mslMetres = msl.metresFor(loc)
+                if (mslMetres != null) {
+                    mslSink.emit(
+                        mslPub,
+                        timestampedFloat(observedAt, mslMetres.toFloat()).toByteArray(),
+                        mslMetres.toFloat(),
+                    )
+                    // The undulation is the difference of two knowns, so it needs the ellipsoidal
+                    // height as well — which a fix can be missing even when the MSL value was derived
+                    // from something else the platform had.
+                    if (loc.hasAltitude()) {
+                        val undulation = undulationMetres(loc.altitude, mslMetres).toFloat()
+                        undulationSink.emit(
+                            undulationPub,
+                            timestampedFloat(observedAt, undulation).toByteArray(),
+                            undulation,
+                        )
+                    }
                 }
 
                 val knots = if (loc.hasSpeed()) metresPerSecondToKnots(loc.speed) else 0f
@@ -964,6 +1161,104 @@ class SensorPublisher(private val appContext: Context) {
                         trueHeading,
                     )
                 }
+            }
+        }
+    }
+
+    /**
+     * The attitude as three readable angles.
+     *
+     * Its own rotation-vector registration rather than a share of the orientation collector's, so the
+     * rate dial on these subjects is real — see the registry. Nothing is computed here that
+     * `getOrientation` was not already computing; two of the three were simply being discarded.
+     *
+     * The `frameId` is the IMU's, because these describe the phone: what its attitude means for the
+     * vessel is the rig calibration's business, not this collector's.
+     */
+    private suspend fun runAttitude(
+        session: KeelsonSession,
+        publishers: Map<PublishedSubject, AdvancedPublisher>,
+        frameId: String,
+        rate: SensorRate,
+    ) {
+        val rollPub = publishers.of(PublishedSubject.ROLL)
+        val pitchPub = publishers.of(PublishedSubject.PITCH)
+        val yawPub = publishers.of(PublishedSubject.YAW)
+        val rollSink = SubjectSink(PublishedSubject.ROLL, session)
+        val pitchSink = SubjectSink(PublishedSubject.PITCH, session)
+        val yawSink = SubjectSink(PublishedSubject.YAW, session)
+        rollSink.guard {
+            ImuProvider(appContext).orientation(rate.toRateUs()).collect { q ->
+                val at = protoTimestamp(SensorClock.epochNanosNow(q.elapsedNanos))
+                rollSink.emit(rollPub, timestampedFloat(at, q.rollDegrees).toByteArray(), q.rollDegrees)
+                pitchSink.emit(pitchPub, timestampedFloat(at, q.pitchDegrees).toByteArray(), q.pitchDegrees)
+                yawSink.emit(yawPub, timestampedFloat(at, q.yawDegrees).toByteArray(), q.yawDegrees)
+            }
+        }
+    }
+
+    /**
+     * The gyro's three axes, named and in degrees per second.
+     *
+     * **Body rates about the device axes**, which is what the gyro reports and what every marine system
+     * means by "roll rate" — not the time derivatives of the angles above. The two coincide only near
+     * level. Android's mapping is the one used throughout: pitch turns about +X, roll about +Y, yaw
+     * about +Z.
+     */
+    private suspend fun runAttitudeRates(
+        session: KeelsonSession,
+        publishers: Map<PublishedSubject, AdvancedPublisher>,
+        rate: SensorRate,
+    ) {
+        val rollPub = publishers.of(PublishedSubject.ROLL_RATE)
+        val pitchPub = publishers.of(PublishedSubject.PITCH_RATE)
+        val yawPub = publishers.of(PublishedSubject.YAW_RATE)
+        val rollSink = SubjectSink(PublishedSubject.ROLL_RATE, session)
+        val pitchSink = SubjectSink(PublishedSubject.PITCH_RATE, session)
+        val yawSink = SubjectSink(PublishedSubject.YAW_RATE, session)
+        rollSink.guard {
+            ImuProvider(appContext).angularVelocity(rate.toRateUs()).collect { s ->
+                val at = protoTimestamp(SensorClock.epochNanosNow(s.elapsedNanos))
+                val rates = attitudeRatesOf(s.x, s.y, s.z)
+                rollSink.emit(rollPub, timestampedFloat(at, rates.roll).toByteArray(), rates.roll)
+                pitchSink.emit(pitchPub, timestampedFloat(at, rates.pitch).toByteArray(), rates.pitch)
+                yawSink.emit(yawPub, timestampedFloat(at, rates.yaw).toByteArray(), rates.yaw)
+            }
+        }
+    }
+
+    /**
+     * The IMU's own die temperature, where the device has such a sensor.
+     *
+     * A vendor sensor found by string type — see [ScalarSensorProvider.imuTemperature] for why there
+     * is no constant to use, and why nothing falls back to the ambient sensor.
+     *
+     * The first reading is sanity-checked against the chip's own operating range rather than trusted.
+     * A vendor sensor's scaling is not guaranteed by any contract, and a raw LSB count would arrive as
+     * a number that looks like a temperature to every consumer and to this screen — the same shape of
+     * failure `warnIfClockBaseLooksWrong` exists for.
+     */
+    private suspend fun runImuTemperature(
+        session: KeelsonSession,
+        publisher: AdvancedPublisher,
+        rate: SensorRate,
+    ) {
+        val sink = SubjectSink(PublishedSubject.IMU_TEMPERATURE, session)
+        sink.guard {
+            var checked = false
+            ScalarSensorProvider(appContext).imuTemperature(rate.toIntervalMillis()).collect { s ->
+                if (!checked) {
+                    checked = true
+                    if (s.value < MIN_PLAUSIBLE_DIE_CELSIUS || s.value > MAX_PLAUSIBLE_DIE_CELSIUS) {
+                        Log.w(
+                            TAG,
+                            "imu_temperature_celsius: first reading is ${s.value}, outside the chip's " +
+                                "own operating range — the vendor sensor may not report degrees",
+                        )
+                    }
+                }
+                val at = protoTimestamp(SensorClock.epochNanosNow(s.elapsedNanos))
+                sink.emit(publisher, timestampedFloat(at, s.value).toByteArray(), s.value)
             }
         }
     }
@@ -1244,6 +1539,21 @@ class SensorPublisher(private val appContext: Context) {
                     val msg = timestampedFloat(now, value)
                     sinks.getValue(subject).emit(publishers.of(subject), msg.toByteArray(), value)
                 }
+                // Not a battery reading, but the same poll: how long the phone has been up, which is
+                // what tells a reboot from an app restart when a gap in a recording is read months
+                // later. `elapsedRealtime` rather than `uptimeMillis`, so deep sleep counts — the phone
+                // was up, it was only asleep.
+                val uptimeMillis = SystemClock.elapsedRealtime()
+                sinks.getValue(PublishedSubject.DEVICE_UPTIME).emit(
+                    publishers.of(PublishedSubject.DEVICE_UPTIME),
+                    TimestampedDuration.newBuilder()
+                        .setTimestamp(now)
+                        .setValue(protoDuration(uptimeMillis))
+                        .build()
+                        .toByteArray(),
+                    uptimeMillis / 3_600_000f,
+                )
+
                 emit(PublishedSubject.BATTERY_STATE_OF_CHARGE, s.stateOfChargePct)
                 emit(PublishedSubject.BATTERY_VOLTAGE, s.voltageV)
                 emit(PublishedSubject.BATTERY_CURRENT, s.currentA)
@@ -1356,101 +1666,163 @@ class SensorPublisher(private val appContext: Context) {
      * saving a calibration restarts the publisher — and re-rendering it every ten seconds would be
      * work for a string that is identical every time.
      */
+    /**
+     * Republish every publishing rig's geometry, on a loop.
+     *
+     * One collector for all rigs rather than one per rig: they share a ticker, a rate control and a
+     * lifecycle, and the three subjects are the same three whichever rig is behind them. Each rig gets
+     * its own keys and publishers ([RigPublishers]) and — because the sink stamps the MCAP channel
+     * with the key — its own channels in the recording.
+     *
+     * The documents are serialised once, outside the loop: a rig's geometry does not change during a
+     * run, and re-rendering four JSON documents every ten seconds for the life of a run is work
+     * nothing asks for.
+     */
     private suspend fun runCalibration(
         session: KeelsonSession,
-        publishers: Map<PublishedSubject, AdvancedPublisher>,
+        rigs: List<RigPublishers>,
         settings: Settings,
     ) {
-        val calibration = settings.calibration ?: return
-        val transforms = SubjectSink(PublishedSubject.FRAME_TRANSFORM, session)
-        val document = SubjectSink(PublishedSubject.CONFIGURATION_JSON, session)
-        val zeroFix = SubjectSink(PublishedSubject.CALIBRATION_ZERO, session)
-        // Only a surveyed position anchors anything. A tape-measured rig and a heading typed before any
-        // capture both leave this null, and the sink would drop it anyway — see Settings.offSubjects.
-        val zero = calibration.zero?.takeIf { it.hasPosition }
-        // The wire document carries provenance; only the exported file has to satisfy upstream's
-        // `additionalProperties: false`. See calibrate/PlatformGeometryJson.kt.
-        val json = calibration.toPlatformGeometryJson(provenance = true)
+        if (rigs.isEmpty()) return
+
+        class RigStream(
+            val rig: RigCalibration,
+            val publishers: Map<PublishedSubject, AdvancedPublisher>,
+            val transforms: SubjectSink,
+            val document: SubjectSink,
+            val zeroFix: SubjectSink,
+            val json: String,
+        )
+
+        val streams = rigs.map { r ->
+            RigStream(
+                rig = r.rig,
+                publishers = r.publishers,
+                // Each sink carries this rig's key so the recorder writes one MCAP channel per
+                // (rig, subject) — the channel topic is the full Zenoh key, and the replayer
+                // republishes it verbatim.
+                transforms = SubjectSink(
+                    PublishedSubject.FRAME_TRANSFORM,
+                    session,
+                    r.keys.getValue(PublishedSubject.FRAME_TRANSFORM),
+                ),
+                document = SubjectSink(
+                    PublishedSubject.CONFIGURATION_JSON,
+                    session,
+                    r.keys.getValue(PublishedSubject.CONFIGURATION_JSON),
+                ),
+                zeroFix = SubjectSink(
+                    PublishedSubject.CALIBRATION_ZERO,
+                    session,
+                    r.keys.getValue(PublishedSubject.CALIBRATION_ZERO),
+                ),
+                // The wire document carries provenance; only the exported file has to satisfy
+                // upstream's `additionalProperties: false`. See calibrate/PlatformGeometryJson.kt.
+                json = r.rig.toPlatformGeometryJson(provenance = true),
+            )
+        }
+
         // A rate control set to Max would otherwise mean an interval of zero, and this loop has no
-        // sensor to wait on — it would republish the whole rig as fast as the CPU allows.
+        // sensor to wait on — it would republish every rig as fast as the CPU allows.
         val intervalMillis = settings.rate(Subjects.FRAME_TRANSFORM).toIntervalMillis()
             .coerceAtLeast(MIN_CALIBRATION_INTERVAL_MILLIS)
 
-        transforms.guard {
+        // The plotted value for `configuration_json` is the whole library's sensor count, not each
+        // rig's. The live ring is keyed by subject, so a per-rig count would have three rigs writing
+        // three different numbers into one series and the plot would oscillate between them for no
+        // reason a reader could see.
+        val totalSensors = streams.sumOf { it.rig.sensors.size }.toFloat()
+
+        // Guarded on the first rig's transform sink: a failure here is a failure of the collector, and
+        // the three calibration rows are per subject rather than per rig, so one report is the whole
+        // story however many rigs are behind it.
+        streams.first().transforms.guard {
             while (true) {
                 val now = protoTimestamp()
-                // The sample value is the sensor count, which is what the live view and the subject
-                // row show for this subject — there is no scalar reading to plot.
-                document.emit(
-                    publishers.of(PublishedSubject.CONFIGURATION_JSON),
-                    TimestampedString.newBuilder().setTimestamp(now).setValue(json).build().toByteArray(),
-                    calibration.sensors.size.toFloat(),
-                )
-                // Where the rig's zero was when it was surveyed — the geodetic anchor the transforms
-                // hang off, and without it they are floating relative geometry.
-                //
-                // **Stamped with the survey time**, unlike the transforms above. A transform's
-                // timestamp is machinery for building a frame tree; this one is the age of a
-                // measurement, and it is the honest answer to "is this where the rig is now?" — no.
-                zero?.let { z ->
-                    val fix = LocationFix.newBuilder()
-                        .setTimestamp(protoTimestamp(z.capturedAtEpochMillis * 1_000_000L))
-                        .setFrameId(calibration.parentFrameId)
-                        .setLatitude(z.latitude)
-                        .setLongitude(z.longitude)
-                        // proto3 has no presence on a double, so an unknown altitude and sea level are
-                        // the same bytes. Same compromise the phone's own fix makes.
-                        .setAltitude(z.altitudeM ?: 0.0)
-                        .apply {
-                            // Both or nothing, exactly as in runLocation: a zero in the up slot would
-                            // claim the altitude was known perfectly, which is the axis GNSS is worst
-                            // at. A typed position has neither and states no covariance at all.
-                            val horizontal = z.accuracyM
-                            val vertical = z.verticalAccuracyM
-                            if (horizontal != null && vertical != null) {
-                                addAllPositionCovariance(
-                                    diagonalEnuCovariance(
-                                        horizontalMetres = horizontal,
-                                        verticalMetres = vertical,
-                                    )
-                                )
-                                positionCovarianceType = LocationFix.PositionCovarianceType.APPROXIMATED
-                            }
-                        }
-                        .build()
-                    zeroFix.emit(publishers.of(PublishedSubject.CALIBRATION_ZERO), fix.toByteArray())
-                }
-                calibration.sensors.forEach { mount ->
-                    // Normalised the same way the document normalises them, so the quaternion on the
-                    // wire and the degrees in the JSON describe the same rotation rather than two
-                    // that happen to be equivalent.
-                    val q = mount.rotation.copy(
-                        yaw = normaliseSignedDegrees(mount.rotation.yaw),
-                        pitch = normaliseSignedDegrees(mount.rotation.pitch),
-                        roll = normaliseSignedDegrees(mount.rotation.roll),
-                    ).toQuaternion()
-                    val payload = FrameTransform.newBuilder()
-                        .setTimestamp(now)
-                        .setParentFrameId(calibration.parentFrameId)
-                        .setChildFrameId(mount.frameId)
-                        .setTranslation(
-                            Vector3.newBuilder()
-                                .setX(mount.translation.x)
-                                .setY(mount.translation.y)
-                                .setZ(mount.translation.z)
-                        )
-                        .setRotation(
-                            Quaternion.newBuilder()
-                                .setX(q.x)
-                                .setY(q.y)
-                                .setZ(q.z)
-                                .setW(q.w)
-                        )
-                        .build()
-                    transforms.emit(
-                        publishers.of(PublishedSubject.FRAME_TRANSFORM),
-                        payload.toByteArray(),
+                streams.forEach { stream ->
+                    val calibration = stream.rig
+                    // Only a surveyed position anchors anything. A tape-measured rig and a heading
+                    // typed before any capture both leave this null, and the sink would drop it
+                    // anyway — see Settings.offSubjects.
+                    val zero = calibration.zero?.takeIf { it.hasPosition }
+                    // The sample value is the sensor count, which is what the live view and the
+                    // subject row show for this subject — there is no scalar reading to plot.
+                    stream.document.emit(
+                        stream.publishers.getValue(PublishedSubject.CONFIGURATION_JSON),
+                        TimestampedString.newBuilder().setTimestamp(now).setValue(stream.json).build()
+                            .toByteArray(),
+                        totalSensors,
                     )
+                    // Where the rig's zero was when it was surveyed — the geodetic anchor the
+                    // transforms hang off, and without it they are floating relative geometry.
+                    //
+                    // **Stamped with the survey time**, unlike the transforms below. A transform's
+                    // timestamp is machinery for building a frame tree; this one is the age of a
+                    // measurement, and it is the honest answer to "is this where the rig is now?" — no.
+                    zero?.let { z ->
+                        val fix = LocationFix.newBuilder()
+                            .setTimestamp(protoTimestamp(z.capturedAtEpochMillis * 1_000_000L))
+                            .setFrameId(calibration.parentFrameId)
+                            .setLatitude(z.latitude)
+                            .setLongitude(z.longitude)
+                            // proto3 has no presence on a double, so an unknown altitude and sea level
+                            // are the same bytes. Same compromise the phone's own fix makes.
+                            .setAltitude(z.altitudeM ?: 0.0)
+                            .apply {
+                                // Both or nothing, exactly as in runLocation: a zero in the up slot
+                                // would claim the altitude was known perfectly, which is the axis GNSS
+                                // is worst at. A typed position has neither and states no covariance.
+                                val horizontal = z.accuracyM
+                                val vertical = z.verticalAccuracyM
+                                if (horizontal != null && vertical != null) {
+                                    addAllPositionCovariance(
+                                        diagonalEnuCovariance(
+                                            horizontalMetres = horizontal,
+                                            verticalMetres = vertical,
+                                        )
+                                    )
+                                    positionCovarianceType =
+                                        LocationFix.PositionCovarianceType.APPROXIMATED
+                                }
+                            }
+                            .build()
+                        stream.zeroFix.emit(
+                            stream.publishers.getValue(PublishedSubject.CALIBRATION_ZERO),
+                            fix.toByteArray(),
+                        )
+                    }
+                    calibration.sensors.forEach { mount ->
+                        // Normalised the same way the document normalises them, so the quaternion on
+                        // the wire and the degrees in the JSON describe the same rotation rather than
+                        // two that happen to be equivalent.
+                        val q = mount.rotation.copy(
+                            yaw = normaliseSignedDegrees(mount.rotation.yaw),
+                            pitch = normaliseSignedDegrees(mount.rotation.pitch),
+                            roll = normaliseSignedDegrees(mount.rotation.roll),
+                        ).toQuaternion()
+                        val payload = FrameTransform.newBuilder()
+                            .setTimestamp(now)
+                            .setParentFrameId(calibration.parentFrameId)
+                            .setChildFrameId(mount.frameId)
+                            .setTranslation(
+                                Vector3.newBuilder()
+                                    .setX(mount.translation.x)
+                                    .setY(mount.translation.y)
+                                    .setZ(mount.translation.z)
+                            )
+                            .setRotation(
+                                Quaternion.newBuilder()
+                                    .setX(q.x)
+                                    .setY(q.y)
+                                    .setZ(q.z)
+                                    .setW(q.w)
+                            )
+                            .build()
+                        stream.transforms.emit(
+                            stream.publishers.getValue(PublishedSubject.FRAME_TRANSFORM),
+                            payload.toByteArray(),
+                        )
+                    }
                 }
                 delay(intervalMillis)
             }
@@ -1467,6 +1839,16 @@ class SensorPublisher(private val appContext: Context) {
     private inner class SubjectSink(
         private val subject: PublishedSubject,
         private val session: KeelsonSession,
+        /**
+         * The key these samples go out on, when it is not this entry's own.
+         *
+         * Null for every phone subject, which take their key from [keys]. The calibration subjects
+         * are the exception: several rigs publish through the same three registry entries under
+         * different entity ids, so the key belongs to the rig rather than to the entry — and the
+         * recorder stamps its MCAP channel with it, which is what gives each rig its own channels
+         * instead of merging two rigs' transforms onto one topic.
+         */
+        private val keyOverride: String? = null,
     ) {
 
         private var logged = false
@@ -1517,7 +1899,7 @@ class SensorPublisher(private val appContext: Context) {
          */
         fun wrap(payload: ByteArray): ByteArray {
             val now = java.time.Instant.now()
-            keys[subject]?.let { key ->
+            (keyOverride ?: keys[subject])?.let { key ->
                 recorder.offer(
                     RecordSample(
                         key = key,

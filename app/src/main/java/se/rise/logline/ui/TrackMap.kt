@@ -11,13 +11,70 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.TileSourcePolicy
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.Overlay
+import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.overlay.Polyline
+import se.rise.logline.map.osmdroidBasePath
 import se.rise.logline.publish.TrackPoint
 import java.io.File
+
+/** Which base layer the chart draws. */
+enum class MapLayer(val label: String) {
+    Standard("Map"),
+    Satellite("Satellite"),
+}
+
+/**
+ * Esri's global satellite imagery.
+ *
+ * osmdroid bundles no worldwide satellite source — `USGS_SAT` is the United States only and draws
+ * nothing over Sweden — so this is defined here. No key, global coverage, and the resolution over the
+ * Swedish coast is good enough to pick out a jetty.
+ *
+ * **The URL puts the row before the column**: `/tile/{z}/{y}/{x}`, not the `{z}/{x}/{y}` that
+ * `XYTileSource` builds. That is the whole reason this is a custom source rather than one line — swap
+ * them and every tile still loads, from the wrong place, which looks like a working map of somewhere
+ * else.
+ *
+ * Marked `FLAG_NO_BULK` like OSM's own: Esri no more wants an app hoovering its imagery than the OSMF
+ * does, and it keeps `CacheManager` from ever being pointed at it. Attribution is a condition of use
+ * and is drawn by the `CopyrightOverlay` below.
+ */
+private val ESRI_WORLD_IMAGERY: OnlineTileSourceBase = object : OnlineTileSourceBase(
+    "Esri World Imagery",
+    0,
+    19,
+    256,
+    "",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
+    "Esri, Maxar, Earthstar Geographics",
+    TileSourcePolicy(
+        2,
+        TileSourcePolicy.FLAG_NO_BULK or
+            TileSourcePolicy.FLAG_NO_PREVENTIVE or
+            TileSourcePolicy.FLAG_USER_AGENT_MEANINGFUL or
+            TileSourcePolicy.FLAG_USER_AGENT_NORMALIZED,
+    ),
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String =
+        baseUrl +
+            MapTileIndex.getZoom(pMapTileIndex) + "/" +
+            MapTileIndex.getY(pMapTileIndex) + "/" +
+            MapTileIndex.getX(pMapTileIndex)
+}
+
+private fun sourceFor(layer: MapLayer) = when (layer) {
+    MapLayer.Standard -> TileSourceFactory.MAPNIK
+    MapLayer.Satellite -> ESRI_WORLD_IMAGERY
+}
 
 /**
  * The GNSS track on an OpenStreetMap background.
@@ -30,10 +87,25 @@ fun TrackMap(
     track: List<TrackPoint>,
     followFix: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * Render only from imported archives, never the network.
+     *
+     * Worth a switch rather than leaving it to the network being absent: out of coverage the tile
+     * downloader still queues every missing tile and waits for each to time out, so a map that has the
+     * archive it needs spends its time failing to fetch the ones it does not.
+     */
+    offlineOnly: Boolean = false,
+    /** Which base layer to draw. */
+    layer: MapLayer = MapLayer.Standard,
+    /** OpenSeaMap's buoys, lights and seamarks, drawn transparently over the base layer. */
+    seaMarks: Boolean = false,
     /** Where the phone points, from the compass. Null when there is no heading to draw. */
     headingDegrees: Float? = null,
 ) {
     val polyline = remember { Polyline() }
+    // Held across recompositions: a TilesOverlay owns a tile provider and its threads, so rebuilding
+    // one every time the switch is read would leak them.
+    val seaMarkOverlay = remember { mutableStateOf<TilesOverlay?>(null) }
     val fixOverlay = remember { FixOverlay() }
     // Whether the map has ever been positioned. The first fix must `setCenter` — `animateTo` on a view
     // that has not been laid out yet is silently a no-op, which looks exactly like "tiles are broken".
@@ -46,10 +118,13 @@ fun TrackMap(
         factory = { context ->
             configureOsmdroid(context)
             MapView(context).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
+                setTileSource(sourceFor(layer))
+                setUseDataConnection(!offlineOnly)
+                // Attribution is a condition of both OSM's and Esri's terms, and osmdroid does *not*
+                // draw it on its own — `CopyrightOverlay` has to be added, which this map never did.
+                // It reads whatever the current source's notice is, so it follows the layer.
+                overlays.add(CopyrightOverlay(context))
                 setMultiTouchControls(true)
-                // The attribution osmdroid draws is a condition of OSM's tile usage policy, not
-                // decoration — leave it on.
                 controller.setZoom(16.0)
                 polyline.outlinePaint.color = Color.rgb(0x3F, 0x6F, 0xD8)
                 polyline.outlinePaint.strokeWidth = 6f
@@ -62,6 +137,31 @@ fun TrackMap(
             }
         },
         update = { map ->
+            // Swapping the source on a live MapView is supported and redraws; a new one is only built
+            // when the composable is. The seamark overlay is created once and then added or removed,
+            // because each instance carries its own tile provider and threads.
+            if (map.tileProvider.tileSource != sourceFor(layer)) {
+                map.setTileSource(sourceFor(layer))
+            }
+            map.setUseDataConnection(!offlineOnly)
+            val marks = seaMarkOverlay.value ?: TilesOverlay(
+                MapTileProviderBasic(map.context, TileSourceFactory.OPEN_SEAMAP),
+                map.context,
+            ).apply {
+                // Transparent, or the overlay paints its own background over the base layer and the
+                // seamarks are all anybody sees.
+                loadingBackgroundColor = Color.TRANSPARENT
+                loadingLineColor = Color.TRANSPARENT
+            }.also { seaMarkOverlay.value = it }
+            val shown = marks in map.overlays
+            if (seaMarks && !shown) {
+                // Beneath the track and the fix marker, above the base tiles.
+                map.overlays.add(0, marks)
+                map.invalidate()
+            } else if (!seaMarks && shown) {
+                map.overlays.remove(marks)
+                map.invalidate()
+            }
             polyline.setPoints(track.map { GeoPoint(it.latitude, it.longitude) })
             fixOverlay.fix = track.lastOrNull()
             fixOverlay.headingDegrees = headingDegrees
@@ -103,7 +203,9 @@ private fun configureOsmdroid(context: Context) {
     if (config.userAgentValue.isNullOrBlank() || config.userAgentValue == "osmdroid") {
         config.userAgentValue = context.packageName
     }
-    val base = File(context.filesDir, "osmdroid").apply { mkdirs() }
+    // The same directory the offline-map import writes into, and it has to be: osmdroid's
+    // `MapTileFileArchiveProvider` finds archives by listing exactly this path.
+    val base = osmdroidBasePath(context)
     config.osmdroidBasePath = base
     config.osmdroidTileCache = File(base, "tiles").apply { mkdirs() }
 }

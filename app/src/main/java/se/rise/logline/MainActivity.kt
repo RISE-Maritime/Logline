@@ -3,6 +3,7 @@ package se.rise.logline
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -50,8 +51,19 @@ import se.rise.logline.calibrate.RigZero
 import se.rise.logline.calibrate.bodyOffsetMetres
 import se.rise.logline.calibrate.enuOffsetMetres
 import se.rise.logline.calibrate.exportCalibration
+import se.rise.logline.calibrate.exportPlatformRegistry
+import se.rise.logline.calibrate.ImportDisposition
+import se.rise.logline.calibrate.importCandidates
+import se.rise.logline.calibrate.importPlatforms
+import se.rise.logline.calibrate.isValidEntityId
 import se.rise.logline.calibrate.initialBearingDegrees
 import se.rise.logline.config.Settings
+import se.rise.logline.config.SettingsProfile
+import se.rise.logline.config.applyProfile
+import se.rise.logline.config.exportSettingsProfile
+import se.rise.logline.config.parseSettingsProfile
+import se.rise.logline.config.toConnectionProfile
+import se.rise.logline.config.encode
 import se.rise.logline.config.TlsCredential
 import se.rise.logline.config.TlsCredentialStore
 import se.rise.logline.keelson.DiscoveredRouter
@@ -66,7 +78,16 @@ import se.rise.logline.sensors.achievedHz
 import se.rise.logline.sensors.AudioProvider
 import se.rise.logline.sensors.sensorCapabilities
 import se.rise.logline.sensors.unavailableSubjects
+import se.rise.logline.map.deleteOfflineMap
+import se.rise.logline.map.displayNameOf
+import se.rise.logline.map.importOfflineMap
+import se.rise.logline.map.importedMaps
 import se.rise.logline.publish.PublisherService
+import se.rise.logline.record.SavedRecording
+import se.rise.logline.record.deleteSavedRecording
+import se.rise.logline.record.recordingsFreeBytes
+import se.rise.logline.record.savedRecordings
+import se.rise.logline.record.shareIntent
 import se.rise.logline.publish.requestBatteryExemption
 import se.rise.logline.publish.isBatteryOptimised
 import se.rise.logline.publish.PublisherStatus
@@ -90,8 +111,17 @@ import se.rise.logline.ui.CaptureState
 import se.rise.logline.ui.CapturedOffset
 import se.rise.logline.ui.CAPTURE_SECONDS
 import se.rise.logline.ui.HEADING_SECONDS
+import se.rise.logline.ui.ConnectionQrDialog
+import se.rise.logline.ui.ImportProfileDialog
 import se.rise.logline.ui.MainScreen
+import se.rise.logline.ui.QrScannerScreen
+import se.rise.logline.ui.MapLayer
+import se.rise.logline.ui.RecordingsScreen
+import se.rise.logline.ui.NEW_RIG
 import se.rise.logline.ui.NEW_SENSOR
+import se.rise.logline.platform.PlatformSyncConfig
+import se.rise.logline.platform.mergeRemoteRigs
+import se.rise.logline.ui.RigListScreen
 import se.rise.logline.ui.SensorMountScreen
 import se.rise.logline.ui.SettingsScreen
 import se.rise.logline.ui.SubjectQosScreen
@@ -190,6 +220,50 @@ private fun App(
         }
     }
 
+    // Imported tile archives, re-read after an import or a delete — the same revision trick the TLS
+    // credentials use, and for the same reason: the source of truth is the filesystem.
+    var offlineMapRevision by remember { mutableIntStateOf(0) }
+    var offlineMapMessage by remember { mutableStateOf<String?>(null) }
+    val offlineMaps = remember(offlineMapRevision) { importedMaps(context) }
+    val offlineMapPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            // The copy is hundreds of megabytes; the display name comes from the same resolver.
+            val result = withContext(Dispatchers.IO) {
+                importOfflineMap(context, uri, displayNameOf(context, uri))
+            }
+            offlineMapMessage = result.exceptionOrNull()?.message
+            offlineMapRevision++
+        }
+    }
+
+    // Settings profiles: export to a file, import one back, and the QR that carries the connection
+    // half. `pendingProfile` holds a parsed one between the picker returning and the review dialog
+    // being answered — an import is a review, not a switch.
+    var profileMessage by remember { mutableStateOf<String?>(null) }
+    var pendingProfile by remember { mutableStateOf<SettingsProfile?>(null) }
+    var showConnectionQr by remember { mutableStateOf(false) }
+    val profilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                }.getOrNull()
+            }
+            val parsed = text?.let { parseSettingsProfile(it) }
+            if (parsed == null) {
+                profileMessage = "That file is not a Logline settings profile."
+            } else {
+                pendingProfile = parsed
+            }
+        }
+    }
+
     // Nothing to do with the result: the system dialog reports back through onResume, which re-reads
     // PowerManager. A launcher rather than startActivity so the Activity result plumbing is the same
     // as everything else here.
@@ -248,6 +322,11 @@ private fun App(
     var liveWindowSeconds by rememberSaveable { mutableIntStateOf(WINDOW_CHOICES[1].first) }
     var livePaused by rememberSaveable { mutableStateOf(false) }
     var liveCollapsed by rememberSaveable { mutableStateOf(listOf<String>()) }
+    // Which chart the live view draws, and whether seamarks go over it. Hoisted like the rest of the
+    // live-view preferences: switching to satellite and coming back to a standard map would be an
+    // odd thing to have to redo every time.
+    var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Standard) }
+    var liveSeaMarks by rememberSaveable { mutableStateOf(false) }
 
     // Which sensors this device simply does not have, so a row that will never publish can say so
     // rather than looking broken. Resolved here because it needs a Context; screens take data.
@@ -303,6 +382,31 @@ private fun App(
 
     LaunchedEffect(app) { app.checklist.loadLocal() }
 
+    // ── the platform session ────────────────────────────────────────────────────────────────────
+    //
+    // Scoped to the rig screens the same way the checklist session is scoped to its own, and keyed on
+    // the prefix for the same reason: the list, an editor and a sensor form are three destinations,
+    // and tying the session to any one of them would cycle it every time somebody stepped between.
+    val platformState by app.platforms.state.collectAsState()
+    val inRigScreens = backStackEntry?.destination?.route?.startsWith("calibration") == true
+    val platformConfig = PlatformSyncConfig(
+        endpoints = current.routerEndpoints,
+        realm = current.realm,
+        calibrationSource = current.calibrationSource,
+        rigs = current.rigs,
+        origin = current.rigRegistryOrigin,
+        registryVersion = current.rigRegistryVersion,
+        shareLibrary = current.shareRigLibrary,
+    )
+
+    LaunchedEffect(inRigScreens, platformConfig) {
+        // Unconditionally first, as for the checklist: `start()` is a no-op while a session is up, so
+        // this is what makes an endpoint or library change actually take effect rather than being
+        // ignored until the screen is next opened.
+        app.platforms.stop()
+        if (inRigScreens) app.platforms.start(platformConfig)
+    }
+
     LaunchedEffect(inChecklists, current.checklistEnabled, checklistConfig) {
         // Unconditionally first: `start()` is a no-op while a session is up, so this is what makes an
         // endpoint or identity change actually take effect rather than being ignored until next time.
@@ -354,8 +458,69 @@ private fun App(
     //
     // The working calibration lives here rather than in the screen: a capture is a coroutine, and its
     // result has to survive the trip into the sensor editor and back. Re-seeded whenever the saved
-    // calibration changes, which is what makes Save leave the form clean.
-    var calibrationDraft by remember(current.calibration) { mutableStateOf(current.calibration) }
+    // library changes, which is what makes Save leave the form clean.
+    //
+    // Two pieces of state rather than one, because a rename is a re-key: `draftEntityId` is the id the
+    // editor was *opened* under and is what says which library entry to replace, while the draft's own
+    // entityId is what the person is typing. Collapsing them would make renaming a rig add a second
+    // one — see Settings.upsertRig.
+    var draftEntityId by remember { mutableStateOf<String?>(null) }
+    var calibrationDraft by remember(current.rigs, draftEntityId) {
+        mutableStateOf(draftEntityId?.let { id -> current.rigs.firstOrNull { it.entityId == id } })
+    }
+    /** The library entry the draft is editing, or null while a new rig is being added. */
+    val savedRig = draftEntityId?.let { id -> current.rigs.firstOrNull { it.entityId == id } }
+
+    /** What the last import or library export did, shown on the rig list until it is left. */
+    var libraryMessage by remember { mutableStateOf<String?>(null) }
+    /** Parsed and waiting on a confirmation, because applying it would overwrite existing rigs. */
+    var pendingImport by remember { mutableStateOf<List<RigCalibration>>(emptyList()) }
+
+    /**
+     * Merge parsed rigs into the library.
+     *
+     * The imported document wins for everything a document describes. Which rig is active and which
+     * rigs publish are **not** touched: those are this phone's local policy, and a file somebody
+     * mailed over has no business changing what goes on the bus.
+     */
+    suspend fun applyImport(rigs: List<RigCalibration>) {
+        val replaced = rigs.count { current.rigFor(it.entityId) != null }
+        val merged = rigs.fold(current) { acc, rig ->
+            acc.upsertRig(rig.entityId.takeIf { id -> acc.rigFor(id) != null }, rig)
+        }
+        saveSettings(app, merged.bumpRigRegistry())
+        libraryMessage = "Imported ${rigs.size} " + (if (rigs.size == 1) "rig" else "rigs") +
+            if (replaced > 0) " ($replaced replaced)" else ""
+    }
+
+    val platformPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val imported = withContext(Dispatchers.IO) {
+                runCatching { importPlatforms(context, uri) }
+            }
+            imported.fold(
+                onSuccess = { rigs ->
+                    val replacements = importCandidates(rigs, current.rigs)
+                        .filter { it.disposition == ImportDisposition.REPLACES }
+                        .map { it.rig.name.ifBlank { it.rig.entityId } }
+                    when {
+                        // Nothing parsed is not a success. Reported plainly, because "imported" and
+                        // "imported nothing" look identical from the outside otherwise.
+                        rigs.isEmpty() -> libraryMessage = "No platforms in that file"
+                        // Purely additive, so there is nothing to lose and nothing to ask about.
+                        replacements.isEmpty() -> applyImport(rigs)
+                        else -> pendingImport = rigs
+                    }
+                },
+                onFailure = {
+                    libraryMessage = "Could not import: ${it.message ?: it::class.simpleName}"
+                },
+            )
+        }
+    }
     var capture by remember { mutableStateOf<CaptureState>(CaptureState.Idle) }
     var capturedOffset by remember { mutableStateOf<CapturedOffset?>(null) }
     var captureToken by remember { mutableIntStateOf(0) }
@@ -410,12 +575,23 @@ private fun App(
                     delay(1_000)
                 }
             }
+            // Polled rather than read once: this app writes ~77 MB an hour into that volume and
+            // everything else on the phone shares it, so a remembered figure would be wrong within
+            // minutes. Ten seconds is a `statvfs` six times a minute against a number shown in GB —
+            // the recorder's own tracker polls every thirty for the same reason.
+            val freeBytes by produceState(0L, app) {
+                while (true) {
+                    value = withContext(Dispatchers.IO) { recordingsFreeBytes(context) }
+                    delay(10_000)
+                }
+            }
             MainScreen(
                 settings = current,
                 status = status,
                 recording = recording,
                 live = live,
                 locationGranted = locationGranted,
+                freeBytes = freeBytes,
                 unavailableSubjects = unavailable,
                 disabledSubjects = disabled,
                 onStart = startPublishing,
@@ -424,6 +600,7 @@ private fun App(
                 onOpenSettings = { nav.navigate("settings") },
                 onOpenLive = { nav.navigate("live") },
                 onOpenAnnotations = { nav.navigate("annotations") },
+                onOpenRecordings = { nav.navigate("recordings") },
                 onOpenChecklists = { nav.navigate("checklists") },
                 onOpenCalibration = { nav.navigate("calibration") },
                 // Routed by registry entry, not subject: `radio_rssi_dbm` is published under two
@@ -435,6 +612,27 @@ private fun App(
                 },
             )
         }
+        composable("recordings") {
+            // Re-read whenever a delete bumps the revision, the same shape `tlsRevision` uses. On IO
+            // because it is a MediaStore query plus a seek per file — cheap each, but not on main.
+            var recordingsRevision by remember { mutableIntStateOf(0) }
+            val recordings by produceState<List<SavedRecording>?>(null, recordingsRevision) {
+                value = withContext(Dispatchers.IO) { savedRecordings(context) }
+            }
+            RecordingsScreen(
+                files = recordings.orEmpty(),
+                loaded = recordings != null,
+                onShare = { context.startActivity(shareIntent(listOf(it))) },
+                onDelete = { file ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) { deleteSavedRecording(context, file) }
+                        recordingsRevision++
+                    }
+                },
+                onBack = { nav.popBackStack() },
+            )
+        }
+
         composable("live") {
             // Pulled on a ticker rather than pushed: the publish path runs at ~217 samples/s and must
             // not drive recomposition. 5 Hz is smooth to look at and two orders of magnitude cheaper.
@@ -471,9 +669,16 @@ private fun App(
                         track = live.track,
                         followFix = liveFollowFix,
                         headingDegrees = heading,
+                        offlineOnly = current.offlineTilesOnly,
+                        layer = liveLayer,
+                        seaMarks = liveSeaMarks,
                         modifier = m,
                     )
                 },
+                layer = liveLayer,
+                onLayerChange = { liveLayer = it },
+                seaMarks = liveSeaMarks,
+                onSeaMarksChange = { liveSeaMarks = it },
                 onBack = { nav.popBackStack() },
             )
         }
@@ -653,6 +858,116 @@ private fun App(
             }
         }
         composable("calibration") {
+            RigListScreen(
+                rigs = current.rigs,
+                activeEntityId = current.activeRigEntityId,
+                publishingEntityIds = current.publishingRigEntityIds,
+                publishing = status.running,
+                onOpenRig = { entityId ->
+                    draftEntityId = entityId
+                    nav.navigate("calibration/rig/${Uri.encode(entityId)}")
+                },
+                onAddRig = {
+                    draftEntityId = null
+                    calibrationDraft = null
+                    nav.navigate("calibration/rig/$NEW_RIG")
+                },
+                // Both of these change which publishers a run declares, so unlike the per-subject
+                // switches they go through saveSettings and restart it. The list is read-only while
+                // a run is going, so this cannot happen mid-run.
+                onSetActive = { scope.launch { saveSettings(app, current.setActiveRig(it)) } },
+                onSetPublishing = { entityId, on ->
+                    scope.launch { saveSettings(app, current.setRigPublishing(entityId, on)) }
+                },
+                onExportRegistry = {
+                    scope.launch {
+                        libraryMessage = withContext(Dispatchers.IO) {
+                            runCatching { exportPlatformRegistry(context, current.rigs, current.realm) }
+                                .fold(
+                                    onSuccess = { "Wrote $it to Downloads/Logline" },
+                                    onFailure = {
+                                        "Could not export: ${it.message ?: it::class.simpleName}"
+                                    },
+                                )
+                        }
+                    }
+                },
+                onImport = { platformPicker.launch(arrayOf("application/json", "*/*")) },
+                message = libraryMessage,
+                pendingReplacements = pendingImport
+                    .filter { current.rigFor(it.entityId) != null }
+                    .map { it.name.ifBlank { it.entityId } },
+                onConfirmImport = {
+                    val rigs = pendingImport
+                    pendingImport = emptyList()
+                    scope.launch { applyImport(rigs) }
+                },
+                onCancelImport = {
+                    pendingImport = emptyList()
+                    libraryMessage = "Import cancelled"
+                },
+                discovery = platformState.discovery,
+                discovered = platformState.discovered,
+                linkFailure = platformState.failure,
+                onDiscover = { app.platforms.discover() },
+                onAdopt = { platform ->
+                    platform.rig?.let { rig ->
+                        scope.launch {
+                            saveSettings(app, current.upsertRig(null, rig).bumpRigRegistry())
+                            libraryMessage = "Added ${rig.name.ifBlank { rig.entityId }}"
+                        }
+                    }
+                },
+                shareLibrary = current.shareRigLibrary,
+                onSetShareLibrary = { on ->
+                    scope.launch {
+                        // The origin is generated the first time it is needed and then never changes,
+                        // the same way operatorId is — it is what stops this phone applying its own
+                        // library back over itself when the publisher's cache re-delivers it.
+                        val withOrigin = if (on && current.rigRegistryOrigin.isBlank()) {
+                            current.copy(rigRegistryOrigin = UUID.randomUUID().toString())
+                        } else {
+                            current
+                        }
+                        saveSettings(app, withOrigin.copy(shareRigLibrary = on))
+                    }
+                },
+                incomingRigCount = platformState.incoming?.rigs?.size,
+                onApplyIncoming = {
+                    val remote = platformState.incoming
+                    app.platforms.clearIncoming()
+                    if (remote != null) {
+                        scope.launch {
+                            // Documents only. The active rig and the publishing set are this phone's
+                            // policy and are deliberately untouched — see mergeRemoteRigs.
+                            val merged = mergeRemoteRigs(
+                                local = current.rigs,
+                                remote = remote.rigs,
+                                protectedEntityIds = current.publishingRigs().map { it.entityId }.toSet(),
+                            )
+                            // Bumped past the remote's version, not set to it. `mergeRemoteRigs`
+                            // keeps rigs this phone is publishing, so what comes out is *not* what
+                            // arrived — and republishing different content at the sender's own
+                            // version leaves the shared key holding two libraries that each claim to
+                            // be the same one, with neither station able to accept the other's.
+                            saveSettings(
+                                app,
+                                current
+                                    .copy(rigs = merged, rigRegistryVersion = remote.version)
+                                    .bumpRigRegistry(),
+                            )
+                            libraryMessage = "Applied ${remote.rigs.size} rigs from another station"
+                        }
+                    }
+                },
+                onDismissIncoming = { app.platforms.clearIncoming() },
+                onBack = {
+                    libraryMessage = null
+                    nav.popBackStack()
+                },
+            )
+        }
+        composable("calibration/rig/{entityId}") {
             // A rig nobody has named yet: the draft materialises on the first edit, so opening the
             // screen and backing out again leaves nothing behind.
             val draft = calibrationDraft ?: RigCalibration.forName("")
@@ -738,7 +1053,7 @@ private fun App(
                 },
                 onEditSensor = { index ->
                     capturedOffset = null
-                    nav.navigate("calibration/sensor/$index")
+                    nav.navigate("calibration/rig/${Uri.encode(draft.entityId)}/sensor/$index")
                 },
                 onExport = {
                     scope.launch {
@@ -751,35 +1066,47 @@ private fun App(
                     }
                 },
                 exportMessage = exportMessage,
+                // Refuses a collision rather than merging two rigs: the entity id is what every key
+                // this rig publishes on is built from, so two rigs sharing one would put two rigs'
+                // geometry on the same three keys and neither would be readable.
+                entityIdError = when {
+                    draft.entityId.isBlank() -> null
+                    // Refuses a collision rather than merging two rigs: the entity id is what every
+                    // key this rig publishes on is built from, so two rigs sharing one would put two
+                    // rigs' geometry on the same three keys and neither would be readable.
+                    current.entityIdTaken(draft.entityId, draftEntityId) ->
+                        "Another rig already uses this id"
+                    // A slash would add a chunk to every key this rig publishes on, and to this
+                    // screen's own route. See isValidEntityId.
+                    !isValidEntityId(draft.entityId) ->
+                        "Lowercase letters, digits, - and _ only, starting with a letter or digit"
+                    else -> null
+                },
                 onSave = {
                     scope.launch {
-                        saveSettings(
-                            app,
-                            current.copy(
-                                calibration = calibrationDraft?.copy(
-                                    updatedAtEpochMillis = System.currentTimeMillis(),
-                                ),
-                            ),
-                        )
+                        val saved = draft.copy(updatedAtEpochMillis = System.currentTimeMillis())
+                        saveSettings(app, current.upsertRig(draftEntityId, saved).bumpRigRegistry())
+                        draftEntityId = saved.entityId
                         nav.popBackStack()
                     }
                 },
                 onClear = {
                     scope.launch {
-                        saveSettings(app, current.copy(calibration = null))
+                        savedRig?.let { saveSettings(app, current.removeRig(it.entityId).bumpRigRegistry()) }
+                        draftEntityId = null
                         calibrationDraft = null
                         nav.popBackStack()
                     }
                 },
                 onCancel = {
-                    calibrationDraft = current.calibration
+                    calibrationDraft = savedRig
                     exportMessage = null
                     nav.popBackStack()
                 },
-                dirty = calibrationDraft != current.calibration,
+                dirty = calibrationDraft != savedRig,
             )
         }
-        composable("calibration/sensor/{index}") { backStackEntry ->
+        composable("calibration/rig/{entityId}/sensor/{index}") { backStackEntry ->
             val index = backStackEntry.arguments?.getString("index")?.toIntOrNull() ?: NEW_SENSOR
             val draft = calibrationDraft ?: RigCalibration.forName("")
             val existing = draft.sensors.getOrNull(index)
@@ -827,6 +1154,23 @@ private fun App(
                 },
             )
         }
+        composable("scan-qr") {
+            QrScannerScreen(
+                onScanned = { text ->
+                    val parsed = parseSettingsProfile(text)
+                    // Back first, then review: a dialog over a live camera preview is a poor place to
+                    // read what is about to change.
+                    nav.popBackStack()
+                    if (parsed == null) {
+                        profileMessage = "That QR is not a Logline connection profile."
+                    } else {
+                        pendingProfile = parsed
+                    }
+                },
+                onBack = { nav.popBackStack() },
+            )
+        }
+
         composable("settings") {
             // The scan lives here, not in the screen: screens take data and lambdas, and this needs a
             // coroutine scope. Results are held per-visit — a stale list from last time would be worse
@@ -876,6 +1220,27 @@ private fun App(
                 }
             }
 
+            pendingProfile?.let { profile ->
+                ImportProfileDialog(
+                    profile = profile,
+                    onApply = { withOperator ->
+                        pendingProfile = null
+                        scope.launch {
+                            // Through saveSettings, not update: endpoints and QoS are declared when
+                            // publishers are, so a run has to be restarted to pick them up.
+                            saveSettings(app, current.applyProfile(profile, withOperator))
+                            profileMessage = "Settings applied."
+                        }
+                    },
+                    onDismiss = { pendingProfile = null },
+                )
+            }
+            if (showConnectionQr) {
+                ConnectionQrDialog(
+                    payload = current.toConnectionProfile().encode(pretty = false),
+                    onDismiss = { showConnectionQr = false },
+                )
+            }
             SettingsScreen(
                 initial = current,
                 // Asked of the hardware once, not assumed: only 44.1 kHz is guaranteed everywhere.
@@ -891,6 +1256,37 @@ private fun App(
                 // back to it that is not a hunt through Android settings.
                 onRequestBatteryExemption = {
                     requestBatteryExemption(context) { batteryExemptionLauncher.launch(it) }
+                },
+                onExportProfile = {
+                    scope.launch {
+                        profileMessage = withContext(Dispatchers.IO) {
+                            runCatching { exportSettingsProfile(context, current) }.fold(
+                                onSuccess = { "Wrote $it to Downloads/Logline" },
+                                onFailure = { "Could not export: ${it.message}" },
+                            )
+                        }
+                    }
+                },
+                // Any file: a JSON profile has no MIME type a document provider agrees on, the same
+                // reason the TLS and map imports ask for */*.
+                onImportProfile = {
+                    profileMessage = null
+                    profilePicker.launch(arrayOf("*/*"))
+                },
+                onShowConnectionQr = { showConnectionQr = true },
+                onScanConnectionQr = { nav.navigate("scan-qr") },
+                profileMessage = profileMessage,
+                offlineMaps = offlineMaps,
+                offlineMapMessage = offlineMapMessage,
+                // Any file: the archive extensions have no reliable MIME type across providers, which
+                // is the same reason the TLS import asks for */*.
+                onImportOfflineMap = {
+                    offlineMapMessage = null
+                    offlineMapPicker.launch(arrayOf("*/*"))
+                },
+                onDeleteOfflineMap = { map ->
+                    deleteOfflineMap(map)
+                    offlineMapRevision++
                 },
                 onScan = { address ->
                     val granted = ContextCompat.checkSelfPermission(

@@ -63,6 +63,24 @@ import se.rise.logline.ui.components.readAsOneItem
  * perfectly healthy while publishing nonsense. Each row now shows the measurement, with the rate and
  * the age as small print beneath it, and the screen stays visually quiet until something is wrong.
  */
+/**
+ * What the Rigs button says: the active rig, and how many others are also on the bus.
+ *
+ * Named rather than counted when there is one thing to name — "Rigs · SSRS18" is what somebody is
+ * checking for. The `+2` matters because those two are publishing geometry under entity ids that are
+ * nowhere else on this screen.
+ */
+internal fun rigSummaryOf(settings: Settings): String? {
+    val publishing = settings.publishingRigs()
+    val active = settings.activeRig()
+    return when {
+        settings.rigs.isEmpty() -> null
+        active == null -> "${settings.rigs.size} rigs"
+        publishing.size > 1 -> "${active.name} +${publishing.size - 1}"
+        else -> active.name
+    }
+}
+
 @Composable
 fun MainScreen(
     settings: Settings,
@@ -71,6 +89,14 @@ fun MainScreen(
     /** The newest value per subject, pulled on a ticker — never pushed from the publish path. */
     live: LiveLatest,
     locationGranted: Boolean,
+    /**
+     * Free space on the volume the recordings go to, polled by the caller.
+     *
+     * Passed in rather than read here because a screen takes data, not a `Context` — and polled
+     * rather than remembered because it moves: this app writes ~77 MB an hour into it, and everything
+     * else on the phone is writing to the same volume.
+     */
+    freeBytes: Long,
     unavailableSubjects: Set<PublishedSubject>,
     disabledSubjects: Set<PublishedSubject>,
     onStart: () -> Unit,
@@ -79,6 +105,7 @@ fun MainScreen(
     onOpenSettings: () -> Unit,
     onOpenLive: () -> Unit,
     onOpenAnnotations: () -> Unit,
+    onOpenRecordings: () -> Unit,
     onOpenChecklists: () -> Unit,
     onOpenCalibration: () -> Unit,
     onOpenSubjectQos: (PublishedSubject) -> Unit,
@@ -123,7 +150,9 @@ fun MainScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            StatusCard(settings, status, recording, nowMillis, unavailableSubjects, disabledSubjects)
+            StatusCard(
+                settings, status, recording, nowMillis, freeBytes, unavailableSubjects, disabledSubjects,
+            )
             Actions(
                 running = status.running,
                 checklistsEnabled = settings.checklistEnabled,
@@ -132,9 +161,10 @@ fun MainScreen(
                 onOpenSettings = onOpenSettings,
                 onOpenLive = onOpenLive,
                 onOpenAnnotations = onOpenAnnotations,
+                onOpenRecordings = onOpenRecordings,
                 onOpenChecklists = onOpenChecklists,
                 onOpenCalibration = onOpenCalibration,
-                calibratedRig = settings.calibration?.name,
+                rigSummary = rigSummaryOf(settings),
             )
 
             if (!locationGranted) {
@@ -280,6 +310,7 @@ private fun StatusCard(
     status: PublisherStatus,
     recording: RecordingStatus,
     nowMillis: Long,
+    freeBytes: Long,
     unavailableSubjects: Set<PublishedSubject>,
     disabledSubjects: Set<PublishedSubject>,
 ) {
@@ -356,6 +387,35 @@ private fun StatusCard(
                             append(formatCounted(recording.filesCompleted.toLong(), "file"))
                             append(" in Downloads/Logline")
                         }
+                    },
+                )
+            }
+
+            // Free space, and what it buys. Shown when nothing is running because that is the moment
+            // the question is asked — "can I record the whole passage?" — and there is no measured
+            // fill rate to answer it with yet. Once a run starts, `spaceRuntime` below measures the
+            // real thing, including whatever else on the phone is filling the same volume, so this
+            // arithmetic gets out of its way.
+            if (!status.running) {
+                val perHour = megabytesPerHour(settings)
+                val capacity = recordingCapacityMillis(freeBytes, perHour)
+                Text(
+                    buildString {
+                        append(formatBytes(freeBytes))
+                        append(" free")
+                        if (capacity != null) {
+                            append(" · about ")
+                            append(formatCapacity(capacity))
+                            append(" of recording at ~")
+                            append(perHour)
+                            append(" MB/h")
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (capacity == 0L) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
             }
@@ -449,6 +509,7 @@ private fun StatusCard(
                 if (!status.running && status.publishedSpanMillis >= 1_000L) {
                     Detail("Ran for", duration(status.publishedSpanMillis))
                 }
+                Detail("Free space", formatBytes(freeBytes))
                 recording.error?.let { Detail("Error", it) }
                 if (status.replayed > 0) Detail("Replayed", formatCounted(status.replayed, "sample"))
                 // Next to Replayed on purpose: the two are only meaningful read together.
@@ -497,10 +558,11 @@ private fun Actions(
     onOpenSettings: () -> Unit,
     onOpenLive: () -> Unit,
     onOpenAnnotations: () -> Unit,
+    onOpenRecordings: () -> Unit,
     onOpenChecklists: () -> Unit,
     onOpenCalibration: () -> Unit,
     /** The rig's name once one is calibrated, so the button says what it will open. */
-    calibratedRig: String?,
+    rigSummary: String?,
 ) {
     if (!running) {
         Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start publishing") }
@@ -527,7 +589,14 @@ private fun Actions(
         OutlinedButton(
             onClick = onOpenCalibration,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(calibratedRig?.let { "Rig calibration · $it" } ?: "Rig calibration") }
+        ) { Text(rigSummary?.let { "Rigs · $it" } ?: "Rigs") }
+        // Stopped only, and for the same reason as the rigs: getting a finished run off the phone is
+        // quayside work. The file being written now is not in that list anyway — it is still in
+        // app-private storage, and the card above is already reporting it.
+        OutlinedButton(
+            onClick = onOpenRecordings,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Recordings") }
     } else {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onOpenLive, modifier = Modifier.weight(1f)) { Text("Live view") }

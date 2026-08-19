@@ -7,8 +7,9 @@ import se.rise.logline.sensors.SensorRate
  * Which configured source id a subject's key is built from.
  *
  * The protocol's `source_id` names *what produced the data*, so subjects that come off different
- * hardware get different ids. All three default to `phone`, which is why the usual case is still a
- * single liveliness token — that is per source, not per subject (specification §5.1).
+ * hardware get different ids. All three default to `phone`, which is why the usual case is a single
+ * *source-level* liveliness token (specification §5.1) — the subject-level tokens beside it are a
+ * separate tier and there is one of those per subject.
  */
 enum class SourceKind {
     LOCATION,
@@ -190,6 +191,30 @@ enum class PublishedSubject(
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
     ),
+    /**
+     * Altitude the way a person means it, and the correction that explains the other one.
+     *
+     * `location_fix.altitude` is `Location.getAltitude()`, which Android defines as height above the
+     * **WGS84 ellipsoid** — and foxglove's proto says only "Altitude in meters", so nothing on the wire
+     * resolves which surface it is measured from. In Sweden the two are 30-35 m apart, which reads as a
+     * broken sensor rather than as a different reference.
+     *
+     * `altitude_above_msl_m` is the one anybody wants; `location_fix_undulation_m` is `h − H`, the
+     * geoid's height above the ellipsoid, and it is published precisely because it *explains* the
+     * discrepancy and lets a consumer convert between the two.
+     */
+    ALTITUDE_ABOVE_MSL(
+        subject = Subjects.ALTITUDE_ABOVE_MSL_M,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
+    FIX_UNDULATION(
+        subject = Subjects.LOCATION_FIX_UNDULATION_M,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
     LINEAR_ACCEL(
         subject = Subjects.LINEAR_ACCELERATION_MPSS,
         defaultRate = SensorRate.Hz(50.0),
@@ -242,6 +267,86 @@ enum class PublishedSubject(
      * Published beside the heading rather than used to gate it: a heading with a stated 60° uncertainty
      * is information, a heading silently withheld is not.
      */
+    /**
+     * The attitude as three angles, which is the form a person can read.
+     *
+     * `orientation_quaternion` carries the same information exactly and unreadably: nobody looks at a
+     * plot of `w` and knows how much the boat was moving. These come off the *same* `getOrientation`
+     * call that already produces the heading — two of the three used to be computed and thrown away —
+     * so they cost no sensor work, only messages.
+     *
+     * **Their own rate, and their own collector, which is a deliberate deviation.** Riding the rotation
+     * vector at its 50 Hz default would have added ~150 messages a second for three subjects that
+     * describe motion with a period of seconds; 10 Hz is ample for anything a hull does, and a
+     * separate registration is what makes the dial real rather than decorative. `roll_deg` carries the
+     * rate for the trio because one listener cannot serve three different ones.
+     */
+    ROLL(
+        subject = Subjects.ROLL_DEG,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.IMU,
+        sensorType = Sensor.TYPE_ROTATION_VECTOR,
+    ),
+    PITCH(
+        subject = Subjects.PITCH_DEG,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.IMU,
+        sensorType = Sensor.TYPE_ROTATION_VECTOR,
+        rateOwner = Subjects.ROLL_DEG,
+    ),
+    YAW(
+        subject = Subjects.YAW_DEG,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.IMU,
+        sensorType = Sensor.TYPE_ROTATION_VECTOR,
+        rateOwner = Subjects.ROLL_DEG,
+    ),
+    /**
+     * Body rotation rates about the same three axes, in degrees per second.
+     *
+     * A unit conversion of `angular_velocity_radps`, which is already on the bus as a vector in rad/s —
+     * published separately because "roll rate" is the name every marine and aviation system uses for
+     * it, and because a scalar can be plotted and alarmed on where a vector component cannot.
+     *
+     * **Body rates, not the derivatives of the angles above.** They coincide only near level; away
+     * from it Euler rates and body rates differ by a transformation, and claiming otherwise would be
+     * wrong in exactly the conditions these are interesting in.
+     */
+    ROLL_RATE(
+        subject = Subjects.ROLL_RATE_DEGPS,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.IMU,
+        sensorType = Sensor.TYPE_GYROSCOPE,
+    ),
+    PITCH_RATE(
+        subject = Subjects.PITCH_RATE_DEGPS,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.IMU,
+        sensorType = Sensor.TYPE_GYROSCOPE,
+        rateOwner = Subjects.ROLL_RATE_DEGPS,
+    ),
+    YAW_RATE(
+        subject = Subjects.YAW_RATE_DEGPS,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.IMU,
+        sensorType = Sensor.TYPE_GYROSCOPE,
+        rateOwner = Subjects.ROLL_RATE_DEGPS,
+    ),
+    /**
+     * The IMU's own die temperature, where a device exposes one.
+     *
+     * What explains gyro bias drift on a phone sitting in the sun, and it is the *chip's* temperature
+     * rather than the air's — which is the point, since the chip runs hotter than what is around it.
+     *
+     * No `sensorType`, deliberately: this comes from a **vendor** sensor found by string type
+     * (`com.google.sensor.gyro_temperature`), because Android has no constant for it and the numeric
+     * type is assigned per vendor. `unavailableSubjects()` asks for it directly instead.
+     */
+    IMU_TEMPERATURE(
+        subject = Subjects.IMU_TEMPERATURE_CELSIUS,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.IMU,
+    ),
     HEADING_ACCURACY(
         subject = Subjects.HEADING_ACCURACY_DEG,
         defaultRate = SensorRate.Hz(50.0),
@@ -340,6 +445,23 @@ enum class PublishedSubject(
     ),
     BATTERY_TEMPERATURE(
         subject = Subjects.BATTERY_TEMPERATURE_CELSIUS,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
+    /**
+     * How long the phone has been up, which is the field that tells a reboot from a restart.
+     *
+     * Months later, a gap in a recording has two explanations that look identical from the data — the
+     * app was stopped and started, or the phone went down and came back — and they mean very different
+     * things about an unattended rig. Uptime resetting across the gap says which.
+     *
+     * `elapsedRealtime`, so deep sleep counts: the phone was up, it was merely asleep. Rides the
+     * battery poll because it is the same kind of question about the same device, and because a
+     * monotonic counter needs no rate of its own.
+     */
+    DEVICE_UPTIME(
+        subject = Subjects.DEVICE_UPTIME_DURATION,
         defaultRate = SensorRate.Hz(0.2),
         source = SourceKind.DEVICE,
         rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,

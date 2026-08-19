@@ -17,10 +17,12 @@ import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.EulerDeg
 import se.rise.logline.calibrate.HeadingSource
 import se.rise.logline.calibrate.PlatformType
+import se.rise.logline.calibrate.parsePlatformGeometry
 import se.rise.logline.calibrate.RigCalibration
 import se.rise.logline.calibrate.RigZero
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
+import se.rise.logline.calibrate.toStoredJson
 import se.rise.logline.calibrate.Vec3M
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.SubjectQos
@@ -56,6 +58,7 @@ internal object Keys {
     val BACKFILL_ENABLED = stringPreferencesKey("backfill_enabled")
     val BATTERY_EXEMPTION_ASKED = stringPreferencesKey("battery_exemption_asked")
     val START_ON_BOOT = stringPreferencesKey("start_on_boot")
+    val OFFLINE_TILES_ONLY = stringPreferencesKey("offline_tiles_only")
     val SCOUT_ADDRESS = stringPreferencesKey("scout_address")
     val AUDIO_ENABLED = stringPreferencesKey("audio_enabled")
     val AUDIO_SAMPLE_RATE = stringPreferencesKey("audio_sample_rate_hz")
@@ -102,11 +105,33 @@ internal object Keys {
     /** Requested sampling rate. Absent means "use the default for this subject". */
     fun rateHz(subject: String) = stringPreferencesKey("rate_$subject")
 
-    // The rig calibration, flattened. One key per field and one group per sensor, the same shape the
-    // QoS and rate overrides use — DataStore preferences is string-keyed, and spelling the structure
-    // out keeps `readSettings`/`writeSettings` pure and testable with no JSON parser anywhere in the
-    // app. The document this becomes is only ever *written*; see `calibrate/PlatformGeometryJson.kt`.
     val CALIBRATION_SOURCE = stringPreferencesKey("calibration_source")
+
+    // The rig library. One rig per key, each holding the whole document as JSON.
+    //
+    // A flat key per field, the way everything else here is stored, was what the single rig used — and
+    // it does not survive becoming a list. Two nested indices (rig, then sensor) mean a clear-out that
+    // has to walk both, and that clear-out is the part that has already been got wrong once: deleting a
+    // sensor without removing its indices resurrects it at the next start. One string per rig turns
+    // that into a single loop, and the serialiser it needs already exists.
+    val RIG_COUNT = stringPreferencesKey("rig_count")
+    fun rig(index: Int) = stringPreferencesKey("rig_$index")
+
+    /** Entity id of the rig the phone is on. Absent means none is selected. */
+    val RIG_ACTIVE_ENTITY = stringPreferencesKey("rig_active_entity")
+
+    /**
+     * Entity ids of the rigs opted in to publishing, newline-delimited — the same shape
+     * [ROUTER_ENDPOINT] uses, for the same reason: a list in a string-keyed store.
+     */
+    val RIG_PUBLISHING = stringPreferencesKey("rig_publishing")
+    val RIG_SHARE_LIBRARY = stringPreferencesKey("rig_share_library")
+    val RIG_REGISTRY_VERSION = stringPreferencesKey("rig_registry_version")
+    val RIG_REGISTRY_ORIGIN = stringPreferencesKey("rig_registry_origin")
+
+    // The single rig, flattened — **read-only now, and kept only for the migration**. A preferences
+    // file written by an older build has these and no `rig_count`; `readRigs` turns them into a
+    // one-rig library and the next write replaces them. Nothing writes them any more.
 
     /** Absent means there is no calibration at all — the normal state. */
     val CALIB_NAME = stringPreferencesKey("calib_name")
@@ -156,49 +181,67 @@ private val SENSOR_FIELDS = listOf(
  */
 internal val overridableSubjects: List<String> = PublishedSubject.entries.map { it.subject }
 
-internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings = Settings(
-    realm = prefs[Keys.REALM] ?: Settings.DEFAULT_REALM,
-    entityId = prefs[Keys.ENTITY_ID] ?: defaultEntityId,
-    routerEndpoints = parseEndpoints(prefs[Keys.ROUTER_ENDPOINT]),
-    locationSource = prefs[Keys.LOCATION_SOURCE] ?: Settings.DEFAULT_LOCATION_SOURCE,
-    imuSource = prefs[Keys.IMU_SOURCE] ?: Settings.DEFAULT_IMU_SOURCE,
-    deviceSource = prefs[Keys.DEVICE_SOURCE] ?: Settings.DEFAULT_DEVICE_SOURCE,
-    calibrationSource = prefs[Keys.CALIBRATION_SOURCE]?.takeIf { it.isNotBlank() }
-        ?: Settings.DEFAULT_CALIBRATION_SOURCE,
-    calibration = readCalibration(prefs),
-    recordingEnabled = prefs[Keys.RECORDING_ENABLED]?.toBooleanStrictOrNull() ?: true,
-    backfillEnabled = prefs[Keys.BACKFILL_ENABLED]?.toBooleanStrictOrNull() ?: true,
-    batteryExemptionAsked = prefs[Keys.BATTERY_EXEMPTION_ASKED]?.toBooleanStrictOrNull() ?: false,
-    startOnBoot = prefs[Keys.START_ON_BOOT]?.toBooleanStrictOrNull() ?: false,
-    scoutAddress = prefs[Keys.SCOUT_ADDRESS]?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_SCOUT_ADDRESS,
-    // Absent means off: a stored value is the only thing that turns the microphone on.
-    audioEnabled = prefs[Keys.AUDIO_ENABLED]?.toBooleanStrictOrNull() ?: false,
-    audioSampleRateHz = prefs[Keys.AUDIO_SAMPLE_RATE]?.toIntOrNull()?.takeIf { it > 0 }
-        ?: Settings.DEFAULT_AUDIO_SAMPLE_RATE_HZ,
-    audioChannels = prefs[Keys.AUDIO_CHANNELS]?.toIntOrNull()?.coerceIn(1, 2) ?: 1,
-    // Absent means off, as for audio: only a stored value turns the camera on.
-    cameraEnabled = prefs[Keys.CAMERA_ENABLED]?.toBooleanStrictOrNull() ?: false,
-    cameraLensFront = prefs[Keys.CAMERA_LENS_FRONT]?.toBooleanStrictOrNull() ?: false,
-    cameraWidth = prefs[Keys.CAMERA_WIDTH]?.toIntOrNull()?.takeIf { it > 0 }
-        ?: Settings.DEFAULT_CAMERA_WIDTH,
-    cameraHeight = prefs[Keys.CAMERA_HEIGHT]?.toIntOrNull()?.takeIf { it > 0 }
-        ?: Settings.DEFAULT_CAMERA_HEIGHT,
-    disabledSubjects = parseDisabledSubjects(prefs[Keys.DISABLED_SUBJECTS]),
-    annotationButtons = readAnnotationButtons(prefs),
-    qosOverrides = readQosOverrides(prefs),
-    sensorRates = readSensorRates(prefs),
-    // Absent means off, for the same reason audio is: a stored value is the only thing that makes
-    // this phone visible to other sites.
-    checklistEnabled = prefs[Keys.CHECKLIST_ENABLED]?.toBooleanStrictOrNull() ?: false,
-    operatorId = prefs[Keys.OPERATOR_ID].orEmpty(),
-    operatorName = prefs[Keys.OPERATOR_NAME].orEmpty(),
-    operatorRole = prefs[Keys.OPERATOR_ROLE].orEmpty(),
-    rocSiteId = prefs[Keys.ROC_SITE_ID].orEmpty(),
-    checklistRealm = prefs[Keys.CHECKLIST_REALM]?.takeIf { it.isNotBlank() }
-        ?: Settings.DEFAULT_CHECKLIST_REALM,
-    checklistEntityId = prefs[Keys.CHECKLIST_ENTITY_ID]?.takeIf { it.isNotBlank() }
-        ?: Settings.DEFAULT_CHECKLIST_ENTITY,
-)
+internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings {
+    // Read once and reused: the migrated selection is derived from the library itself, so the
+    // two cannot be built independently.
+    val rigs = readRigs(prefs)
+    return Settings(
+        realm = prefs[Keys.REALM] ?: Settings.DEFAULT_REALM,
+        entityId = prefs[Keys.ENTITY_ID] ?: defaultEntityId,
+        routerEndpoints = parseEndpoints(prefs[Keys.ROUTER_ENDPOINT]),
+        locationSource = prefs[Keys.LOCATION_SOURCE] ?: Settings.DEFAULT_LOCATION_SOURCE,
+        imuSource = prefs[Keys.IMU_SOURCE] ?: Settings.DEFAULT_IMU_SOURCE,
+        deviceSource = prefs[Keys.DEVICE_SOURCE] ?: Settings.DEFAULT_DEVICE_SOURCE,
+        calibrationSource = prefs[Keys.CALIBRATION_SOURCE]?.takeIf { it.isNotBlank() }
+            ?: Settings.DEFAULT_CALIBRATION_SOURCE,
+        rigs = rigs,
+        // `?:` on the raw key, not `ifBlank`: an **absent** key is a file from before the library
+        // and needs its one rig nominated, while a **present but empty** one is a selection somebody
+        // cleared by deleting the active rig. Treating those the same re-activates a surviving rig on
+        // the next launch — and since the active rig always publishes, its geometry starts going out
+        // under its own entity id with nobody having asked. Same rule as the annotation buttons: an
+        // absent key and an empty value mean different things.
+        activeRigEntityId = prefs[Keys.RIG_ACTIVE_ENTITY] ?: migratedActiveRig(rigs),
+        publishingRigEntityIds = parseRigEntityIds(prefs[Keys.RIG_PUBLISHING]),
+        // Absent means off, as for the checklist: only a stored value shares the library.
+        shareRigLibrary = prefs[Keys.RIG_SHARE_LIBRARY]?.toBooleanStrictOrNull() ?: false,
+        rigRegistryVersion = prefs[Keys.RIG_REGISTRY_VERSION]?.toLongOrNull() ?: 0L,
+        rigRegistryOrigin = prefs[Keys.RIG_REGISTRY_ORIGIN].orEmpty(),
+        recordingEnabled = prefs[Keys.RECORDING_ENABLED]?.toBooleanStrictOrNull() ?: true,
+        backfillEnabled = prefs[Keys.BACKFILL_ENABLED]?.toBooleanStrictOrNull() ?: true,
+        batteryExemptionAsked = prefs[Keys.BATTERY_EXEMPTION_ASKED]?.toBooleanStrictOrNull() ?: false,
+        startOnBoot = prefs[Keys.START_ON_BOOT]?.toBooleanStrictOrNull() ?: false,
+    offlineTilesOnly = prefs[Keys.OFFLINE_TILES_ONLY]?.toBooleanStrictOrNull() ?: false,
+        scoutAddress = prefs[Keys.SCOUT_ADDRESS]?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_SCOUT_ADDRESS,
+        // Absent means off: a stored value is the only thing that turns the microphone on.
+        audioEnabled = prefs[Keys.AUDIO_ENABLED]?.toBooleanStrictOrNull() ?: false,
+        audioSampleRateHz = prefs[Keys.AUDIO_SAMPLE_RATE]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_AUDIO_SAMPLE_RATE_HZ,
+        audioChannels = prefs[Keys.AUDIO_CHANNELS]?.toIntOrNull()?.coerceIn(1, 2) ?: 1,
+        // Absent means off, as for audio: only a stored value turns the camera on.
+        cameraEnabled = prefs[Keys.CAMERA_ENABLED]?.toBooleanStrictOrNull() ?: false,
+        cameraLensFront = prefs[Keys.CAMERA_LENS_FRONT]?.toBooleanStrictOrNull() ?: false,
+        cameraWidth = prefs[Keys.CAMERA_WIDTH]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_CAMERA_WIDTH,
+        cameraHeight = prefs[Keys.CAMERA_HEIGHT]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_CAMERA_HEIGHT,
+        disabledSubjects = parseDisabledSubjects(prefs[Keys.DISABLED_SUBJECTS]),
+        annotationButtons = readAnnotationButtons(prefs),
+        qosOverrides = readQosOverrides(prefs),
+        sensorRates = readSensorRates(prefs),
+        // Absent means off, for the same reason audio is: a stored value is the only thing that makes
+        // this phone visible to other sites.
+        checklistEnabled = prefs[Keys.CHECKLIST_ENABLED]?.toBooleanStrictOrNull() ?: false,
+        operatorId = prefs[Keys.OPERATOR_ID].orEmpty(),
+        operatorName = prefs[Keys.OPERATOR_NAME].orEmpty(),
+        operatorRole = prefs[Keys.OPERATOR_ROLE].orEmpty(),
+        rocSiteId = prefs[Keys.ROC_SITE_ID].orEmpty(),
+        checklistRealm = prefs[Keys.CHECKLIST_REALM]?.takeIf { it.isNotBlank() }
+            ?: Settings.DEFAULT_CHECKLIST_REALM,
+        checklistEntityId = prefs[Keys.CHECKLIST_ENTITY_ID]?.takeIf { it.isNotBlank() }
+            ?: Settings.DEFAULT_CHECKLIST_ENTITY,
+    )
+}
 
 internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.REALM] = settings.realm
@@ -208,11 +251,12 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.IMU_SOURCE] = settings.imuSource
     prefs[Keys.DEVICE_SOURCE] = settings.deviceSource
     prefs[Keys.CALIBRATION_SOURCE] = settings.calibrationSource
-    writeCalibration(prefs, settings.calibration)
+    writeRigs(prefs, settings)
     prefs[Keys.RECORDING_ENABLED] = settings.recordingEnabled.toString()
     prefs[Keys.BACKFILL_ENABLED] = settings.backfillEnabled.toString()
     prefs[Keys.BATTERY_EXEMPTION_ASKED] = settings.batteryExemptionAsked.toString()
     prefs[Keys.START_ON_BOOT] = settings.startOnBoot.toString()
+    prefs[Keys.OFFLINE_TILES_ONLY] = settings.offlineTilesOnly.toString()
     prefs[Keys.SCOUT_ADDRESS] = settings.scoutAddress
     prefs[Keys.AUDIO_ENABLED] = settings.audioEnabled.toString()
     prefs[Keys.AUDIO_SAMPLE_RATE] = settings.audioSampleRateHz.toString()
@@ -343,66 +387,75 @@ private fun readSensorMounts(prefs: Preferences): List<SensorMount> {
 }
 
 /**
- * Persist the calibration, clearing whatever the last one left behind.
+ * Persist the rig library, clearing whatever a longer one left behind.
  *
- * The clear-out is the part that matters: the sensor keys are indexed, so writing a four-sensor rig
- * over a six-sensor one has to remove indices four and five explicitly. Without that the two deleted
- * sensors reappear at the next start — present in the file, absent from the screen, and published.
+ * The clear-out is the part that matters, and it is why a rig is one key rather than a spray of them:
+ * writing a two-rig library over a five-rig one has to remove indices two, three and four, and with a
+ * flat scheme that meant walking every field of every sensor of every removed rig. Miss any of it and
+ * the deleted rig comes back at the next start — present in the file, absent from the screen, and on
+ * the bus.
+ *
+ * The single-rig `calib_*` keys are removed here too, once, so a migrated file does not carry a stale
+ * copy of the rig it was migrated from.
  */
-internal fun writeCalibration(prefs: MutablePreferences, calibration: RigCalibration?) {
-    val previousCount = prefs[Keys.CALIB_SENSOR_COUNT]?.toIntOrNull() ?: 0
+internal fun writeRigs(prefs: MutablePreferences, settings: Settings) {
+    val previousCount = prefs[Keys.RIG_COUNT]?.toIntOrNull() ?: 0
+    settings.rigs.forEachIndexed { i, rig -> prefs[Keys.rig(i)] = rig.toStoredJson() }
+    for (i in settings.rigs.size until previousCount) prefs.remove(Keys.rig(i))
+    prefs[Keys.RIG_COUNT] = settings.rigs.size.toString()
+    prefs[Keys.RIG_ACTIVE_ENTITY] = settings.activeRigEntityId
+    prefs[Keys.RIG_PUBLISHING] = settings.publishingRigEntityIds.sorted().joinToString("\n")
+    prefs[Keys.RIG_SHARE_LIBRARY] = settings.shareRigLibrary.toString()
+    prefs[Keys.RIG_REGISTRY_VERSION] = settings.rigRegistryVersion.toString()
+    prefs[Keys.RIG_REGISTRY_ORIGIN] = settings.rigRegistryOrigin
+    if (prefs[Keys.CALIB_NAME] != null) clearLegacyCalibration(prefs)
+}
 
-    fun set(key: Preferences.Key<String>, value: String?) {
-        if (value == null) prefs.remove(key) else prefs[key] = value
+/**
+ * The rig library, or the migrated single rig, or nothing.
+ *
+ * `rig_count` present is the new scheme and is authoritative even when it says zero — that is a
+ * library somebody emptied, and falling back to the legacy keys there would resurrect the rig they
+ * deleted. Only its *absence* means the file predates the library, in which case today's single
+ * calibration becomes a one-rig library; [readSettings] takes the active rig from
+ * [Keys.RIG_ACTIVE_ENTITY], which is likewise absent, so `activeRig()` is null until the next write —
+ * hence the migration also has to nominate it, which it does in [migrateActiveRig].
+ *
+ * A rig whose JSON will not parse is skipped rather than failing the whole read, the same stance
+ * [readQosOverrides] takes: one corrupt entry should cost one rig, not every setting on the phone.
+ */
+internal fun readRigs(prefs: Preferences): List<RigCalibration> {
+    val count = prefs[Keys.RIG_COUNT]?.toIntOrNull()
+        ?: return listOfNotNull(readCalibration(prefs))
+    return (0 until count).mapNotNull { i ->
+        prefs[Keys.rig(i)]?.let { parsePlatformGeometry(it) }
     }
+}
 
-    set(Keys.CALIB_NAME, calibration?.name)
-    set(Keys.CALIB_ENTITY_ID, calibration?.entityId)
-    set(Keys.CALIB_PARENT_FRAME_ID, calibration?.parentFrameId)
-    set(Keys.CALIB_PLATFORM_TYPE, calibration?.platformType?.name)
-    set(Keys.CALIB_DESCRIPTION, calibration?.description?.takeIf { it.isNotBlank() })
-    set(Keys.CALIB_LOA_M, calibration?.lengthOverAllM?.toString())
-    set(Keys.CALIB_BOA_M, calibration?.breadthOverAllM?.toString())
-    set(Keys.CALIB_CCRP_X, calibration?.ccrp?.x?.toString())
-    set(Keys.CALIB_CCRP_Y, calibration?.ccrp?.y?.toString())
-    set(Keys.CALIB_CCRP_Z, calibration?.ccrp?.z?.toString())
-    set(Keys.CALIB_UPDATED_AT, calibration?.updatedAtEpochMillis?.toString())
+/**
+ * Which rig a freshly migrated file should have selected.
+ *
+ * A file written by an older build has one rig and no stored selection, and leaving it unselected
+ * would silently stop publishing geometry that was publishing before the update — the one thing a
+ * migration must not do. Reached **only** when [Keys.RIG_ACTIVE_ENTITY] is absent; see the call site
+ * for why a present-but-empty value must not come here.
+ */
+internal fun migratedActiveRig(rigs: List<RigCalibration>): String =
+    rigs.singleOrNull()?.entityId.orEmpty()
 
-    val zero = calibration?.zero
-    set(Keys.CALIB_ZERO_LAT, zero?.latitude?.toString())
-    set(Keys.CALIB_ZERO_LON, zero?.longitude?.toString())
-    set(Keys.CALIB_ZERO_ALT, zero?.altitudeM?.toString())
-    set(Keys.CALIB_ZERO_ACCURACY, zero?.accuracyM?.toString())
-    set(Keys.CALIB_ZERO_V_ACCURACY, zero?.verticalAccuracyM?.toString())
-    set(Keys.CALIB_ZERO_SCATTER, zero?.scatterM?.toString())
-    set(Keys.CALIB_ZERO_HEADING, zero?.headingDeg?.toString())
-    set(Keys.CALIB_ZERO_HEADING_SOURCE, zero?.headingSource?.name)
-    set(Keys.CALIB_ZERO_CAPTURE, zero?.capture?.name)
-    set(Keys.CALIB_ZERO_SAMPLES, zero?.samples?.toString())
-    set(Keys.CALIB_ZERO_CAPTURED_AT, zero?.capturedAtEpochMillis?.toString())
-
-    val sensors = calibration?.sensors.orEmpty()
-    set(Keys.CALIB_SENSOR_COUNT, if (calibration == null) null else sensors.size.toString())
-    sensors.forEachIndexed { i, mount ->
-        fun put(field: String, value: String?) {
-            val key = Keys.calibSensor(i, field)
-            if (value == null) prefs.remove(key) else prefs[key] = value
-        }
-        put("label", mount.label)
-        put("frame_id", mount.frameId)
-        put("type", mount.sensorType.name)
-        put("x", mount.translation.x.toString())
-        put("y", mount.translation.y.toString())
-        put("z", mount.translation.z.toString())
-        put("yaw", mount.rotation.yaw.toString())
-        put("pitch", mount.rotation.pitch.toString())
-        put("roll", mount.rotation.roll.toString())
-        put("capture", mount.capture.name)
-        put("accuracy", mount.accuracyM?.toString())
-        put("captured_at", mount.capturedAtEpochMillis.toString())
-    }
-    for (i in sensors.size until previousCount) {
-        SENSOR_FIELDS.forEach { field -> prefs.remove(Keys.calibSensor(i, field)) }
+private fun clearLegacyCalibration(prefs: MutablePreferences) {
+    val previousSensors = prefs[Keys.CALIB_SENSOR_COUNT]?.toIntOrNull() ?: 0
+    listOf(
+        Keys.CALIB_NAME, Keys.CALIB_ENTITY_ID, Keys.CALIB_PARENT_FRAME_ID, Keys.CALIB_PLATFORM_TYPE,
+        Keys.CALIB_DESCRIPTION, Keys.CALIB_LOA_M, Keys.CALIB_BOA_M, Keys.CALIB_CCRP_X,
+        Keys.CALIB_CCRP_Y, Keys.CALIB_CCRP_Z, Keys.CALIB_UPDATED_AT, Keys.CALIB_ZERO_LAT,
+        Keys.CALIB_ZERO_LON, Keys.CALIB_ZERO_ALT, Keys.CALIB_ZERO_ACCURACY,
+        Keys.CALIB_ZERO_V_ACCURACY, Keys.CALIB_ZERO_SCATTER, Keys.CALIB_ZERO_HEADING,
+        Keys.CALIB_ZERO_HEADING_SOURCE, Keys.CALIB_ZERO_CAPTURE, Keys.CALIB_ZERO_SAMPLES,
+        Keys.CALIB_ZERO_CAPTURED_AT, Keys.CALIB_SENSOR_COUNT,
+    ).forEach { prefs.remove(it) }
+    for (i in 0 until previousSensors) {
+        SENSOR_FIELDS.forEach { prefs.remove(Keys.calibSensor(i, it)) }
     }
 }
 
@@ -483,6 +536,10 @@ internal fun List<String>.serialiseEndpoints(): String =
  */
 internal fun slugifyModel(model: String?): String =
     (model ?: "android").lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_').ifEmpty { "android" }
+
+/** Newline-delimited, like the endpoints. Blank lines dropped so a trailing newline costs nothing. */
+private fun parseRigEntityIds(stored: String?): Set<String> =
+    stored?.lineSequence()?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
 
 private fun <T : Enum<T>> List<T>.byName(stored: String?): T? =
     stored?.let { name -> firstOrNull { it.name == name } }

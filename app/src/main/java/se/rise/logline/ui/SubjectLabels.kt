@@ -45,6 +45,10 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     // radius rather than a bound, which the README spells out where there is room to.
     Subjects.LOCATION_FIX_ACCURACY_HORIZONTAL_M -> SubjectLabel("Horizontal accuracy", "m")
     Subjects.LOCATION_FIX_ACCURACY_VERTICAL_M -> SubjectLabel("Vertical accuracy", "m")
+    // "Altitude" unqualified would be the third altitude on this screen. Naming the surface is the
+    // whole point of the subject, so the row names it too.
+    Subjects.ALTITUDE_ABOVE_MSL_M -> SubjectLabel("Altitude above MSL", "m")
+    Subjects.LOCATION_FIX_UNDULATION_M -> SubjectLabel("Geoid undulation", "m")
 
     Subjects.LINEAR_ACCELERATION_MPSS -> SubjectLabel("Linear acceleration", "m/s²")
     Subjects.ANGULAR_VELOCITY_RADPS -> SubjectLabel("Angular velocity", "rad/s")
@@ -53,6 +57,15 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     Subjects.HEADING_MAGNETIC_DEG -> SubjectLabel("Heading, magnetic", "°")
     Subjects.HEADING_TRUE_NORTH_DEG -> SubjectLabel("Heading, true", "°")
     Subjects.HEADING_ACCURACY_DEG -> SubjectLabel("Heading accuracy", "°")
+    // "IMU temperature" rather than just "Temperature": it is the chip's, not the air's, and the two
+    // differ by enough on a warm phone that the distinction is the reading.
+    Subjects.IMU_TEMPERATURE_CELSIUS -> SubjectLabel("IMU temperature", "°C")
+    Subjects.ROLL_DEG -> SubjectLabel("Roll", "°")
+    Subjects.PITCH_DEG -> SubjectLabel("Pitch", "°")
+    Subjects.YAW_DEG -> SubjectLabel("Yaw", "°")
+    Subjects.ROLL_RATE_DEGPS -> SubjectLabel("Roll rate", "°/s")
+    Subjects.PITCH_RATE_DEGPS -> SubjectLabel("Pitch rate", "°/s")
+    Subjects.YAW_RATE_DEGPS -> SubjectLabel("Yaw rate", "°/s")
 
     Subjects.AIR_PRESSURE_PA -> SubjectLabel("Air pressure", "Pa")
     Subjects.ILLUMINANCE_LUX -> SubjectLabel("Illuminance", "lx")
@@ -69,6 +82,9 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     Subjects.BATTERY_CURRENT_A -> SubjectLabel("Battery current", "A")
     Subjects.BATTERY_TEMPERATURE_CELSIUS -> SubjectLabel("Battery temperature", "°C")
     Subjects.BATTERY_IS_CHARGING -> SubjectLabel("Charging")
+    // Hours, because the row has to fit a number a glance can size: a phone up three weeks reads 504
+    // where seconds would read 1 814 400.
+    Subjects.DEVICE_UPTIME_DURATION -> SubjectLabel("Uptime", "h")
 
     // The link is already in the section heading, so these drop the `radio_` and keep the acronym the
     // way a radio engineer writes it.
@@ -127,7 +143,11 @@ fun formatLiveValue(entry: PublishedSubject, value: Float): String = when (entry
     Subjects.BATTERY_STATE_OF_CHARGE_PCT -> "%.0f".fmt(value)
     Subjects.BATTERY_VOLTAGE_V -> "%.2f".fmt(value)
     Subjects.BATTERY_CURRENT_A -> "%+.2f".fmt(value)
-    Subjects.BATTERY_TEMPERATURE_CELSIUS -> "%.1f".fmt(value)
+    Subjects.BATTERY_TEMPERATURE_CELSIUS,
+    Subjects.IMU_TEMPERATURE_CELSIUS -> "%.1f".fmt(value)
+    // One decimal up to a day, whole hours past it — six minutes of resolution stops mattering once
+    // the number is in the hundreds.
+    Subjects.DEVICE_UPTIME_DURATION -> if (value < 24f) "%.1f".fmt(value) else "%.0f".fmt(value)
     // A live boolean arrives as 1 or 0; "Yes" is what a person reads.
     Subjects.BATTERY_IS_CHARGING -> if (value != 0f) "Yes" else "No"
 

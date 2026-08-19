@@ -17,10 +17,17 @@ datastore = "1.1.1"
 coroutinesPlayServices = "1.9.0"
 osmdroid = "6.1.20"
 camerax = "1.6.1"
+# QR only: the pure-Java core, no Android artifact and no Play Services. Generating a code needs
+# QRCodeWriter, reading one needs MultiFormatReader over the YUV CameraX already delivers.
+zxing = "3.5.3"
+# Pinned to what zenoh-kotlin-android already pulls in at runtime scope, so declaring it
+# changes nothing that ships — it only makes an existing transitive dependency honest.
+kotlinxSerializationJson = "1.6.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
@@ -46,6 +53,8 @@ osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

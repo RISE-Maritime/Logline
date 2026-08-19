@@ -63,8 +63,17 @@ LoglineApp
         └── publishes   this operator's events, heartbeat, snapshots
 ```
 
-`ChecklistSync` shares nothing with `SensorPublisher` — different session, different realm, different
-lifetime — because a checklist is worked through with logging stopped. See "Checklists" below.
+```
+LoglineApp
+  └── PlatformSync ─── its own KeelsonSession, opened only while a rig screen is up
+        ├── discovers  liveliness + a listening window on configuration_json
+        ├── serves     configurable/v1 get_config (and crowsnest's older key shape) per rig
+        └── shares     the rig library as raw JSON on platform_registry/library/latest
+```
+
+`ChecklistSync` and `PlatformSync` share nothing with `SensorPublisher` — different session, different
+lifetime — because a checklist is worked through, and a rig surveyed, with logging stopped. See
+"Checklists" and "Rig library" below.
 
 `SensorPublisher` is the only stateful thing in the app. It exposes `StateFlow<PublisherStatus>`
 holding a per-subject sample count and last-publish timestamp; the UI is otherwise stateless.
@@ -78,6 +87,14 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
 
 ## Conventions
 
+- **A rig's keys come from the rig, not from `entityFor()`.** `Settings.entityFor(entry)` answers for
+  the phone and only for the phone. It used to return the rig's entity for the three calibration
+  entries, which was right while there could be only one rig; with a library, one registry entry is
+  published by *several* rigs under different entity ids and there is no single answer to return.
+  `Settings.rigKeys(rig)` is the counterpart and the only place a rig's entity reaches a key, and
+  `SensorPublisher` therefore leaves `SourceKind.CALIBRATION` entries out of the per-entry
+  `keys`/`publishers` pass entirely. A function that kept the old name and silently picked one of
+  several rigs is exactly the bug this shape exists to prevent.
 - **Key expressions only via `pubsubKey()`** in `keelson/Keys.kt`. Never concatenate a key inline —
   the `{realm}/@v0/{entity_id}/pubsub/{subject}/{source_id}` layout is protocol, not formatting.
   **`@v0` is verbatim: no wildcard crosses it**, so any subscription or tooling must spell it out —
@@ -90,10 +107,36 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   connector. The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
   is upstream policy, `qosForSubject(subject, overrides)` is what actually gets used. Overrides are an
   escape hatch, not the norm: default them to Auto and keep the policy path the one that works.
-- **Liveliness keys only via `livelinessKey()`**, same file, same reason. The `*` in
-  `{realm}/@v0/{entity_id}/pubsub/*/{source_id}` is literal — one token per *source*, not per subject
-  (protocol specification §5.1). Declaring one token per subject is a misreading of the spec — the
-  count follows the configured source ids, not the subject count.
+- **Liveliness is three tiers, and the app declares two of them** (protocol specification §5, as
+  rewritten in keelson `0.6.0-pre.3`). **This inverted the previous rule here** — one token per source
+  used to be the whole of it, and a note in this file said declaring one per subject was a misreading
+  of the spec. It is now what the spec asks for.
+  - **Source tier**, `sourceLivelinessKey()` — `{realm}/@v0/{entity_id}/*/{source_id}`, one per
+    producing `(entity, source)` identity. The `*` is literal and sits in the **category** slot, where
+    `pubsub` would be, because presence is category-agnostic. That position is load-bearing: §5.5
+    classifies a received token by the chunk after the entity, so a key built one chunk along is
+    indistinguishable from the legacy shape and silently mis-tiered.
+  - **Subject tier** — one token per subject the phone claims, and it has **no key function** because
+    the key *is* the publisher's key. `SensorPublisher` declares these from the very map it declared
+    publishers from; a separately-constructed key could drift, and a token advertising a key nothing
+    publishes on is worse than no token. `subjectLivelinessKeys()` in `keelson/Liveliness.kt` decides
+    the set, `runSubjectLiveliness()` holds the tokens.
+  - **Legacy coarse token**, `legacyLivelinessKey()` — the old `.../pubsub/*/{source_id}`, still
+    declared beside the source tier because §5.7 asks aggregators to read both during the transition.
+    Delete it once `entity_health` and crowsnest read the new tiers.
+  - **RPC interface tier** — not declared. §3.6's full-interface rule means the token commits the app
+    to serving all of `configurable/v1`, which is a decision, not a detail.
+
+  What the subject tier is *for*: upstream's `entity_health` counts a `*` subject chunk as presence but
+  **not advertisement**, and `authority.py` then drops those subjects from the coverage denominator as
+  a fault in the monitor's own config. Declaring only the coarse token therefore has a perfectly
+  healthy phone contribute nothing to a vessel's score.
+- **A liveliness token is capability, not activity** (§5.2), and it must **not** be retracted because
+  data has stopped. `heading_true_north_deg` keeps its token while it waits for the first fix and
+  `log_message` keeps one through a run nobody annotates — silence is not a withdrawal. Only two things
+  remove a token: hardware that is not there (`unavailableSubjects()`), and a subject somebody switched
+  off, which is a configuration change rather than silence. That second one is why the per-subject
+  switches now do something on the wire, having previously done nothing beyond the phone.
 - **Subject names only via `Subjects`** in `keelson/Keys.kt`, and the subject *set* only via
   `PublishedSubject` in `keelson/SubjectRegistry.kt`. A new subject means a constant plus a registry
   entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **Check `dev`,
@@ -231,6 +274,116 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   the key. Worth knowing before reading its behaviour as intended.
 - Checklist events are **not** recorded to MCAP. `Recorder` is per-run and hangs off the publish path;
   wiring an event-driven subject into it is a separate change.
+
+## Rig library
+
+A rig is a keelson **platform**, and the phone holds several. `entity_id` is, per the protocol
+specification, "normally the platform name", so the library *is* a platform list and the counterpart to
+crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
+
+- **One active rig, plus any opted in — and the active one always publishes.** `Settings.publishingRigs()`
+  includes the active rig whether or not it is in `publishingRigEntityIds`, so no switch can express
+  "the phone is on this rig and its geometry is not on the bus". The UI renders the active rig's switch
+  on and disabled rather than letting it be pressed and do nothing.
+- **The publish flag is not a field on `RigCalibration`.** That struct is the platform *document* — it
+  is what the exporter writes, what `configuration_json` carries, what `get_config` replies with, and
+  what crosses to and from crowsnest. A local policy flag inside it would either leak into a file that
+  is `additionalProperties: false` at every level, or need excluding in three serialisers and the
+  parser.
+- **A rename is a re-key, and `Settings.upsertRig(previousEntityId, rig)` owns it.** The entity id is
+  the identity *and* the `{entity_id}` chunk of every key the rig publishes on, and both the active
+  selection and the publish set name the old id. Renaming anywhere else silently deselects the rig
+  somebody just renamed. `entityIdTaken()` refuses a collision outright — two rigs on one id would
+  publish onto the same three keys and overwrite each other in Zenoh's latest-value store.
+- **Changing the active rig or a publish switch restarts the run**, unlike the per-subject switches.
+  It changes which publishers are declared and which liveliness tokens exist, so it goes through
+  `saveSettings()`. The rig list is read-only while a run is going for that reason.
+- **A rig is stored as one JSON string per indexed key**, not as a spray of flat keys like everything
+  else in `SettingsRepository`. Two nested indices (rig, then sensor) would mean a clear-out that walks
+  both, and that clear-out is the part already got wrong once. The stored form is
+  `toStoredJson()` — the *wire* document plus `entity_id` and `parent_frame_id`, which upstream's
+  schema has no room for. Note it therefore **normalises rotations into `[-180, 180]` on save**: `-180`
+  comes back as `180`, the same rotation, and `SettingsRepositoryTest` pins it.
+- **The migration from the single-rig `calib_*` keys is read-only and one-way.** `rig_count` absent is
+  the trigger; present and zero is an emptied library and must *not* fall back, or a deleted rig
+  resurrects. The migrated rig is nominated active by `migrateActiveRig()` — an update that silently
+  stopped geometry that was going out before is the one outcome a migration must not produce. After the
+  first save the old keys are gone, so an older APK sees no calibration.
+- **`rig_active_entity` absent and empty mean different things**, the same rule the annotation buttons
+  have. Absent is a file from before the library and its one rig gets nominated; **empty is a selection
+  somebody cleared by deleting the active rig**, and re-nominating there would silently start a
+  surviving rig's geometry going out under its own entity id — because the active rig always
+  publishes. `readSettings` therefore uses `?:` on the raw key, never `ifBlank`.
+- **A Zenoh subscriber is not torn down by cancelling the scope that declared it.** The discovery scan
+  closes its own subscriber in a `finally`, and must: left to `stop()`, every scan leaves a live
+  callback behind, and the next scan's fresh list is then overwritten by the previous scan's stale
+  one the moment another document arrives. The same `finally` is what stops the scan state being left
+  on `Scanning` forever when a settings change restarts the session mid-scan — and since `PlatformSync`
+  outlives every screen, "forever" means until the process dies.
+- **Nothing heavy runs in the discovery callback.** It hands `(key, bytes)` to an unbounded channel and
+  a coroutine does the protobuf and JSON parsing, because the callback is on Zenoh's receive path and
+  the wildcard subscription can see every platform on the realm at once. Same rule the queryable's
+  pre-rendered reply follows.
+- **Applying a shared library bumps past the version it merged**, rather than adopting it.
+  `mergeRemoteRigs` keeps rigs this phone is publishing, so what comes out is not what arrived;
+  republishing that at the sender's own version would leave the shared key holding two different
+  libraries both claiming to be the same one, with neither station able to accept the other's.
+- **`PlatformGeometryParse.kt` is the first thing in this app that parses JSON**, and it uses
+  `kotlinx-serialization-json` — runtime API only, no compiler plugin, no `@Serializable`. It is
+  already on the runtime classpath (`zenoh-kotlin-android` pulls it in at runtime scope), so declaring
+  it costs nothing that ships and the unit tests exercise the same implementation the phone runs. That
+  last part is why it is not `org.json`, whose `android.jar` stubs throw "not mocked" in a JVM test —
+  the tested parser and the shipped parser would be different implementations of the same API, for the
+  one class that consumes foreign input. The writer stays hand-rolled: it is a small fixed shape only
+  ever written, and pinned character-for-character.
+- **The parser is tolerant the way `readCalibration` is tolerant** — a transform missing a frame id or
+  any translation component is skipped, never read as zeros, because zeros put the sensor exactly at
+  the rig's origin and nothing downstream can tell that from a measurement. It also accepts the older
+  `keelson-platforms` shape where `translation` is a `[x, y, z]` array; **that array is
+  `[roll, pitch, yaw]`**, squaternion's own argument order, and reading it yaw-first would roll a rig
+  onto its side.
+- **`configuration_json` has two wire shapes and both are real.** On pubsub it is an enveloped
+  `keelson.TimestampedString`; as a `get_config` reply it is **raw JSON bytes**. Crowsnest carries the
+  same fork. `decodeConfigurationJson()` handles both, and anything reading these documents that
+  handles only one silently finds nothing on half the sources.
+- **The `get_config` reply is the one unwrapped thing this app puts on the wire.** `configurable/v1`
+  replies raw JSON (`op.reply_ok(json.dumps(...).encode())` upstream); wrapping it in an envelope would
+  break every consumer that already speaks it. Do not "fix" it to match the everything-is-wrapped rule.
+- **Crowsnest probes an obsolete RPC key shape, and the phone serves both.**
+  `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` has no `{interface}/{version}` chunks and
+  nothing a current keelson connector serves answers it; the specification's shape is
+  `.../@rpc/configurable/v1/get_config/{source}`. `legacyPlatformConfigKey()` exists to be deleted once
+  crowsnest moves. Its declared `get_data_streams` / `get_queryables` queryables do not exist in
+  keelson at all.
+- **Discovery listens; it does not query.** No router storage covers `configuration_json`, so a `get`
+  returns an empty list indistinguishable from an empty bus. The scan subscribes for ~12 s instead —
+  slightly over the 10 s republish interval every platform connector uses precisely so a late joiner
+  need not ask — and takes entity ids from a liveliness get alongside. The liveliness half is wrapped
+  in a `Result` because it is the newest native call site in the app and the least load-bearing.
+- **`platform_registry` is deliberately not a keelson subject** and must never be added to `Subjects`
+  or `PublishedSubject`. That is what makes a consumer's decode fall through to raw JSON instead of
+  failing to unwrap an envelope — the same trick crowsnest plays for `dataflow_config`, `route` and
+  `voyage`. The library lives under a *config* entity (`platforms`), not a platform's: filing a list of
+  platforms under one platform's entity is a category error, and filing it under the phone's would make
+  each phone's library private.
+- **A remote library replaces documents and never local policy**, and **never deletes a rig this phone
+  is publishing**. The first stops one operator's save silently starting every phone in the fleet
+  publishing geometry under entity ids nobody told them about; the second is a knowing deviation from
+  crowsnest's whole-map replace, because taking a rig out from under a live publisher is the one case
+  where last-writer-wins is unacceptable. `rigRegistryOrigin` drops this phone's own echoes — a
+  publisher's sample cache re-delivers, so without it the version ratchets on every reconnect.
+- **The router needs a storage for the library key** or a station joining late sees nothing;
+  `../keelson-router/docker-compose.keelson-router-rise.yml` has one now. Crowsnest does not publish its
+  own overlay yet, so sharing is one-way until it does.
+- **The three calibration status rows aggregate across rigs.** `statusStore.tick(subject)` is keyed on
+  the registry entry, and re-keying it on (entry, rig) would ripple into the notification total, the
+  group badges, the live rings and `SubjectQosScreen` for a 0.1 Hz loop. `configuration_json`'s plotted
+  value is therefore the **whole library's** sensor count, not each rig's — a per-rig count would have
+  three rigs writing three numbers into one series and the plot would oscillate.
+- **Still one `calibration` collector.** N rigs is a fan-out *inside* it, not N collectors, so
+  `COLLECTOR_GROUPS` and `CollectorGroupsTest` are untouched. The per-rig `SubjectSink` carries a key
+  override, which is what gives each rig its own MCAP channels rather than merging two rigs' transforms
+  onto one topic.
 
 ## Gotchas
 
@@ -437,6 +590,34 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   `integrity` are deliberately left unset — Android reports neither, their zero values already mean
   "not reported", and a plausible guess would be worse than the truth. `GnssStatusTest` pins the
   mapping, including that the live row's word and the published enum cannot drift apart.
+- **Two altitudes, and the undulation is what tells them apart.** `location_fix.altitude` is height
+  above the **WGS84 ellipsoid** — Android's definition, and foxglove's proto says only "Altitude in
+  meters", so the wire does not disambiguate it. `altitude_above_msl_m` is the one a person means, and
+  `location_fix_undulation_m` is **N = h − H** (ellipsoidal minus MSL, the standard geodetic sign):
+  positive across northern Europe, negative over much of the Indian Ocean, so an `abs()` would pass
+  every test written here and be wrong only on the other side of the world. `GeoidTest` pins the sign
+  and that both altitudes are recoverable from it. Three API facts worth not re-deriving:
+  `getMslAltitudeMeters()` and `AltitudeConverter` are **API 34**, but
+  `AltitudeConverter.tryAddMslAltitudeToLocation` — the non-blocking one — is **API 35**, which is why
+  `MslAltitudeResolver` takes the blocking call on `Dispatchers.IO` instead. MSL is *optional* on a
+  fix and the fused provider commonly omits it, so the resolver reports-then-derives; that means a
+  series can change provenance mid-run, which the README states rather than hides. And below API 34
+  both subjects go in `unavailableSubjects()` — an OS version the row cannot otherwise distinguish
+  from missing hardware.
+- **The attitude angles get their own collector, and that is the deviation, not an accident.** Six
+  subjects — `roll_deg`/`pitch_deg`/`yaw_deg` and the three `*_rate_degps` — come off sensors two other
+  collectors are already listening to, so a second `SensorManager` registration each is exactly what
+  this file warns against elsewhere. The reason is the rate: riding the rotation vector at its 50 Hz
+  default would have added ~300 messages a second (~65 MB/h) for subjects describing motion with a
+  period of seconds, and a `rateOwner` gives no dial to turn it down. They default to 10 Hz, and
+  `roll_deg` / `roll_rate_degps` own the rate for their trio because one listener cannot serve three.
+  Two traps in the content. The rates are **body rates**, which is what the gyro measures and what a
+  marine system means by "roll rate" — *not* `d(roll_deg)/dt`, which they equal only near level. And
+  the axis naming is three assignments that all look right when two are swapped, so it lives in
+  `attitudeRatesOf()` with `AttitudeTest` on it rather than inline at the publish site: pitch about
+  +X, roll about +Y, yaw about +Z. `SensorFrame.DeviceAngle` exists so the per-subject screen can say
+  these are the *phone's* axes — roll and pitch are the readings most likely to be taken for a
+  vessel's.
 - **The compass is derived, not a sensor, and three of its four subjects are conditional.**
   `heading_magnetic_deg` is `getOrientation`'s azimuth off `TYPE_ROTATION_VECTOR` — the direction of the
   phone's **+Y axis**, which is meaningless when +Y points at the sky. `heading_true_north_deg` and
@@ -447,6 +628,22 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   default is ~150 extra messages a second. Do not confuse heading with `course_over_ground_deg`: one is
   where the phone points, the other where it is going.
 
+- **`protoDuration` truncates where `protoTimestamp` floors, and that is protobuf's rule, not a
+  preference.** A `Timestamp` wants a non-negative `nanos` even when `seconds` is negative; a
+  `Duration` requires both parts to carry the **same** sign. Copying the timestamp helper's
+  `floorDiv`/`floorMod` into the duration one would emit an invalid message for anything negative.
+  Nothing produces a negative duration today — `device_uptime_duration` cannot run backwards — so this
+  is a trap set for whoever adds the subject that can; `EnvelopesTest` holds both shapes.
+- **`imu_temperature_celsius` comes from a vendor sensor found by *string* type, and there is no
+  fallback on purpose.** Android has no constant for a die temperature: `TYPE_TEMPERATURE` is
+  deprecated, `TYPE_AMBIENT_TEMPERATURE` is the air, and a Pixel 6 exposes **neither** — verified with
+  `dumpsys sensorservice`, which lists only `com.google.sensor.gyro_temperature` (the LSM6DSR) and
+  `com.google.sensor.pressure_temp`. So `imuTemperatureSensor()` walks `getSensorList(TYPE_ALL)`
+  matching `stringType`, because the numeric type (65538 here) is vendor-assigned and portable
+  nowhere. Do **not** add an ambient fallback: the chip runs hotter than the air, which is the entire
+  reason to log it, so ambient published under this name would be a plausible wrong number. The
+  registry entry therefore has no `sensorType` and `unavailableSubjects()` asks for the sensor
+  directly. Its scaling is guaranteed by no contract either, hence the once-per-run range check.
 - **Android's units are not keelson's units.** The subject name declares the unit and it usually is not
   the one Android hands you: gauss vs microtesla, pascals vs hectopascals, knots vs m/s, volts vs
   millivolts, amps vs microamps, Celsius vs tenths of Celsius. `sensors/Units.kt` holds every
@@ -507,11 +704,39 @@ A shared checklist that several sites work at once, interoperating with crowsnes
 - **The live view keeps the raw `Location`, not the published one.** The wire carries `0.0` for an
   absent bearing on purpose; a map trusting that would draw a heading arrow due north whenever the
   phone is stationary, which is most of the time. `TrackPoint.bearingDegrees` is nullable for this.
+- **OSM tiles cannot be bulk-downloaded, and osmdroid enforces that — offline maps are imported.**
+  `TileSourceFactory.MAPNIK` is built with `TileSourcePolicy(2, 15)`, and `15` sets all four flags
+  including `FLAG_NO_BULK`, so **every `CacheManager` constructor throws `TileSourcePolicyException`**
+  for OSM. `downloadAreaAsync` is unreachable; do not plan a "download this area" button against the
+  default source. What works instead costs almost nothing: `MapTileProviderBasic` already builds a
+  `MapTileFileArchiveProvider`, and that provider's `findArchiveFiles()` lists
+  `Configuration.getOsmdroidBasePath()` — so an archive **copied into `filesDir/osmdroid` is picked up
+  with no provider wiring**, ahead of the downloader in the chain. Hence `osmdroidBasePath()` is one
+  function used by both the import and `configureOsmdroid`: two spellings of that path would leave a
+  400 MB file sitting next to a blank map. The extension is the whole dispatch key
+  (`ArchiveFileFactory` keys on it: `mbtiles`, `gemf`, `sqlite`, `zip`), so `archiveFileNameOrNull`
+  rejects anything else *before* the copy — `OfflineMapsTest` pins that. Note `findArchiveFiles()` runs
+  when the provider is constructed, so an import appears the next time a `MapView` is built.
+- **Esri's satellite URL puts the row before the column, and attribution is not automatic.** Two traps
+  in one file. `/tile/{z}/{y}/{x}` is not what `XYTileSource` builds (`{z}/{x}/{y}`), so the satellite
+  layer is a custom `OnlineTileSourceBase` overriding `getTileURLString` — swap the two and every tile
+  still loads, from the wrong place, which reads as a working map of somewhere else. And
+  `CopyrightOverlay` **must be added explicitly**: osmdroid does not draw the notice by itself, the map
+  never added one, and a comment claimed otherwise for as long as that was true of nothing. Both OSM's
+  and Esri's terms require it. There is no bundled global satellite source — `TileSourceFactory.USGS_SAT`
+  is the United States only and is blank over Sweden.
 - **osmdroid needs a user agent or it silently shows nothing.** OSM's tile servers answer the library
   default with `403`, and the failure looks like a blank grid rather than an error. `TrackMap`
   sets `Configuration.userAgentValue` to the package name and calls `MapView.onResume()` — `AndroidView`
   does not forward lifecycle, and osmdroid starts its tile threads there. Both were needed before a
   single tile appeared.
+- **`readMcapSummary` is the deliberate mirror of `McapWriter.writeStatistics()`, and only a test holds
+  them together.** It steps over four fields it does not want to reach the four it does, in the right
+  widths, so a wrong width produces a plausible number rather than an error — `McapSummaryTest` writes
+  a file with the writer and reads it back rather than anyone eyeballing offsets. It returns **null**
+  where the file has no summary section, which is not a corner case: `McapRecovery.finalise` writes
+  `summary_start = 0` for every recording rescued from a killed process, and one of those was already
+  sitting in Downloads on the dev phone. Zeroes there would report a 62 MB recording as empty.
 - **MCAP records the unwrapped payload, never the envelope.** keelson's replayer re-wraps with
   `enclose(payload=message.data, enclosed_at=message.publish_time)`, so writing envelopes produces
   doubly-wrapped messages that decode to garbage everywhere downstream. The channel topic is the full
@@ -549,6 +774,22 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   `PublisherStatus.replayLost` carries the run total and is recomputed on every poll *including while
   the gap is open* — reporting it only after the reconnect would mean the one screen anybody looks at
   during an outage says nothing, and then says "Replayed 32 768 samples" as if it had caught up.
+- **A settings profile carries everything except the five fields that identify the install.** `entityId`,
+  `operatorId` and `rigRegistryOrigin` are each documented in `Settings` as generated once and never
+  changed — that is exactly what makes copying them a bug — plus `rigRegistryVersion` (sync ordering)
+  and `batteryExemptionAsked` (a device fact). They are **not in `SettingsProfile` at all**, so an
+  import cannot touch them even by mistake; `SettingsProfileTest` asserts the round trip field by field
+  rather than with `copy`, so a field added to `Settings` later fails the test until somebody decides
+  which side it belongs on. Note the DTO is **hand-built with the runtime JSON API, not `@Serializable`**:
+  there is no kotlinx-serialization compiler plugin on this project, so an annotated class compiles
+  cleanly and then throws `SerializationException` on the first export.
+- **`publish()` treats a vanished file as somebody else's success, not a failure.** `Recorder.stop()`
+  is fire-and-forget, so a run's closing publish can still be in flight when the next run's
+  `publishOrphans()` finds the same file — they race to copy it and the loser opens a file the winner
+  has already deleted. That `FileNotFoundException` used to set `RecordingStatus.error`, which put
+  **"Recording problem" on screen for a recording that had just saved perfectly well**, every time
+  settings were saved mid-run. Caught separately from a real I/O failure, which still keeps the file
+  and still reports.
 - **`RecordingStatus` outlives the run, and the main screen now shows it.** `Recorder.stop()` flips
   `recording` to false and leaves every other field standing, which is what makes a post-run summary
   possible without new state — the card used to be gated on `recording` alone and took the file name,

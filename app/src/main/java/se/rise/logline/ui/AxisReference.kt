@@ -50,6 +50,14 @@ enum class SensorFrame {
      */
     Bearing,
 
+    /**
+     * A single angle, or rate of angle, **about** one of the phone's own axes.
+     *
+     * Not [DeviceXyz], which promises an x/y/z triple, and emphatically not [None]: roll and pitch are
+     * the readings most likely to be taken for a vessel's, and they describe the phone.
+     */
+    DeviceAngle,
+
     /** A scalar, a geodetic position, or a course over ground — no device axes involved. */
     None,
 }
@@ -70,6 +78,12 @@ fun frameOf(entry: PublishedSubject): SensorFrame = when (entry.subject) {
     Subjects.ORIENTATION_QUATERNION -> SensorFrame.WorldEnu
     Subjects.HEADING_MAGNETIC_DEG,
     Subjects.HEADING_TRUE_NORTH_DEG -> SensorFrame.Bearing
+    Subjects.ROLL_DEG,
+    Subjects.PITCH_DEG,
+    Subjects.YAW_DEG,
+    Subjects.ROLL_RATE_DEGPS,
+    Subjects.PITCH_RATE_DEGPS,
+    Subjects.YAW_RATE_DEGPS -> SensorFrame.DeviceAngle
     else -> SensorFrame.None
 }
 

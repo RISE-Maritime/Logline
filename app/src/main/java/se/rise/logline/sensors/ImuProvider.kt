@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import se.rise.logline.calibrate.normaliseSignedDegrees
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -26,6 +27,18 @@ data class QuatSample(
     val w: Float,
     /** Degrees clockwise from **magnetic** north, of the phone's +Y axis. */
     val headingMagneticDegrees: Float,
+    /**
+     * The same attitude as Euler angles, in degrees, in **Android's own convention**.
+     *
+     * `getOrientation` already computes all three to produce the heading above; two of them used to be
+     * discarded. They describe the *phone*, not a vessel — `yaw` is the heading in signed form, `pitch`
+     * is rotation about the device's +X axis and `roll` about its +Y, and Android bounds roll to
+     * ±90° while the other two run to ±180°. What the phone's attitude means for the boat it is
+     * strapped to is the rig calibration's `frame_transform`, not this.
+     */
+    val yawDegrees: Float,
+    val pitchDegrees: Float,
+    val rollDegrees: Float,
     /** The platform's 1-sigma estimate in degrees, or null on a device that does not report one. */
     val headingAccuracyDegrees: Float?,
     val elapsedNanos: Long,
@@ -92,6 +105,12 @@ class ImuProvider(context: Context) {
                         z = q[3],
                         w = q[0],
                         headingMagneticDegrees = normaliseHeadingDegrees(radiansToDegrees(orientation[0])),
+                        // Signed rather than 0-360: an Euler triple is read as ±180 either side of
+                        // straight ahead, and it is the same measurement `headingMagneticDegrees`
+                        // carries in compass form.
+                        yawDegrees = normaliseSignedDegrees(radiansToDegrees(orientation[0]).toDouble()).toFloat(),
+                        pitchDegrees = radiansToDegrees(orientation[1]),
+                        rollDegrees = radiansToDegrees(orientation[2]),
                         // values[4] since API 18, but not on every device — absent stays absent rather
                         // than becoming a confident 0°.
                         headingAccuracyDegrees = event.values.getOrNull(4)?.let { radiansToDegrees(it) },

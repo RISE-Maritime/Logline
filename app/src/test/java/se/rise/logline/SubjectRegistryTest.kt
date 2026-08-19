@@ -2,6 +2,10 @@ package se.rise.logline
 
 import se.rise.logline.config.Settings
 import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.SensorMount
+import se.rise.logline.calibrate.SensorType
+import se.rise.logline.calibrate.Vec3M
+import se.rise.logline.calibrate.defaultEntityId
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.SourceKind
 import se.rise.logline.keelson.RadioSources
@@ -34,28 +38,84 @@ class SubjectRegistryTest {
         // and a rig's surveyed zero under the rig's — and neither carries a fixed source id. What has
         // to stay true is that no two entries can ever land on one key and overwrite each other in
         // Zenoh's latest-value store.
-        val settings = settings().copy(calibration = RigCalibration.forName("SSRS18"))
-        val keys = PublishedSubject.entries.map {
-            pubsubKey(settings.realm, settings.entityFor(it), it.subject, settings.sourceFor(it))
-        }
+        val rig = RigCalibration.forName("SSRS18")
+        val settings = settings().withRig(rig)
+        val keys = settings.allKeys()
         assertEquals("two registry entries publish on the same key", keys.size, keys.toSet().size)
 
-        // ...and with no rig calibrated, where every entity falls back to the phone's.
-        val bare = PublishedSubject.entries.map {
-            pubsubKey(
-                Settings.DEFAULT_REALM,
-                settings().entityFor(it),
-                it.subject,
-                settings().sourceFor(it),
-            )
-        }
+        // ...and with no rig calibrated, where the three calibration entries publish nothing at all.
+        val bare = settings().allKeys()
         assertEquals("two registry entries collide when no rig is calibrated", bare.size, bare.toSet().size)
     }
+
+    /**
+     * Several rigs is the case the single-entity model could not express.
+     *
+     * Three rigs publishing means nine calibration keys, all distinct — one rig's transforms landing on
+     * another's key would have them overwrite each other in Zenoh's latest-value store, and a consumer
+     * would read one rig's geometry as another's.
+     */
+    @Test
+    fun `every publishing rig gets its own keys and none of them collide`() {
+        val settings = settings().copy(
+            rigs = listOf("SSRS18", "Stora Krabban", "Manatee").map {
+                RigCalibration.forName(it).copy(
+                    sensors = listOf(
+                        SensorMount(
+                            label = "Lidar",
+                            frameId = "${defaultEntityId(it)}-frame-lidar",
+                            sensorType = SensorType.LIDAR,
+                            translation = Vec3M(0.1, 0.0, 0.0),
+                        ),
+                    ),
+                )
+            },
+            activeRigEntityId = "ssrs18",
+            publishingRigEntityIds = setOf("stora-krabban", "manatee"),
+        )
+
+        val keys = settings.allKeys()
+        assertEquals(3, settings.publishingRigs().size)
+        assertEquals("a rig's keys collide with another's", keys.size, keys.toSet().size)
+        assertTrue("rise/@v0/manatee/pubsub/frame_transform/calibration" in keys)
+        assertTrue("rise/@v0/stora-krabban/pubsub/configuration_json/calibration" in keys)
+    }
+
+    /**
+     * Every key a run would declare: the phone's entries plus three per publishing rig.
+     *
+     * Built the way `SensorPublisher.start()` builds them — the calibration entries deliberately left
+     * out of the per-entry pass, because their entity comes from a rig rather than from the registry.
+     */
+    private fun Settings.allKeys(): List<String> =
+        PublishedSubject.entries
+            .filter { it.source != SourceKind.CALIBRATION }
+            .map { pubsubKey(realm, entityFor(it), it.subject, sourceFor(it)) } +
+            publishingRigs().flatMap { rigKeys(it).values }
+
+    /** One rig, active, with a sensor so it is publishable. */
+    private fun Settings.withRig(rig: RigCalibration) = copy(
+        rigs = listOf(
+            rig.copy(
+                sensors = rig.sensors.ifEmpty {
+                    listOf(
+                        SensorMount(
+                            label = "Lidar",
+                            frameId = "${rig.entityId}-frame-lidar",
+                            sensorType = SensorType.LIDAR,
+                            translation = Vec3M(0.1, 0.0, 0.0),
+                        ),
+                    )
+                },
+            ),
+        ),
+        activeRigEntityId = rig.entityId,
+    )
 
     /** The two `location_fix` entries are told apart by entity *and* source, not by the subject. */
     @Test
     fun `the rig's surveyed zero does not collide with the phone's live fix`() {
-        val settings = settings().copy(calibration = RigCalibration.forName("SSRS18"))
+        val settings = settings().withRig(RigCalibration.forName("SSRS18"))
 
         assertEquals(
             "rise/@v0/pixel_6/pubsub/location_fix/phone",
@@ -68,12 +128,7 @@ class SubjectRegistryTest {
         )
         assertEquals(
             "rise/@v0/ssrs18/pubsub/location_fix/calibration",
-            pubsubKey(
-                settings.realm,
-                settings.entityFor(PublishedSubject.CALIBRATION_ZERO),
-                PublishedSubject.CALIBRATION_ZERO.subject,
-                settings.sourceFor(PublishedSubject.CALIBRATION_ZERO),
-            ),
+            settings.rigKeys(settings.rigs.single()).getValue(PublishedSubject.CALIBRATION_ZERO),
         )
     }
 
@@ -114,6 +169,16 @@ class SubjectRegistryTest {
                 "location_fix_quality",
                 "location_fix_accuracy_horizontal_m",
                 "location_fix_accuracy_vertical_m",
+                "altitude_above_msl_m",
+                "location_fix_undulation_m",
+                "roll_deg",
+                "pitch_deg",
+                "yaw_deg",
+                "roll_rate_degps",
+                "pitch_rate_degps",
+                "yaw_rate_degps",
+                "device_uptime_duration",
+                "imu_temperature_celsius",
                 "linear_acceleration_mpss",
                 "angular_velocity_radps",
                 "orientation_quaternion",
@@ -251,26 +316,45 @@ class SubjectRegistryTest {
      */
     @Test
     fun `the calibration publishes under the rig's entity, everything else under the phone's`() {
-        val rig = RigCalibration.forName("SSRS18")
-        val settings = settings().copy(calibration = rig)
+        val settings = settings().withRig(RigCalibration.forName("SSRS18"))
+        val rigKeys = settings.rigKeys(settings.rigs.single())
 
-        assertEquals("ssrs18", settings.entityFor(PublishedSubject.FRAME_TRANSFORM))
-        assertEquals("ssrs18", settings.entityFor(PublishedSubject.CONFIGURATION_JSON))
+        assertEquals(
+            "rise/@v0/ssrs18/pubsub/frame_transform/calibration",
+            rigKeys.getValue(PublishedSubject.FRAME_TRANSFORM),
+        )
+        assertEquals(
+            "rise/@v0/ssrs18/pubsub/configuration_json/calibration",
+            rigKeys.getValue(PublishedSubject.CONFIGURATION_JSON),
+        )
         assertEquals("pixel_6", settings.entityFor(PublishedSubject.LOCATION_FIX))
         assertEquals("pixel_6", settings.entityFor(PublishedSubject.AUDIO))
     }
 
+    /**
+     * `entityFor` answers for the phone and only for the phone, now that a rig's keys come from the
+     * rig itself.
+     *
+     * It used to return the rig's entity for the three calibration entries, which was the right answer
+     * while there could only be one rig. Keeping that behaviour with a library would mean silently
+     * picking one of several — so it returns the phone's entity for every entry, and the calibration
+     * entries never reach it: `SensorPublisher` leaves them out of the per-entry pass entirely.
+     */
     @Test
-    fun `with no rig calibrated the entity falls back to the phone's rather than being empty`() {
-        // A blank entity id would produce `rise/@v0//pubsub/...` — a malformed key that publishes
-        // perfectly happily and matches nothing anybody subscribes to.
-        val settings = settings()
-        assertEquals("pixel_6", settings.entityFor(PublishedSubject.FRAME_TRANSFORM))
-        assertEquals(
-            "pixel_6",
-            settings.copy(calibration = RigCalibration.forName("SSRS18").copy(entityId = " "))
-                .entityFor(PublishedSubject.FRAME_TRANSFORM),
+    fun `the entity is the phone's for every registry entry`() {
+        val settings = settings().withRig(RigCalibration.forName("SSRS18"))
+        assertTrue(
+            "a registry entry resolved to something other than the phone",
+            PublishedSubject.entries.all { settings.entityFor(it) == "pixel_6" },
         )
+    }
+
+    /** With nothing calibrated there are no rig keys at all, rather than malformed ones. */
+    @Test
+    fun `an empty library publishes no calibration keys`() {
+        val settings = settings()
+        assertEquals(emptyList<RigCalibration>(), settings.publishingRigs())
+        assertTrue(settings.allKeys().none { it.contains("/calibration") })
     }
 
     private fun settings(sensorRates: Map<String, SensorRate> = emptyMap()) = Settings(

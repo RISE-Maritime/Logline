@@ -8,6 +8,12 @@ relative to it**. Nothing else. It is what lets a consumer of the rig's radar, l
 them to each other and to a common reference point, instead of treating each as if it were mounted at
 the centre of the world.
 
+The phone holds a **library** of them. A rig is a keelson *platform* — `entity_id` is, in the protocol
+specification's words, "normally the platform name" — so the library is a platform list, the direct
+counterpart to crowsnest's own-ship selector. One rig is **active** (the rig the phone is on) and any
+number of others can be switched on alongside it, because a campaign often wants the geometry of every
+rig in the water logged rather than only the one the phone is bolted to.
+
 ## The contract
 
 Nothing in this is invented locally. Both subjects and the document shape come from keelson, and there
@@ -236,13 +242,81 @@ rig's geometry under two names.
   the forward axis is wrong, not the offset.
 - `jsonschema` the exported file against `connectors/platform/config-schema.json` before handing it on.
 
+## The library, and crowsnest
+
+Crowsnest keeps a platform list of its own, and it is worth being precise about what it is before
+trying to sync with it. It is **local config, not a bus object**: a `src/DB/platform_registry.json`
+shipped with the build plus a per-browser localStorage overlay, not shared between stations. Its live
+`get_config` RPC only *enriches* a platform already in that list; it discovers nothing. And **keelson
+has no wire-level list of platforms at all** — no subject, no interface, no well-known key. The only
+bus-derived enumeration is Zenoh liveliness, which yields entity ids and presence and no metadata.
+
+So there is nothing to subscribe to for "the platforms". Four things bridge the gap instead, and each
+is a separate control on the rig list:
+
+**Same shape, keyed the same way.** A rig's entity id is the registry key on both sides, and a
+crowsnest entry is upstream's `config-schema.json` plus `realm` — which is what this app already
+writes. **Export all** produces that object-of-platforms; **Import** reads it, or a single
+platform-geometry file, or one of the older `keelson-platforms` `config.json` documents whose
+transforms are `translation: [x, y, z]` arrays. What an import does *not* keep is stated on the screen
+rather than discovered afterwards: MMSI, call sign, `data_streams`, `queryables` and camera
+calibrations are not read and are not written back out, because this app models geometry and not a
+fleet's stream inventory.
+
+**Scan the bus.** Two probes, because neither alone is enough. Liveliness answers which entities are
+alive and nothing else. The documents come from *listening* to `configuration_json` for a little over
+ten seconds — every platform connector republishes on that interval precisely so a late joiner need
+not ask, which is what makes a passive listen sufficient. A router `get` is deliberately not used: no
+storage covers `configuration_json`, so a query returns an empty list that looks exactly like an empty
+bus. A discovered platform is offered for adoption and never added silently.
+
+**Answering `get_config`.** While a rig screen is open the phone serves the configuration of every rig
+in its library, on two keys per rig:
+
+```
+{realm}/@v0/{rig}/@rpc/configurable/v1/get_config/{calibration_source}   ← the specification's shape
+{realm}/@v0/{rig}/@rpc/get_config/connector_platform                    ← what crowsnest actually probes
+```
+
+The second is a **pre-interface layout** with no `{interface}/{version}` chunks. Crowsnest builds it in
+`src/apps/os_config/index.jsx` and declares it in every registry entry, and nothing a current keelson
+connector serves answers it — so the phone serves both, to be useful today and correct later. Drop the
+legacy one once crowsnest moves. (Its declared `get_data_streams` and `get_queryables` queryables do
+not exist in keelson at all.) The reply is **raw JSON, not an envelope** — that is what
+`keelson.scaffolding.configurable` does and what crowsnest's worker expects, and it is the one place in
+this app where "everything on the wire is wrapped" does not apply.
+
+**The shared library**, off by default. It publishes the whole library as raw JSON on
+
+```
+{realm}/@v0/platforms/pubsub/platform_registry/library/latest
+```
+
+`platform_registry` is **deliberately not a keelson subject**, which is exactly what makes a consumer's
+decode fall through to raw JSON rather than failing to unwrap an envelope — the same trick crowsnest
+already plays for `dataflow_config`, `route` and `voyage`. Last-writer-wins by `version`, with an
+`origin` field dropping this phone's own echoes; the resolution rules are transcribed from crowsnest's
+`shouldApplyRemote` so the two sides settle a disagreement the same way. Two rules are ours, and both
+are deliberate:
+
+- **A remote library replaces documents and never local policy.** Which rig is active and which rigs
+  publish stay this phone's own. Without that, one operator's save would silently start every phone in
+  the fleet publishing geometry under entity ids nobody told them about.
+- **A rig this phone is publishing is never deleted by a remote update**, a knowing deviation from
+  crowsnest's whole-map replace: taking a rig out from under a live publisher is the one case where
+  last-writer-wins is not acceptable.
+
+Two things outside this repo are needed for the last one to be worth much. The router needs a storage
+for that key or a station joining late sees nothing — added to
+`../keelson-router/docker-compose.keelson-router-rise.yml`, the same lesson `checklist_procedure`
+taught. And crowsnest does not publish its own overlay today, so until it does this is one-way: the
+phone shares, and nothing answers.
+
 ## What this deliberately does not do
 
 - **No publishing outside a run.** The calibration goes out with the next Start rather than opening a
   second Zenoh session for a one-off put.
-- **No import** of an existing platform-geometry file. Export is one-way for now.
 - **No rotation capture**, for the reason given above.
-- **One calibration at a time**, not a library of rigs.
 - **The exported file carries no position.** `config-schema.json` has no field for one, so the zero
   travels on `location_fix` and in the wire document's `calibration` block, and the exported file stays
   strictly upstream's shape.

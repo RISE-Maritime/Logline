@@ -23,6 +23,28 @@ import java.util.Locale
 
 private const val TAG = "Recorder"
 
+/**
+ * Where recording stops: [openSession] refuses to open the next file below this.
+ *
+ * Shared rather than private because the front page's capacity estimate has to predict *this* moment
+ * — the recorder giving up — and not a full volume. Two different floors would make the screen and
+ * the recorder disagree about how much room is left.
+ */
+const val MIN_FREE_BYTES = 256L * 1024 * 1024
+
+/**
+ * The directory recordings are written to before they are published to Downloads.
+ *
+ * One definition, used by the recorder and by the front page's capacity estimate alike — two spellings
+ * of the same path could end up measuring free space on a different volume than the one being written
+ * to, and the screen would be confidently wrong.
+ */
+internal fun recordingsDir(context: Context): File =
+    File(context.filesDir, "recordings").apply { mkdirs() }
+
+/** Free space on that volume, for anything that wants to say how much room is left. */
+fun recordingsFreeBytes(context: Context): Long = recordingsDir(context).usableSpace
+
 /** What the UI shows about the current recording. */
 data class RecordingStatus(
     val recording: Boolean = false,
@@ -95,7 +117,7 @@ class Recorder(private val appContext: Context) {
     @Volatile
     private var scope: CoroutineScope? = null
 
-    private val recordingsDir: File get() = File(appContext.filesDir, "recordings").apply { mkdirs() }
+    private val recordingsDir: File get() = recordingsDir(appContext)
 
     /**
      * Offer a sample. Never blocks and never throws — it is called from the publish path, where a
@@ -255,6 +277,15 @@ class Recorder(private val appContext: Context) {
             file.delete()
             Log.i(TAG, "published ${file.name} to Downloads/Logline")
             true
+        } catch (e: java.io.FileNotFoundException) {
+            // The file went while this was reading it, which means the *other* half of a stop-start
+            // already published it: `stop()` is fire-and-forget, so a run's closing publish can still
+            // be in flight when the next run's orphan sweep finds the same file and races it to the
+            // delete. Both are trying to save the same recording and one of them succeeded, so this
+            // is not a failure — reporting it put "Recording problem" on screen for a run that had
+            // just saved perfectly well, every time settings were saved mid-run.
+            Log.i(TAG, "${file.name} was published by the other half of a restart", e)
+            false
         } catch (t: Throwable) {
             // Keep the local file if publishing failed — it is still recoverable with adb, whereas
             // deleting it would lose the run outright.
@@ -286,7 +317,7 @@ class Recorder(private val appContext: Context) {
          */
         private const val QUEUE_CAPACITY = 10_000
 
-        private const val MIN_FREE_BYTES = 256L * 1024 * 1024
+
 
         /**
          * Thirty seconds. The estimator needs three minutes of span before it says anything, so this is

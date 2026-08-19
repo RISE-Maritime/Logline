@@ -25,11 +25,45 @@ import java.math.RoundingMode
  * without a stated uncertainty is half a measurement — see `docs/calibration.md`, which proposes the
  * block upstream.
  */
-fun RigCalibration.toPlatformGeometryJson(provenance: Boolean = false): String {
+fun RigCalibration.toPlatformGeometryJson(provenance: Boolean = false): String =
+    platformGeometryJson(provenance = provenance)
+
+/**
+ * The form the phone stores and shares: the wire document plus the two fields that identify the rig.
+ *
+ * `entity_id` and `parent_frame_id` are **not** in upstream's schema, which is why they cannot go in
+ * the export — but they are the rig's identity here, and a library of rigs keyed on entity id cannot
+ * round-trip without them. `parent_frame_id` is recoverable from any frame transform and is written
+ * anyway, because a rig with no sensors yet has none to recover it from.
+ */
+fun RigCalibration.toStoredJson(): String =
+    platformGeometryJson(provenance = true, identity = true)
+
+/**
+ * One entry of a crowsnest platform registry: upstream's strict shape plus `realm`.
+ *
+ * The entity id is the *key* of the object this goes into, not a field, which is why [identity] is off
+ * here and on for [toStoredJson]. Deliberately no `queryables` or `data_streams`: those are crowsnest's
+ * own bookkeeping, and inventing key expressions the phone has not verified would put wrong ones in
+ * front of an operator. Crowsnest discovers streams from the wire itself.
+ */
+fun RigCalibration.toRegistryEntryJson(realm: String): String =
+    platformGeometryJson(provenance = false, realm = realm)
+
+private fun RigCalibration.platformGeometryJson(
+    provenance: Boolean,
+    identity: Boolean = false,
+    realm: String? = null,
+): String {
     val out = StringBuilder()
     out.append("{\n")
     val fields = mutableListOf<String>()
 
+    if (identity) {
+        fields += "  \"entity_id\": \"${entityId.escaped()}\""
+        fields += "  \"parent_frame_id\": \"${parentFrameId.escaped()}\""
+    }
+    realm?.let { fields += "  \"realm\": \"${it.escaped()}\"" }
     platformType?.let { fields += "  \"platform_type\": \"${it.wire.escaped()}\"" }
     if (description.isNotBlank()) fields += "  \"description\": \"${description.escaped()}\""
     fields += "  \"name\": \"${name.escaped()}\""

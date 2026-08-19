@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -25,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -70,6 +73,12 @@ val WINDOW_CHOICES = listOf(30 to "30 s", 120 to "2 min", 600 to "10 min")
  * ticker rather than pushed — the publish path runs at hundreds of samples a second and must never
  * drive recomposition.
  */
+/** Tall enough to navigate by, against the 240dp it started at. */
+private val MAP_HEIGHT = 400.dp
+
+/** Effectively the screen: the readouts are hidden while the chart is expanded. */
+private val MAP_HEIGHT_EXPANDED = 640.dp
+
 @Composable
 fun LiveScreen(
     snapshot: LiveSnapshot,
@@ -87,6 +96,11 @@ fun LiveScreen(
     collapsedGroups: List<String>,
     onToggleGroup: (String) -> Unit,
     mapView: @Composable (Modifier) -> Unit,
+    /** Which base layer the chart draws, and the seamark overlay. */
+    layer: MapLayer,
+    onLayerChange: (MapLayer) -> Unit,
+    seaMarks: Boolean,
+    onSeaMarksChange: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
     // Drives the window slice and the health checks. The snapshot itself arrives on its own ticker.
@@ -143,6 +157,9 @@ fun LiveScreen(
             }
         },
     ) { padding ->
+        // Not hoisted like the other live-view preferences: expanding the chart is something you do
+        // for a minute while looking at it, not a setting you carry between screens.
+        var mapExpanded by rememberSaveable { mutableStateOf(false) }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -152,14 +169,34 @@ fun LiveScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // -- the dashboard: everything above the fold ----------------------------------------
-            Box(Modifier.fillMaxWidth().height(240.dp)) {
+            // Expanded, the chart takes the screen and the readouts go with it — which is the point:
+            // reading a chart and reading numbers are two different jobs and neither wants half a
+            // screen. Collapsed it is still much taller than the 240dp it started at.
+            val mapHeight = if (mapExpanded) MAP_HEIGHT_EXPANDED else MAP_HEIGHT
+            Box(Modifier.fillMaxWidth().height(mapHeight)) {
                 mapView(Modifier.fillMaxSize())
-                FollowControl(
-                    followFix = followFix,
-                    onFollowFixChange = onFollowFixChange,
+                Column(
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                )
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FollowControl(
+                        followFix = followFix,
+                        onFollowFixChange = onFollowFixChange,
+                    )
+                    LayerControl(
+                        layer = layer,
+                        onLayerChange = onLayerChange,
+                        seaMarks = seaMarks,
+                        onSeaMarksChange = onSeaMarksChange,
+                    )
+                    MapChip(
+                        text = if (mapExpanded) "Shrink" else "Expand",
+                        onClick = { mapExpanded = !mapExpanded },
+                    )
+                }
             }
+            if (mapExpanded) return@Column
             FixLine(fix)
             DashboardReadings(
                 speedKnots = latest(PublishedSubject.SPEED_OVER_GROUND),
@@ -257,6 +294,7 @@ private fun FollowControl(
     onFollowFixChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
         shape = MaterialTheme.shapes.small,
@@ -267,6 +305,66 @@ private fun FollowControl(
             onClick = { onFollowFixChange(!followFix) },
             label = { Text(if (followFix) "◎ Following" else "◎ Follow") },
         )
+    }
+}
+
+/**
+ * A tappable chip on the chart, in the same translucent surface the follow control uses.
+ *
+ * Its own composable because there are three of them now and they have to look like one family — a
+ * stack of differently-shaped buttons over a map reads as clutter rather than as controls.
+ */
+@Composable
+private fun MapChip(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+        shape = MaterialTheme.shapes.small,
+        modifier = modifier,
+    ) {
+        FilterChip(selected = false, onClick = onClick, label = { Text(text) })
+    }
+}
+
+/**
+ * The base layer, and the seamarks over it.
+ *
+ * A menu rather than a row of chips: the list will grow — an imported archive is a layer in waiting —
+ * and three chips across the top of the chart would already be taking a third of it.
+ */
+@Composable
+private fun LayerControl(
+    layer: MapLayer,
+    onLayerChange: (MapLayer) -> Unit,
+    seaMarks: Boolean,
+    onSeaMarksChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        MapChip(text = layer.label, onClick = { open = true })
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            MapLayer.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    leadingIcon = { Text(if (option == layer) "✓" else " ") },
+                    onClick = {
+                        onLayerChange(option)
+                        open = false
+                    },
+                )
+            }
+            HorizontalDivider()
+            // An overlay rather than a base layer, so it is a tick and not a choice: seamarks are
+            // drawn *over* whichever of the above is showing.
+            DropdownMenuItem(
+                text = { Text("Sea marks") },
+                leadingIcon = { Text(if (seaMarks) "✓" else " ") },
+                onClick = {
+                    onSeaMarksChange(!seaMarks)
+                    open = false
+                },
+            )
+        }
     }
 }
 

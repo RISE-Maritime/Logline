@@ -7,80 +7,120 @@ gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where som
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
-Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `dev`, plus lint. Most of
+Last reviewed: 2026-08-19 — the app against keelson `0.6.0-pre.3` (see the end of P1); before that,
+2026-08-18, a read of the whole app against upstream keelson `dev`, plus lint. Most of
 what is below was found by reading the code rather than running it, so treat anything not marked as
 measured as a claim to confirm on a device.
 
 - [ ] **Rename to Logline**: The repo folder on disk is still `KeelsonLogger`.
 
-## P1 
+## P1
 
-- [ ] The phone should be able to hold multiple calibration rigs at ones as we using multipel rigs when data logging, keelson have something called platforms If you look at crowsenst there is one "own ship slector" or platform selector I think we should be synced with that one. 
+Left over from the rig library, and each is a finding rather than a fix. All five are filed together
+upstream as [RISE-Maritime/keelson#191](https://github.com/RISE-Maritime/keelson/issues/191) — the first
+two are the ones anybody outside this repo can act on.
 
-- [x] On main page have the categoris colapsed by deaflut
-      Done in 2cbb3b5 — the group headings already carry the badge and the colour, so nothing needed to
-      be opened to see whether a run is healthy. Checked on the phone. 
-
-## P2 — subjects this phone could publish and does not
-
-This is the answer to the old "other sensors" question below. Every name here exists in
-`../keelson`'s `messages/subjects.yaml` on **`dev`** and is not in `PublishedSubject` today; none of
-them is listed in `qos.yaml`, so all inherit `default` except `video_compressed` (`transient`). The
-app publishes 34 distinct subjects across 36 registry entries today (`radio_rssi_dbm` comes from two),
-and its QoS assignment was checked against `dev` — no drift.
-
-Highest value first:
-
-
-- [ ] **`altitude_above_msl_m`** and **`location_fix_undulation_m`** (`TimestampedFloat`) —
-      `Location.getMslAltitudeMeters()` / `hasMslAltitude()` landed in API 34, so this is guarded but
-      real on any recent phone. `location_fix.altitude` is the WGS84 ellipsoidal height today, which is
-      tens of metres from the altitude anybody expects; the undulation is the difference between them
-      and is worth publishing precisely because it explains the discrepancy.
-
-- [ ] **`roll_deg`, `pitch_deg`, `yaw_deg`** and **`roll_rate_degps`, `pitch_rate_degps`,
-      `yaw_rate_degps`** (`TimestampedFloat`) — the first three come out of the same
-      `SensorManager.getOrientation()` call that already produces `heading_magnetic_deg`; the rates are
-      the gyro's three axes in degrees per second, which is a unit conversion of a stream already
-      being published. Quaternions are correct and unreadable: a plot of roll in degrees is what
-      answers "how much was it moving". Watch the message count — riding the rotation vector at the
-      50 Hz default, three more subjects is another ~150 messages a second, so they may want their own
-      rate rather than `rateOwner`.
-
-- [ ] **`device_uptime_duration`** (`keelson.TimestampedDuration`) — `SystemClock.elapsedRealtime()`,
-      once a minute, on the battery collector. Cheap, and it is the field that distinguishes "the
-      phone rebooted" from "the app was restarted" when reading a file back months later.
-
-- [ ] **`air_temperature_celsius`, `air_relative_humidity_pct`, `dew_point_celsius`**
-      (`TimestampedFloat`) — `TYPE_AMBIENT_TEMPERATURE` and `TYPE_RELATIVE_HUMIDITY`; the dew point is
-      derived from the two. Almost no modern phone has either sensor (a Pixel 6 has neither), but the
-      registry already handles an absent sensor by publishing fewer subjects, so the cost of supporting
-      the phones that do have them is one `ScalarSensorProvider` entry each.
-
-- [ ] **`imu_temperature_celsius`** (`TimestampedFloat`) — `TYPE_TEMPERATURE` where a device exposes
-      it. Same shape as above, same near-zero cost, and it is the one thing that explains IMU bias
-      drift on a phone sitting in the sun.
+- [ ] **Crowsnest probes an obsolete `get_config` key shape.**
+      `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` predates the `{interface}/{version}`
+      chunks, so nothing a current keelson connector serves answers it — `src/apps/os_config/index.jsx`
+      builds it and every entry of `src/DB/platform_registry.json` declares it. The phone serves both
+      shapes; `legacyPlatformConfigKey()` exists to be deleted once crowsnest moves. While in there:
+      its declared `get_data_streams` and `get_queryables` queryables do not exist in keelson at all.
+- [ ] **Crowsnest does not publish its platform overlay**, so the shared library is one-way today —
+      the phone shares and nothing answers. The change is small and belongs in that repo; the pattern
+      to copy is its own `dataflowConfigSync.js`.
+- [ ] **Per-rig failure attribution.** `PublisherStatus` is keyed on the registry entry, so three rigs
+      publishing `frame_transform` share one row: rig B's failure can be cleared by rig A's next tick.
+      Acceptable for a 0.1 Hz loop, and worth revisiting only if a rig ever fails alone in the field.
+- [ ] **An import drops what this app does not model** — MMSI, call sign, `data_streams`, `queryables`,
+      camera calibrations — and a re-export therefore loses them. The screen says so, which is the
+      minimum; keeping the untouched document alongside the rig and merging it back on export is the
+      real fix, and it would put a `JsonElement` inside a data model whose whole point is not having one.
+- [ ] **The single-rig migration is one-way.** After the first save on this build the old `calib_*`
+      keys are gone, so an older APK sees no calibration. Deliberate — mirroring index 0 into them
+      forever is a second source of truth that will drift — but worth knowing before a downgrade.
 
 - [ ] **`entity_health`** (`keelson.EntityHealth`) — the app *already* computes per-subject health for
-      the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
-      the subject that puts it on the bus, so a fleet view can see a phone whose barometer stopped
-      without anybody looking at the phone. Needs `messages/payloads/EntityHealth.proto` vendored, and a
-      look at what upstream's other connectors put in it.
+  the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
+  the subject that puts it on the bus, so a fleet view can see a phone whose barometer stopped
+  without anybody looking at the phone. Needs `messages/payloads/EntityHealth.proto` vendored, and a
+  look at what upstream's other connectors put in it.
+  *(2026-08-19: upstream still forbids a connector computing and publishing this itself — unchanged in
+  `0.6.0-pre.3`. What the app can actually do for fleet health is the subject-level liveliness filed at
+  the end of this section, which is what lets `entity_health` tell "source up but doesn't advertise
+  this" from "advertised but silent".)*
+
+
+
+### Found reviewing keelson `0.6.0-pre.3` (2026-08-19)
+
+The wire format did not move: `messages/` is byte-identical between `dev` and `0.6.0-pre.3`, 11 of the
+15 vendored protos match the tag exactly, and every QoS profile the app implements matches the released
+policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
+rewritten from the ground up. These are the consequences.
+
+- [ ] **Liveliness is three tiers now, and the app declares the legacy one.** §5 defines source-level
+      (`{realm}/@v0/{entity}/*/{source}`), pubsub subject-level
+      (`{realm}/@v0/{entity}/pubsub/{subject}/{source}`) and RPC interface-level tokens. What
+      `livelinessKey()` builds — `{realm}/@v0/{entity}/pubsub/*/{source}` — is §5.7's **"legacy coarse
+      token (transition)"**, kept only "until connectors of operational interest have migrated".
+      The cost is not cosmetic and is visible in upstream's own code: `entity_health2keelson.py`
+      classifies a `*` subject chunk as "counts as **presence** but not advertisement", and
+      `authority.py` drops `NOT_ADVERTISED` subjects from the coverage denominator entirely as *the
+      monitor's own config error*. So a fleet health monitor watching this phone today sees it present
+      and all 52 of its subjects as a suspected typo, contributing nothing to the composite score
+      however well the run is going.
+      Three details worth not re-deriving. The source-level `*` sits in the **category** slot, not the
+      subject slot, and §5.5 says classification depends on that position. §5.2 makes the subject token
+      **capability, not activity** — it must not be retracted on silence, which is what lets
+      `heading_true_north_deg` hold a token while it waits for the first fix, and lets absent hardware
+      hold none via `sensorCapabilities()`. And a switched-off subject *should* undeclare, since a
+      switch is configuration rather than silence — the signal already exists as the `offSubjects`
+      flow that `supervise()` consumes, but note this makes the per-subject switch do something on the
+      wire for the first time. Keep declaring the legacy token for one release alongside the new ones:
+      §5.7 asks aggregators to subscribe to both shapes, and one that has not been updated needs the
+      coarse token to see the phone at all.
+      Roughly 58 tokens against 6 — **measure the cost at session open** before committing to it; a
+      visibly slower Start is paid on every run. `CLAUDE.md:110` must change in the same commit: it
+      says declaring one token per subject "is a misreading of the spec", which was right against the
+      old §5.1 and is exactly backwards against the new one. `README.md:1308` ("No liveliness tokens")
+      and the discovery snippet at `README.md:597` are stale with it.
+
+- [ ] **`illuminance_lux` is in no released keelson.** Not in `0.6.0-pre.3`, not in `dev`, not in
+      `0.5.4` — it exists only on the unmerged one-commit branch `feat/illuminance-subject`, as a
+      single line in `subjects.yaml`. The app has been publishing an unratified subject name, against
+      its own rule that subject names are protocol and inventing one here produces messages nobody can
+      consume. Merging that line upstream is the fix; tearing out a working sensor to satisfy
+      bookkeeping is the alternative, and it is worse. Needs a decision from whoever owns `keelson`,
+      and it should not go quiet for a second release running.
+
+- [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
+      previous item: a release has now shipped without messages this app builds against, and
+      `ChecklistWireTest`'s golden bytes are the only thing pinning them. Reconstructed definitions
+      living in one downstream repo is exactly the situation that produced them.
+
+- [ ] **Two new radio subjects are worth adding; three are not.** Of the 27 subjects added since
+      `0.5.4`, the phone already publishes most of the radio family and the rest — routes, voyages,
+      command authority, point clouds — is vessel-system work a handset cannot source.
+      `radio_downlink_bandwidth_mhz` and `radio_uplink_bandwidth_mhz` come off
+      `CellIdentityLte.getBandwidth()` (API 28, kHz, so `Units.kt` earns another conversion and another
+      test against a known value), and `RadioProvider.kt:156` already parses that class — LTE only,
+      since `CellIdentityNr` carries no bandwidth and whether `PhysicalChannelConfig` is reachable
+      without a privileged permission needs checking before promising it. `radio_tx_power_dbm` is
+      **not sourceable**: there is no public Android API for modem transmit power, and
+      `requestModemActivityInfo()` reports time-in-power-bucket rather than dBm. `radio_rssi`
+      duplicates `radio_rssi_dbm`, which is already published. `radio_channel_ppm_pct` is not a
+      concept a handset exposes.
+
+- [ ] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** The app answers
+      crowsnest's `get_config` probe but is not an RPC server in the interface/version sense, and §3.6's
+      **full-interface implementation rule** means declaring the token commits to serving all of
+      `configurable/v1`. That is a commitment to make deliberately, not in passing while fixing the
+      pubsub tiers. Noted here so the omission is a decision rather than an oversight.
 
 ## P3 — product
 
-- [ ] **A recordings screen.** Files are copied to `Downloads/Logline` and the app has no way to list,
-      open, share or delete them — after a run the only route to the data is a file manager or `adb`.
-      A list with size, duration and a share intent is a small screen and removes the most annoying
-      step of every field session. (`MediaStore` gives back the URIs it wrote, so nothing new is needed
-      to find them.)
 
-- [ ] **Offline map tiles.** `TrackMap` configures osmdroid's cache under `filesDir/osmdroid` and its
-      own comment says "it is that cache which lets a pre-loaded area keep rendering with no network" —
-      but nothing in the app ever pre-loads one. At sea that means a blank grid. osmdroid's
-      `CacheManager.downloadAreaAsync` covers a bounding box at chosen zoom levels; the UI is a
-      "download this area" action plus an honest size estimate, and OSM's tile usage policy has to be
-      respected in what it will let somebody grab.
 
 - [ ] **Export and import settings.** Provisioning a second phone means retyping realm, entity, source
       ids, endpoints, per-subject switches, rates, QoS overrides and the operator identity through the
@@ -99,13 +139,6 @@ Highest value first:
       order of magnitude cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before
       deciding — the honest unknowns are keyframe interval against the replay story, and whether
       `CompressedVideo`'s framing wants Annex B or AVCC.
-
-- [ ] **Verify the boot start on a phone.** Implemented and unit-tested, but never exercised: `adb`
-      cannot send `BOOT_COMPLETED` on Android 17 (`SecurityException`, uid 2000 not allowed), so the
-      only test is a real restart. Switch **Start on boot** on, reboot, and watch
-      `adb logcat -s BootReceiver:V SensorPublisher:V`. The specific risk is that the run is refused
-      with a `ForegroundServiceStartNotAllowedException` even as a `location` service, which would put
-      "boot starts are not possible at all on Android 15+" in place of the current design.
 
 - [ ] **Samples queued at Stop are dropped rather than drained.** `Recorder.stop()` closes the queue
       and then `cancelAndJoin`s the drain scope, and cancellation beats the `for (sample in queue)`
@@ -165,3 +198,4 @@ Highest value first:
       `UsableSpace` in `Recorder.kt` is
       *not* one of these: `getAllocatableBytes` counts clearable cache the recorder cannot actually
       have, and the floor being predicted is real free space.
+

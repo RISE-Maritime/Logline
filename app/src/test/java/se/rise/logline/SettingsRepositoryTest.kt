@@ -1,5 +1,6 @@
 package se.rise.logline
 
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import io.zenoh.qos.CongestionControl
 import io.zenoh.qos.Priority
@@ -76,6 +77,8 @@ class SettingsRepositoryTest {
         // Off unless somebody asked for it. A phone that begins publishing on its own after a restart
         // is a surprise to anyone who did not set it up that way.
         assertEquals(false, settings.startOnBoot)
+        // Online tiles are right wherever there is coverage; offline-only is for the boat.
+        assertEquals(false, settings.offlineTilesOnly)
     }
 
     // ---- checklist identity ----
@@ -175,6 +178,7 @@ class SettingsRepositoryTest {
             // that left it alone would pass just as well against a write path that never stored it.
             batteryExemptionAsked = true,
             startOnBoot = true,
+            offlineTilesOnly = true,
         )
 
         val prefs = mutablePreferencesOf()
@@ -393,8 +397,8 @@ class SettingsRepositoryTest {
 
     @Test
     fun `a calibrated rig takes its two subjects out of the off set`() {
-        val settings = settingsWith().copy(
-            calibration = RigCalibration.forName("SSRS18").copy(
+        val settings = settingsWith().withLibrary(
+            RigCalibration.forName("SSRS18").copy(
                 sensors = listOf(
                     SensorMount(
                         label = "Lidar",
@@ -415,7 +419,7 @@ class SettingsRepositoryTest {
 
     @Test
     fun `a surveyed zero is what puts the rig position on the bus`() {
-        val settings = settingsWith().copy(calibration = rig())
+        val settings = settingsWith().withLibrary(rig())
 
         assertFalse(PublishedSubject.CALIBRATION_ZERO in settings.offSubjects())
     }
@@ -423,7 +427,7 @@ class SettingsRepositoryTest {
     /** A rig named but never populated publishes nothing — there are no sensors to describe. */
     @Test
     fun `a rig with no sensors stays off`() {
-        val settings = settingsWith().copy(calibration = RigCalibration.forName("SSRS18"))
+        val settings = settingsWith().withLibrary(RigCalibration.forName("SSRS18"))
 
         assertTrue(PublishedSubject.FRAME_TRANSFORM in settings.offSubjects())
     }
@@ -490,7 +494,7 @@ class SettingsRepositoryTest {
                 frameId = "ssrs18-frame-lidar",
                 sensorType = SensorType.LIDAR,
                 translation = Vec3M(0.22, 0.0, -0.35),
-                rotation = EulerDeg(yaw = 90.0, pitch = 0.0, roll = -180.0),
+                rotation = EulerDeg(yaw = 90.0, pitch = 0.0, roll = -175.0),
                 capture = CaptureMethod.GNSS_AVERAGE,
                 accuracyM = 3.2,
                 capturedAtEpochMillis = 1_700_000_000_500L,
@@ -505,97 +509,245 @@ class SettingsRepositoryTest {
         updatedAtEpochMillis = 1_700_000_001_000L,
     )
 
-    @Test
-    fun `a calibration survives a write and a read unchanged`() {
-        val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
+    /** A second rig, so the tests that matter are about a *library* rather than about one rig. */
+    private fun otherRig() = RigCalibration.forName("Stora Krabban", atEpochMillis = 1_700_000_002_000L)
+        .copy(
+            sensors = listOf(
+                SensorMount(
+                    label = "Radar",
+                    frameId = "stora-krabban-frame-radar",
+                    sensorType = SensorType.RADAR,
+                    translation = Vec3M(0.08, 0.0, 0.105),
+                ),
+            ),
+        )
 
-        assertEquals(rig(), readSettings(prefs, defaultEntityId = "pixel_6").calibration)
+    private fun Settings.withLibrary(vararg rigs: RigCalibration) = copy(
+        rigs = rigs.toList(),
+        activeRigEntityId = rigs.firstOrNull()?.entityId.orEmpty(),
+    )
+
+    @Test
+    fun `a rig survives a write and a read unchanged`() {
+        val prefs = mutablePreferencesOf()
+        writeSettings(prefs, settingsWith().withLibrary(rig()))
+
+        assertEquals(listOf(rig()), readSettings(prefs, defaultEntityId = "pixel_6").rigs)
+    }
+
+    /**
+     * The whole point of the change, and the thing a single-rig store could not express.
+     *
+     * The provenance travels too — capture method, accuracy and time per sensor — because the stored
+     * form is the *wire* document plus identity, not the strict export. Losing it would turn every
+     * reload into a rig whose offsets all claim to have been typed.
+     */
+    @Test
+    fun `several rigs survive a write and a read, provenance and all`() {
+        val prefs = mutablePreferencesOf()
+        writeSettings(prefs, settingsWith().withLibrary(rig(), otherRig()))
+
+        val read = readSettings(prefs, defaultEntityId = "pixel_6").rigs
+        assertEquals(listOf(rig(), otherRig()), read)
+        assertEquals(CaptureMethod.GNSS_AVERAGE, read.first().sensors.first().capture)
+        assertEquals(3.2, read.first().sensors.first().accuracyM!!, 1e-9)
+        assertEquals(HeadingSource.BASELINE, read.first().zero!!.headingSource)
     }
 
     @Test
-    fun `no calibration reads as none, not as an empty rig`() {
+    fun `the active rig and the publishing set survive a round trip`() {
+        val prefs = mutablePreferencesOf()
+        writeSettings(
+            prefs,
+            settingsWith().copy(
+                rigs = listOf(rig(), otherRig()),
+                activeRigEntityId = "stora-krabban",
+                publishingRigEntityIds = setOf("ssrs18"),
+            ),
+        )
+
+        val read = readSettings(prefs, defaultEntityId = "pixel_6")
+        assertEquals("stora-krabban", read.activeRigEntityId)
+        assertEquals(setOf("ssrs18"), read.publishingRigEntityIds)
+        // Both, because the active rig is included whether or not it is in the set.
+        assertEquals(listOf("ssrs18", "stora-krabban"), read.publishingRigs().map { it.entityId })
+    }
+
+    @Test
+    fun `no rigs reads as an empty library, not as one empty rig`() {
         val prefs = mutablePreferencesOf()
         writeSettings(prefs, settingsWith())
 
-        assertNull(readSettings(prefs, defaultEntityId = "pixel_6").calibration)
-    }
-
-    @Test
-    fun `clearing a calibration removes it rather than leaving a husk`() {
-        val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
-        writeSettings(prefs, settingsWith().copy(calibration = null))
-
-        assertNull(readSettings(prefs, defaultEntityId = "pixel_6").calibration)
+        assertEquals(emptyList<RigCalibration>(), readSettings(prefs, defaultEntityId = "pixel_6").rigs)
     }
 
     /**
-     * The one that bites: the sensor keys are indexed, so a rig that loses a sensor has to have the
-     * higher indices *removed*. Left behind, the deleted sensor is absent from the screen, present in
-     * the file, and published on the bus at the next start.
+     * The one that bites: rigs are stored under indexed keys, so a library that loses one has to have
+     * the higher index *removed*. Left behind, the deleted rig is absent from the screen, present in
+     * the file, and publishing geometry under its own entity id at the next start.
      */
     @Test
-    fun `deleting a sensor does not leave it behind in storage`() {
+    fun `deleting a rig does not leave it behind in storage`() {
         val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
+        writeSettings(prefs, settingsWith().withLibrary(rig(), otherRig()))
+        writeSettings(prefs, settingsWith().withLibrary(rig()))
 
-        val trimmed = rig().copy(sensors = rig().sensors.take(1))
-        writeSettings(prefs, settingsWith().copy(calibration = trimmed))
+        assertEquals(listOf(rig()), readSettings(prefs, defaultEntityId = "pixel_6").rigs)
+        assertNull(prefs[Keys.rig(1)])
+    }
 
-        val read = readSettings(prefs, defaultEntityId = "pixel_6").calibration!!
-        assertEquals(1, read.sensors.size)
-        assertEquals("ssrs18-frame-lidar", read.sensors.single().frameId)
-        assertNull(prefs[Keys.calibSensor(1, "frame_id")])
+    /** An emptied library is a decision, not a missing file — it must not fall back to the old keys. */
+    @Test
+    fun `emptying the library empties it`() {
+        val prefs = mutablePreferencesOf()
+        writeSettings(prefs, settingsWith().withLibrary(rig()))
+        writeSettings(prefs, settingsWith())
+
+        assertEquals(emptyList<RigCalibration>(), readSettings(prefs, defaultEntityId = "pixel_6").rigs)
     }
 
     /**
-     * A mount missing a translation component is skipped, not read as zeros.
+     * One unreadable rig costs one rig.
      *
-     * Zeros would put the sensor exactly at the rig's origin — a plausible-looking position that
-     * nothing downstream could tell from a real measurement.
+     * The same stance `readQosOverrides` takes: a preferences file half-written by a crash should not
+     * take every other setting on the phone with it.
      */
     @Test
-    fun `a half-written sensor is skipped rather than read as sitting at the origin`() {
+    fun `a corrupt rig is skipped and the rest of the library survives`() {
         val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
-        prefs.remove(Keys.calibSensor(0, "z"))
+        writeSettings(prefs, settingsWith().withLibrary(rig(), otherRig()))
+        prefs[Keys.rig(0)] = "{ not json"
 
-        val read = readSettings(prefs, defaultEntityId = "pixel_6").calibration!!
-        assertEquals(listOf("ssrs18-frame-gnss"), read.sensors.map { it.frameId })
+        assertEquals(listOf(otherRig()), readSettings(prefs, defaultEntityId = "pixel_6").rigs)
     }
 
+    /**
+     * Storage folds rotations into `[-180, 180]`, because what it stores is the wire document.
+     *
+     * A typed 270° is a legal thing to mean and an illegal thing to publish, so the writer normalises
+     * it — and the stored form is that same document, which makes the fold happen on save rather than
+     * only on the way to the bus. Worth pinning: it is the one field that does not come back byte for
+     * byte, and `-180` and `180` being the same rotation is why that is acceptable.
+     */
     @Test
-    fun `a calibration with no name at all is no calibration`() {
+    fun `a rotation outside the schema's range is folded on the way into storage`() {
         val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
-        prefs.remove(Keys.CALIB_NAME)
+        val turned = rig().copy(
+            sensors = rig().sensors.take(1).map {
+                it.copy(rotation = EulerDeg(yaw = 270.0, pitch = 0.0, roll = -180.0))
+            },
+        )
+        writeSettings(prefs, settingsWith().withLibrary(turned))
 
-        assertNull(readSettings(prefs, defaultEntityId = "pixel_6").calibration)
+        val read = readSettings(prefs, defaultEntityId = "pixel_6").rigs.single()
+        assertEquals(EulerDeg(yaw = -90.0, pitch = 0.0, roll = 180.0), read.sensors.single().rotation)
     }
 
-    /** Half a position is no position: a lone latitude would put the rig on the Greenwich meridian. */
-    @Test
-    fun `a zero missing its longitude is dropped, and the rig survives without it`() {
-        val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
-        prefs.remove(Keys.CALIB_ZERO_LON)
+    // ---- migration from the single-rig keys ----
 
-        val read = readSettings(prefs, defaultEntityId = "pixel_6").calibration!!
-        assertNull(read.zero)
-        assertEquals(2, read.sensors.size)
+    /** A preferences file as an older build left it: the flat `calib_*` keys and no `rig_count`. */
+    private fun writeLegacyRig(prefs: MutablePreferences) {
+        prefs[Keys.CALIB_NAME] = "SSRS18"
+        prefs[Keys.CALIB_ENTITY_ID] = "ssrs18"
+        prefs[Keys.CALIB_PARENT_FRAME_ID] = "ssrs18-frame-ccrp"
+        prefs[Keys.CALIB_PLATFORM_TYPE] = "VESSEL"
+        prefs[Keys.CALIB_ZERO_LAT] = "57.708912"
+        prefs[Keys.CALIB_ZERO_LON] = "11.974560"
+        prefs[Keys.CALIB_ZERO_HEADING] = "35.0"
+        prefs[Keys.CALIB_ZERO_HEADING_SOURCE] = "BASELINE"
+        prefs[Keys.CALIB_ZERO_CAPTURE] = "GNSS_AVERAGE"
+        prefs[Keys.CALIB_SENSOR_COUNT] = "1"
+        prefs[Keys.calibSensor(0, "label")] = "Ouster OS lidar"
+        prefs[Keys.calibSensor(0, "frame_id")] = "ssrs18-frame-lidar"
+        prefs[Keys.calibSensor(0, "type")] = "LIDAR"
+        prefs[Keys.calibSensor(0, "x")] = "0.22"
+        prefs[Keys.calibSensor(0, "y")] = "0.0"
+        prefs[Keys.calibSensor(0, "z")] = "-0.35"
     }
 
+    /**
+     * The upgrade, against bytes the **previous build actually wrote**.
+     *
+     * `writeLegacyCalibration` is that build's writer lifted verbatim out of git, so this exercises the
+     * real key names and the real value formats rather than a hand-written imitation that could agree
+     * with the migration while both disagreed with the field.
+     */
     @Test
-    fun `a stale enum from an older build falls back rather than crashing`() {
+    fun `a rig written by the previous build survives the upgrade whole`() {
         val prefs = mutablePreferencesOf()
-        writeSettings(prefs, settingsWith().copy(calibration = rig()))
-        prefs[Keys.calibSensor(0, "type")] = "SONAR"
-        prefs[Keys.CALIB_PLATFORM_TYPE] = "SUBMARINE"
+        writeLegacyCalibration(prefs, rig())
 
-        val read = readSettings(prefs, defaultEntityId = "pixel_6").calibration!!
-        assertEquals(SensorType.OTHER, read.sensors.first().sensorType)
-        assertNull(read.platformType)
+        val read = readSettings(prefs, defaultEntityId = "pixel_6")
+
+        assertEquals(listOf(rig()), read.rigs)
+        assertEquals("ssrs18", read.activeRigEntityId)
+        assertEquals(listOf("ssrs18"), read.publishingRigs().map { it.entityId })
+    }
+
+    /**
+     * The upgrade. A phone that had a rig configured must still have it, still selected, and still
+     * publishing — an update that silently stops geometry going out is the one outcome a migration
+     * must not produce.
+     */
+    @Test
+    fun `a single rig from an older build migrates into the library and stays active`() {
+        val prefs = mutablePreferencesOf()
+        writeLegacyRig(prefs)
+
+        val read = readSettings(prefs, defaultEntityId = "pixel_6")
+        assertEquals(listOf("ssrs18"), read.rigs.map { it.entityId })
+        assertEquals("ssrs18", read.activeRigEntityId)
+        assertEquals(listOf("ssrs18"), read.publishingRigs().map { it.entityId })
+        assertEquals("ssrs18-frame-lidar", read.rigs.single().sensors.single().frameId)
+    }
+
+    /** Migrated once and then gone: two sources of truth for one rig is how the two drift apart. */
+    @Test
+    fun `the first save after a migration clears the old keys`() {
+        val prefs = mutablePreferencesOf()
+        writeLegacyRig(prefs)
+        val migrated = readSettings(prefs, defaultEntityId = "pixel_6")
+
+        writeSettings(prefs, migrated)
+
+        assertNull(prefs[Keys.CALIB_NAME])
+        assertNull(prefs[Keys.CALIB_SENSOR_COUNT])
+        assertNull(prefs[Keys.calibSensor(0, "frame_id")])
+        assertEquals(listOf("ssrs18"), readSettings(prefs, defaultEntityId = "pixel_6").rigs.map { it.entityId })
+    }
+
+    /**
+     * A cleared selection stays cleared across a restart.
+     *
+     * Deleting the active rig leaves the selection empty, and the migration fallback must not read
+     * that as "never configured" and nominate whatever rig survived — the active rig always
+     * publishes, so a surviving rig would start putting its geometry on the bus under its own entity
+     * id with nobody having asked for it.
+     */
+    @Test
+    fun `deleting the active rig does not re-activate another one on the next read`() {
+        val prefs = mutablePreferencesOf()
+        val two = settingsWith().copy(
+            rigs = listOf(rig(), otherRig()),
+            activeRigEntityId = "ssrs18",
+        )
+        writeSettings(prefs, two)
+        writeSettings(prefs, two.removeRig("ssrs18"))
+
+        val read = readSettings(prefs, defaultEntityId = "pixel_6")
+        assertEquals(listOf("stora-krabban"), read.rigs.map { it.entityId })
+        assertEquals("", read.activeRigEntityId)
+        assertEquals(emptyList<RigCalibration>(), read.publishingRigs())
+    }
+
+    /** No calibration in the old file means an empty library, not a rig called nothing. */
+    @Test
+    fun `an older build with no calibration migrates to an empty library`() {
+        val prefs = mutablePreferencesOf()
+
+        val read = readSettings(prefs, defaultEntityId = "pixel_6")
+        assertEquals(emptyList<RigCalibration>(), read.rigs)
+        assertEquals("", read.activeRigEntityId)
     }
 
     // ---- endpoint list ----

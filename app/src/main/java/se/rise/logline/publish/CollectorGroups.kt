@@ -33,9 +33,11 @@ val LOCATION_SUBJECTS = setOf(
     PublishedSubject.SATELLITES_VISIBLE,
     PublishedSubject.SATELLITES_USED,
     PublishedSubject.FIX_QUALITY,
-    // These two come off the `Location` object itself, like the speed and the course.
+    // These come off the `Location` object itself, like the speed and the course.
     PublishedSubject.ACCURACY_HORIZONTAL,
     PublishedSubject.ACCURACY_VERTICAL,
+    PublishedSubject.ALTITUDE_ABOVE_MSL,
+    PublishedSubject.FIX_UNDULATION,
 )
 
 /**
@@ -46,6 +48,29 @@ val GNSS_STATUS_SUBJECTS = setOf(
     PublishedSubject.SATELLITES_VISIBLE,
     PublishedSubject.SATELLITES_USED,
     PublishedSubject.FIX_QUALITY,
+)
+
+/** The IMU's die temperature — its own sensor, so its own collector. */
+val IMU_TEMPERATURE_SUBJECTS = setOf(PublishedSubject.IMU_TEMPERATURE)
+
+/**
+ * The attitude as readable angles, on their own rotation-vector registration.
+ *
+ * A second listener on a sensor the orientation collector is already using, which the codebase
+ * otherwise warns against — the reason is the rate: these run at 10 Hz where the quaternion runs at
+ * 50, and one registration cannot serve both.
+ */
+val ATTITUDE_SUBJECTS = setOf(
+    PublishedSubject.ROLL,
+    PublishedSubject.PITCH,
+    PublishedSubject.YAW,
+)
+
+/** The same, for the gyro's three axes in degrees per second. */
+val ATTITUDE_RATE_SUBJECTS = setOf(
+    PublishedSubject.ROLL_RATE,
+    PublishedSubject.PITCH_RATE,
+    PublishedSubject.YAW_RATE,
 )
 
 /** The rotation vector, as a quaternion and as three headings. */
@@ -62,6 +87,8 @@ val BATTERY_SUBJECTS = setOf(
     PublishedSubject.BATTERY_CURRENT,
     PublishedSubject.BATTERY_TEMPERATURE,
     PublishedSubject.BATTERY_IS_CHARGING,
+    // Not a battery reading, but the same poll and the same device — see the registry.
+    PublishedSubject.DEVICE_UPTIME,
 )
 
 val RADIO_SUBJECTS = setOf(
@@ -120,6 +147,9 @@ val COLLECTOR_GROUPS: List<CollectorGroup> = listOf(
     CollectorGroup("accel", setOf(PublishedSubject.LINEAR_ACCEL)),
     CollectorGroup("gyro", setOf(PublishedSubject.ANGULAR_VEL)),
     CollectorGroup("orientation", ORIENTATION_SUBJECTS),
+    CollectorGroup("imuTemperature", IMU_TEMPERATURE_SUBJECTS),
+    CollectorGroup("attitude", ATTITUDE_SUBJECTS),
+    CollectorGroup("attitudeRates", ATTITUDE_RATE_SUBJECTS),
     CollectorGroup("magnetometer", setOf(PublishedSubject.MAGNETIC_FIELD)),
     CollectorGroup("pressure", setOf(PublishedSubject.AIR_PRESSURE)),
     CollectorGroup("illuminance", setOf(PublishedSubject.ILLUMINANCE)),

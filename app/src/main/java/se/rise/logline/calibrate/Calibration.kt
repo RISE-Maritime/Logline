@@ -184,6 +184,18 @@ enum class CaptureMethod(val label: String) {
 fun slugify(text: String): String =
     text.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
 
+/**
+ * What a keelson entity id may look like — crowsnest's `ENTITY_ID_RE`, transcribed.
+ *
+ * It is not cosmetic. The id is interpolated straight into `{realm}/@v0/{entity_id}/pubsub/...`, so a
+ * `/` in it silently adds a chunk and the key stops being the key anybody subscribes to; it is also a
+ * path segment in this app's own navigation routes, where an extra chunk matches no destination at
+ * all. Enforced where a person types one and where an imported document supplies one.
+ */
+private val ENTITY_ID = Regex("^[a-z0-9][a-z0-9_-]*$")
+
+fun isValidEntityId(entityId: String): Boolean = ENTITY_ID.matches(entityId)
+
 fun defaultEntityId(rigName: String): String = slugify(rigName).ifEmpty { "rig" }
 
 fun defaultParentFrameId(rigName: String): String = "${defaultEntityId(rigName)}-frame-ccrp"
