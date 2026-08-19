@@ -41,6 +41,10 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     Subjects.LOCATION_FIX_SATELLITES_VISIBLE -> SubjectLabel("Satellites in view")
     Subjects.LOCATION_FIX_SATELLITES_USED -> SubjectLabel("Satellites used")
     Subjects.LOCATION_FIX_QUALITY -> SubjectLabel("Fix quality")
+    // "Accuracy" is what Android calls it and what the subject name says; it is a 68% confidence
+    // radius rather than a bound, which the README spells out where there is room to.
+    Subjects.LOCATION_FIX_ACCURACY_HORIZONTAL_M -> SubjectLabel("Horizontal accuracy", "m")
+    Subjects.LOCATION_FIX_ACCURACY_VERTICAL_M -> SubjectLabel("Vertical accuracy", "m")
 
     Subjects.LINEAR_ACCELERATION_MPSS -> SubjectLabel("Linear acceleration", "m/s²")
     Subjects.ANGULAR_VELOCITY_RADPS -> SubjectLabel("Angular velocity", "rad/s")

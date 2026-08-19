@@ -166,6 +166,30 @@ enum class PublishedSubject(
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
     ),
+    /**
+     * How far off the fix might be, as plain numbers.
+     *
+     * Both are already inside `location_fix`'s covariance matrix, where nothing can read them without
+     * decoding nine doubles and knowing which three matter — so they cannot be plotted, alarmed on, or
+     * glanced at. As their own subjects they are a line on a chart next to the track, which is what
+     * anyone actually wants from them.
+     *
+     * Off the same `Location` as the fix, so no rate of their own. Skipped rather than zeroed when the
+     * platform omits them: `0.0` metres of error reads as a perfect fix, which is the most dangerous
+     * thing this app could say.
+     */
+    ACCURACY_HORIZONTAL(
+        subject = Subjects.LOCATION_FIX_ACCURACY_HORIZONTAL_M,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
+    ACCURACY_VERTICAL(
+        subject = Subjects.LOCATION_FIX_ACCURACY_VERTICAL_M,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        rateOwner = Subjects.LOCATION_FIX,
+    ),
     LINEAR_ACCEL(
         subject = Subjects.LINEAR_ACCELERATION_MPSS,
         defaultRate = SensorRate.Hz(50.0),

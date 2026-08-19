@@ -466,6 +466,11 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   **The exception is `speed_over_ground_knots` and `course_over_ground_deg`**, which publish `0.0` when
   the fix carries no value — a product decision, documented in the README, taken because an unbroken
   series was judged worth more than the distinction. Do not "fix" it back without asking.
+  **The two accuracy subjects sit on the other side of that line, off the same `Location` object**:
+  `location_fix_accuracy_{horizontal,vertical}_m` are skipped when absent, because `0.0` metres of
+  error reads as an exact fix, which is never true and is the most dangerous thing this app could
+  say. Note they are checked *separately*, unlike the covariance matrix they also feed, which takes
+  both or neither — a zero in one slot of that matrix would read as a perfectly known axis.
 - **A location row that says nothing is a bug, and `Waiting` is the only honest silence.** The four GNSS
   subjects ride one callback, so all four go quiet together and the *reason* has to reach all four —
   `LOCATION_SUBJECTS.forEach { statusStore.failed(...) }`. `LocationProvider` emits a `LocationUpdate`

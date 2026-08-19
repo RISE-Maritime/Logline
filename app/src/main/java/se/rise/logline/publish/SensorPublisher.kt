@@ -615,6 +615,10 @@ class SensorPublisher(private val appContext: Context) {
         val speedSink = SubjectSink(PublishedSubject.SPEED_OVER_GROUND, session)
         val courseSink = SubjectSink(PublishedSubject.COURSE_OVER_GROUND, session)
         val variationSink = SubjectSink(PublishedSubject.MAGNETIC_VARIATION, session)
+        val horizontalPub = publishers.of(PublishedSubject.ACCURACY_HORIZONTAL)
+        val verticalPub = publishers.of(PublishedSubject.ACCURACY_VERTICAL)
+        val horizontalSink = SubjectSink(PublishedSubject.ACCURACY_HORIZONTAL, session)
+        val verticalSink = SubjectSink(PublishedSubject.ACCURACY_VERTICAL, session)
         val sink = SubjectSink(PublishedSubject.LOCATION_FIX, session)
         sink.guard {
             LocationProvider(appContext).updates(intervalMillis = rate.toIntervalMillis()).collect { update ->
@@ -686,6 +690,29 @@ class SensorPublisher(private val appContext: Context) {
                 // doing zero knots. `hasSpeed()`/`hasBearing()` remain the honest signal if this is ever
                 // revisited; on a stationary Pixel 6 speed was present on 35 of 36 fixes and bearing on
                 // only 2, so this mostly changes course.
+                // Skipped when absent, which is the opposite of the two below — and the difference is
+                // not a taste one. A missing speed published as `0.0` says the phone is stationary,
+                // which is usually true; a missing accuracy published as `0.0` says the fix is exact,
+                // which is never true and is the most dangerous thing this app could put on the bus.
+                //
+                // Each is checked on its own, unlike the covariance matrix these also feed, which
+                // needs both or neither: a zero in one slot of that matrix would read as a perfectly
+                // known axis. As separate subjects they simply stand or fall separately.
+                if (loc.hasAccuracy()) {
+                    horizontalSink.emit(
+                        horizontalPub,
+                        timestampedFloat(observedAt, loc.accuracy).toByteArray(),
+                        loc.accuracy,
+                    )
+                }
+                if (loc.hasVerticalAccuracy()) {
+                    verticalSink.emit(
+                        verticalPub,
+                        timestampedFloat(observedAt, loc.verticalAccuracyMeters).toByteArray(),
+                        loc.verticalAccuracyMeters,
+                    )
+                }
+
                 val knots = if (loc.hasSpeed()) metresPerSecondToKnots(loc.speed) else 0f
                 speedSink.emit(speedPub, timestampedFloat(observedAt, knots).toByteArray(), knots)
                 val bearing = if (loc.hasBearing()) loc.bearing else 0f

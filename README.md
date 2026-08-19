@@ -275,6 +275,17 @@ The gap between visible and used is the reading. Twenty satellites in view and n
 phone under a steel deck — and from every other subject that looks exactly like a good fix, because
 Android's fused provider hands back a position either way, derived from wifi and cell if it has to.
 
+`location_fix_accuracy_horizontal_m` and `location_fix_accuracy_vertical_m` come off the fix itself and
+say how far off it might be. Both numbers are already inside `location_fix`'s covariance matrix, where
+nothing can read them without decoding nine doubles and knowing which three matter — as their own
+subjects they are a line on a chart beside the track. They are Android's own figures, which are **68%
+confidence radii rather than bounds**: a horizontal accuracy of 5 m means about two thirds of fixes
+land within five metres, not that this one did.
+
+**They are skipped, never zeroed, when the platform does not report them** — the opposite of speed and
+course, and deliberately. A missing speed published as `0.0` says the phone is stationary, which is
+usually true; a missing accuracy published as `0.0` says the fix is exact, which is never true.
+
 That is also why **`FIX_NO` can appear while a position is being published, and is not a
 contradiction**: the fix exists, and it is not a GNSS fix. `FIX_2D` and `FIX_3D` are told apart by
 whether the fix carried an altitude. `pos_type` is `POS_TYPE_SINGLE` when the receiver is solving and

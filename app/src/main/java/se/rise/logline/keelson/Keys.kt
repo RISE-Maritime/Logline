@@ -29,6 +29,8 @@ object Subjects {
     const val LOCATION_FIX_SATELLITES_USED = "location_fix_satellites_used"
     const val LOCATION_FIX_SATELLITES_VISIBLE = "location_fix_satellites_visible"
     const val LOCATION_FIX_QUALITY = "location_fix_quality"
+    const val LOCATION_FIX_ACCURACY_HORIZONTAL_M = "location_fix_accuracy_horizontal_m"
+    const val LOCATION_FIX_ACCURACY_VERTICAL_M = "location_fix_accuracy_vertical_m"
     const val AIR_PRESSURE_PA = "air_pressure_pa"
     const val ILLUMINANCE_LUX = "illuminance_lux"
 

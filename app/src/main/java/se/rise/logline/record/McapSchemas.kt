@@ -31,6 +31,8 @@ internal val subjectSchemaNames: Map<String, String> = mapOf(
     Subjects.LOCATION_FIX_SATELLITES_USED to "keelson.TimestampedInt",
     Subjects.LOCATION_FIX_SATELLITES_VISIBLE to "keelson.TimestampedInt",
     Subjects.LOCATION_FIX_QUALITY to "keelson.LocationFixQuality",
+    Subjects.LOCATION_FIX_ACCURACY_HORIZONTAL_M to "keelson.TimestampedFloat",
+    Subjects.LOCATION_FIX_ACCURACY_VERTICAL_M to "keelson.TimestampedFloat",
     Subjects.CONFIGURATION_JSON to "keelson.TimestampedString",
     Subjects.LOG_MESSAGE to "foxglove.Log",
     Subjects.BATTERY_STATE_OF_CHARGE_PCT to "keelson.TimestampedFloat",

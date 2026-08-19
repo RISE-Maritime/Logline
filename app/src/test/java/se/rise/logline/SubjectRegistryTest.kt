@@ -112,6 +112,8 @@ class SubjectRegistryTest {
                 "location_fix_satellites_used",
                 "location_fix_satellites_visible",
                 "location_fix_quality",
+                "location_fix_accuracy_horizontal_m",
+                "location_fix_accuracy_vertical_m",
                 "linear_acceleration_mpss",
                 "angular_velocity_radps",
                 "orientation_quaternion",

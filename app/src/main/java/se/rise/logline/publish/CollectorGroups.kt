@@ -33,6 +33,9 @@ val LOCATION_SUBJECTS = setOf(
     PublishedSubject.SATELLITES_VISIBLE,
     PublishedSubject.SATELLITES_USED,
     PublishedSubject.FIX_QUALITY,
+    // These two come off the `Location` object itself, like the speed and the course.
+    PublishedSubject.ACCURACY_HORIZONTAL,
+    PublishedSubject.ACCURACY_VERTICAL,
 )
 
 /**
