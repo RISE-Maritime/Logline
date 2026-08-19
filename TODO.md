@@ -1,10 +1,11 @@
 # TODO
 
-Outstanding work only, roughly in the order it should be picked up. Finished items are removed rather
-than ticked, **by hand and by the person who asked for the work** — what was done, and why it was done
-that way, is in the git history and in the gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md),
-which is where somebody would actually go looking. Nothing else edits an item here; new findings are
-added to the end of the section they belong to.
+Roughly in the order things should be picked up. A finished item is **ticked and left standing**, with
+the commit that did it; **deleting it is done by hand, by the person who asked for the work**, and
+nothing else here removes one. What was done and why it was done that way is in that commit and in the
+gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where somebody would actually
+go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
+the section they belong to.
 
 Last reviewed: 2026-08-18 — a read of the whole app against upstream keelson `dev`, plus lint. Most of
 what is below was found by reading the code rather than running it, so treat anything not marked as
@@ -16,6 +17,8 @@ measured as a claim to confirm on a device.
 
 - [ ] The phone should be able to hold multiple calibration rigs at ones as we using multipel rigs when data logging, keelson have something called platforms If you look at crowsenst there is one "own ship slector" or platform selector I think we should be synced with that one. 
 
+- [ ] On main page have the categoris colapsed by deaflut 
+
 ## P2 — subjects this phone could publish and does not
 
 This is the answer to the old "other sensors" question below. Every name here exists in
@@ -26,11 +29,13 @@ and its QoS assignment was checked against `dev` — no drift.
 
 Highest value first:
 
-- [ ] **`location_fix_accuracy_horizontal_m`, `location_fix_accuracy_vertical_m`**
+- [x] **`location_fix_accuracy_horizontal_m`, `location_fix_accuracy_vertical_m`**
       (`TimestampedFloat`) — `loc.accuracy` and `loc.verticalAccuracyMeters` are already read in
       `runLocation()` to build the covariance matrix, and are then unavailable to anything that does
       not decode a 9-element matrix. Publishing them as scalars costs two lines and makes accuracy
       plottable in the live view and in Foxglove. Ride the location collector (`rateOwner`).
+      Done in 541c73a — skipped rather than zeroed when absent, unlike speed and course; see the
+      README. Not yet seen on a device.
 
 - [ ] **`altitude_above_msl_m`** and **`location_fix_undulation_m`** (`TimestampedFloat`) —
       `Location.getMslAltitudeMeters()` / `hasMslAltitude()` landed in API 34, so this is guarded but

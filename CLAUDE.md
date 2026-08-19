@@ -712,16 +712,19 @@ A shared checklist that several sites work at once, interoperating with crowsnes
 
 The working checklist, and **the user prunes it, not you.**
 
-- **Never delete, tick or reword an existing item.** When a piece of work is finished, say so in the
-  reply and leave the item exactly where it is. Deciding it is done — and that it was done the way it
-  was meant to be — is the user's call, and an item quietly removed is a claim they never got to check.
-  This holds even when the work is finished, tested and committed.
+- **Never delete an item.** Deciding a thing is done — and that it was done the way it was meant to be
+  — is the user's call, and an item quietly removed is a claim they never got to check. This holds
+  even when the work is finished, tested and committed.
+- **Do tick it**: `- [ ]` becomes `- [x]`, with a short `Done in <sha>.` line at the end of the item.
+  Nothing else about the wording changes. Without that the file stops describing reality — a still-open
+  box means "nobody has looked at this" and "this shipped an hour ago" alike, which is a trap for the
+  next person and for the next session.
 - **Do add items** for anything found along the way: a bug noticed while working elsewhere, a
   verification that could not be done from here, a consequence of a decision. Those are findings, and
   losing them costs more than a slightly long file.
 - The record of *what* was done and *why it was done that way* belongs in the commit message and in
-  the gotchas here and in [README.md](README.md) — not in a ticked checklist item. That is what makes
-  removing a finished item cost nothing.
+  the gotchas here and in [README.md](README.md) — never in the checklist item, which is why a ticked
+  one can be deleted without reading it.
 
 ## Related checkouts
 
