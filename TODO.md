@@ -104,6 +104,15 @@ rewritten from the ground up. These are the consequences.
       "permanent" in `error_description`, which is then the only place the distinction survives: a
       consumer reading the enum alone will offer a retry that can never succeed. Worth an upstream
       issue against `interfaces/ErrorResponse.proto`, alongside `keelson#201` and `#202`.
+      *(2026-08-19: filed as [keelson#203](https://github.com/RISE-Maritime/keelson/issues/203). The
+      gap is sharper than written above — keelson already draws this distinction in `CommandResult`
+      (`interfaces/VehicleCommon.proto` carries both `COMMAND_RESULT_UNSUPPORTED` and
+      `COMMAND_RESULT_DENIED`); it is only missing from the enum §3.6 sends `ErrorResponse` interfaces
+      to. That makes §3.6's "MUST NOT return DENIED for a procedure it can never fulfill" impossible to
+      obey on those interfaces, and it affects `AlarmAck`, `RoutePlanner`, `SimulationControl`,
+      `VehicleControl` and `VehicleSimulatorControl` as well as this app. Suggested fix is one additive
+      value, `UNSUPPORTED = 9`. **Leave open until it is resolved upstream** — if it lands, change
+      `setConfigRefusal()` to use it and relax `ConfigurableRpcTest`'s wording assertion.)*
 
 - [ ] **The config RPC is served only while a rig screen is open**, because `PlatformSync`'s session is
       scoped to `route.startsWith("calibration")`. A phone that is *logging* therefore advertises no
