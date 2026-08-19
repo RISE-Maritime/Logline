@@ -95,8 +95,20 @@ fun MainScreen(
             delay(1_000)
         }
     }
-    // Collapsed rather than expanded state, so a group added later shows its rows by default.
-    var collapsed by rememberSaveable { mutableStateOf(listOf<String>()) }
+    /**
+     * Which groups are open. **Everything starts closed**, which is what the empty default means.
+     *
+     * Thirty-nine subjects is five screens of rows to scroll past, and almost none of it is what
+     * somebody opening the app wants: they want to know whether it is publishing and whether anything
+     * is wrong. The group headings answer both without being opened — `groupBadge` carries `3/3 ✓`,
+     * the stalled and failed counts and the `· N off` suffix, and the heading turns red when the group
+     * needs attention. Opening one is for when the badge has said something worth looking into.
+     *
+     * Stored as the *expanded* set rather than the collapsed one so that reading follows from the
+     * default rather than being maintained against it: a group added to the registry later is closed
+     * like the rest, with no list to remember to update.
+     */
+    var expanded by rememberSaveable { mutableStateOf(listOf<String>()) }
 
     ScreenScaffold(
         title = "Logline",
@@ -160,7 +172,7 @@ fun MainScreen(
                     unavailable = unavailableSubjects,
                     disabled = disabledSubjects,
                 )
-                val isCollapsed = group.title in collapsed
+                val isExpanded = group.title in expanded
                 // What the master switch governs — everything the group has *except* the two that
                 // would restart the run, and that a group switch has no business turning on: nobody
                 // tapping "Device" expects the microphone and the camera to come on with the
@@ -175,9 +187,9 @@ fun MainScreen(
                         status.running && summary.live == summary.total -> MaterialTheme.colorScheme.primary
                         else -> null
                     },
-                    expanded = !isCollapsed,
+                    expanded = isExpanded,
                     onToggle = {
-                        collapsed = if (isCollapsed) collapsed - group.title else collapsed + group.title
+                        expanded = if (isExpanded) expanded - group.title else expanded + group.title
                     },
                     action = {
                         // Checked while *anything* in the group is on, so a mixed group reads as on and
@@ -193,7 +205,7 @@ fun MainScreen(
                         )
                     },
                 )
-                if (!isCollapsed) {
+                if (isExpanded) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column {
                             group.entries.forEachIndexed { index, entry ->

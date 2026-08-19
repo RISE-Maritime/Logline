@@ -29,13 +29,6 @@ and its QoS assignment was checked against `dev` — no drift.
 
 Highest value first:
 
-- [x] **`location_fix_accuracy_horizontal_m`, `location_fix_accuracy_vertical_m`**
-      (`TimestampedFloat`) — `loc.accuracy` and `loc.verticalAccuracyMeters` are already read in
-      `runLocation()` to build the covariance matrix, and are then unavailable to anything that does
-      not decode a 9-element matrix. Publishing them as scalars costs two lines and makes accuracy
-      plottable in the live view and in Foxglove. Ride the location collector (`rateOwner`).
-      Done in 541c73a — skipped rather than zeroed when absent, unlike speed and course; see the
-      README. Not yet seen on a device.
 
 - [ ] **`altitude_above_msl_m`** and **`location_fix_undulation_m`** (`TimestampedFloat`) —
       `Location.getMslAltitudeMeters()` / `hasMslAltitude()` landed in API 34, so this is guarded but
