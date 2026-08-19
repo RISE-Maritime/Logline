@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -84,7 +85,7 @@ fun SensorMountScreen(
     var roll by remember { mutableStateOf(initial?.rotation?.roll?.toString() ?: "0.0") }
     var method by remember { mutableStateOf(initial?.capture ?: CaptureMethod.MANUAL) }
     var accuracyM by remember { mutableStateOf(initial?.accuracyM) }
-    var capturedAt by remember { mutableStateOf(initial?.capturedAtEpochMillis ?: 0L) }
+    var capturedAt by remember { mutableLongStateOf(initial?.capturedAtEpochMillis ?: 0L) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     // A capture that has landed replaces the three translation fields and nothing else — the label,

@@ -12,9 +12,27 @@ Last reviewed: 2026-08-19 — the app against keelson `0.6.0-pre.3` (see the end
 what is below was found by reading the code rather than running it, so treat anything not marked as
 measured as a claim to confirm on a device.
 
+## P4 — housekeeping
+
+- [ ] **Push to a remote.** `git init` is done — `main`, four commits — but there is nowhere to push,
+  which leaves two things stalled: `.github/workflows/build.yml` has never run, and the checklist
+  protos below cannot be PR'd from this side. Creating it is a decision about where this lives
+  rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
+  is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
+
+
+- [ ] **Lint nits**, all one-liners: two `AutoboxingStateCreation` (`ChecklistScreen.kt:365`,
+  `SensorMountScreen.kt:87` — `mutableIntStateOf` / `mutableLongStateOf`), `UseKtx` in
+  `ChecklistReminders.kt:120` (`String.toUri`), and a `RedundantLabel` in the manifest.
+  `UsableSpace` in `Recorder.kt` is
+  *not* one of these: `getAllocatableBytes` counts clearable cache the recorder cannot actually
+  have, and the floor being predicted is real free space.
+
+
+
 - [ ] **Rename to Logline**: The repo folder on disk is still `KeelsonLogger`.
 
-## P1
+## PLatfrom Config 
 
 Left over from the rig library, and each is a finding rather than a fix. All five are filed together
 upstream as [RISE-Maritime/keelson#191](https://github.com/RISE-Maritime/keelson/issues/191) — the first
@@ -88,46 +106,4 @@ else can build against the checklist feature, and this app's vendored copies are
 definition of a wire format two projects already speak — crowsnest reconstructed from its
 generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
-
-## P4 — housekeeping
-
-- [ ] **Push to a remote.** `git init` is done — `main`, four commits — but there is nowhere to push,
-      which leaves two things stalled: `.github/workflows/build.yml` has never run, and the checklist
-      protos below cannot be PR'd from this side. Creating it is a decision about where this lives
-      rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
-      is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
-
-
-- [x] **Dependency bumps.** Lint reports nine outdated dependencies, five with newer versions
-      available, plus an AGP update. Worth one deliberate pass rather than drifting — and zenoh-kotlin
-      in particular wants checking against the `Zenoh.scout` crash and the `initLogFromEnvOr` guard
-      before it moves.
-      *(2026-08-19: **zenoh-kotlin needed no checking — 1.10.0 is the latest published version**, so the
-      `Zenoh.scout` crash and the `initLogFromEnvOr` guard are untouched. Ten libraries bumped: core-ktx
-      1.19.0, lifecycle 2.11.0, activity-compose 1.13.0, compose-bom 2026.08.00, navigation 2.9.8,
-      play-services-location 21.4.0, datastore 1.2.1, coroutines-play-services 1.11.0, zxing 3.5.4, and
-      espresso 3.7.0 / ext-junit 1.3.0 (which the instrumented tests forced first — 3.5.1 does not run
-      on Android 17 at all).
-      `kotlinx-serialization-json` went to **1.7.3, not the latest 1.11.0**, and the comment above it now
-      says why: it is pinned to whatever zenoh already pulls in so that declaring it adds nothing to the
-      APK, and it had drifted — it said 1.6.0 while zenoh had moved to 1.7.3, so Gradle was resolving
-      upward and the number described nothing.
-      Verified: 551 JVM tests, 5 instrumented, lint down from 16 categories to 15, and a real run on the
-      bumped build publishing 48/48 streams over TLS.)*
-      Done in 29f2aa7.
-
-- [ ] **Left deliberately un-bumped, and each wants its own pass.** protobuf 3.25.5 → **4.35.1** is a
-      major version: generated-code and runtime compatibility is the whole risk, and this project both
-      vendors protos and feeds a build-time descriptor set to the MCAP writer, so it needs its own
-      verification rather than riding along. The Kotlin compose plugin 2.2.10 → **2.4.10** means moving
-      Kotlin itself, with the daemon toolchain pinned in `gradle/gradle-daemon-jvm.properties`. Gradle
-      9.5.0 → 9.7.0 is build tooling with no runtime effect and no urgency. Bundling any of these with
-      the library bumps would have made a failure ambiguous, which is the argument for the split.
-
-- [ ] **Lint nits**, all one-liners: two `AutoboxingStateCreation` (`ChecklistScreen.kt:365`,
-      `SensorMountScreen.kt:87` — `mutableIntStateOf` / `mutableLongStateOf`), `UseKtx` in
-      `ChecklistReminders.kt:120` (`String.toUri`), and a `RedundantLabel` in the manifest.
-      `UsableSpace` in `Recorder.kt` is
-      *not* one of these: `getAllocatableBytes` counts clearable cache the recorder cannot actually
-      have, and the floor being predicted is real free space.
 

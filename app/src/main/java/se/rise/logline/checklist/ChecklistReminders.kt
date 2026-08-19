@@ -1,5 +1,6 @@
 package se.rise.logline.checklist
 
+import androidx.core.net.toUri
 import android.Manifest
 import android.app.AlarmManager
 import android.app.Notification
@@ -117,7 +118,7 @@ object ChecklistReminders {
             // In the data, not just the extras: two PendingIntents that differ only by extras are the
             // *same* intent as far as AlarmManager is concerned, so without this a second reminder
             // would silently replace the first.
-            data = android.net.Uri.parse("logline://checklist/${reminder.procedureId}/${reminder.itemId}")
+            data = "logline://checklist/${reminder.procedureId}/${reminder.itemId}".toUri()
         }
         return PendingIntent.getBroadcast(
             context,
