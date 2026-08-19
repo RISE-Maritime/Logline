@@ -41,6 +41,22 @@ fun deciCelsiusToCelsius(deciCelsius: Int): Float = deciCelsius / 10f
 fun megabitsPerSecondToBitsPerSecond(mbps: Int): Float = mbps * 1_000_000f
 
 /**
+ * Cell bandwidth: Android reports kHz, the subject is MHz.
+ *
+ * **What the platform promises and what we infer are not the same here.** `CellIdentityLte.getBandwidth()`
+ * is documented as "Cell bandwidth in kHz" and names no direction; it is published as the *downlink*
+ * because the LTE cell identity's bandwidth is the DL system bandwidth and that is what every consumer
+ * of the field takes it for. The uplink genuinely differs on an asymmetric carrier, and Android will
+ * not tell an ordinary app what it is — `PhysicalChannelConfig` carries both and is gated behind
+ * `READ_PRECISE_PHONE_STATE`, which is `signature|privileged`. So the honest options were this reading
+ * or nothing, and the reading is documented rather than assumed.
+ *
+ * LTE carriers are 1.4, 3, 5, 10, 15 or 20 MHz, so the fractional case is real and the division must
+ * not be integer.
+ */
+fun kilohertzToMegahertz(khz: Int): Float = khz / 1_000f
+
+/**
  * Absent-or-value for the telephony sentinel.
  *
  * `CellInfo.UNAVAILABLE` is `Integer.MAX_VALUE`, while `-140` dBm is a *real* RSRP meaning "barely

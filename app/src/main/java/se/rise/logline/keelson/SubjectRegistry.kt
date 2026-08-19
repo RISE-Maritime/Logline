@@ -566,6 +566,23 @@ enum class PublishedSubject(
     ),
 
     /**
+     * The serving cell's bandwidth, LTE only.
+     *
+     * Silent on 5G NR, and that is correct rather than a gap — `CellIdentityNr` carries no bandwidth
+     * field at all, so there is nothing to report. It is deliberately **not** in
+     * `unavailableSubjects()` for the same reason the nullable radio fields are not: the hardware is
+     * present and the value is momentarily absent, which is a different thing from a phone without a
+     * modem.
+     */
+    CELL_BANDWIDTH_DOWNLINK(
+        subject = Subjects.RADIO_DOWNLINK_BANDWIDTH_MHZ,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.RADIO,
+        fixedSourceId = RadioSources.CELLULAR,
+        rateOwner = Subjects.RADIO_RSRP_DBM,
+    ),
+
+    /**
      * One sensor's pose on the rig, as `foxglove.FrameTransform`.
      *
      * The rate is a **republish interval**, not a sampling rate — the same reading of the control that

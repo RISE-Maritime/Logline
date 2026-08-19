@@ -43,6 +43,7 @@ Every sample is serialised as its payload type, wrapped in `core.Envelope` (whic
 | `radio_physical_cell_id` | `keelson.TimestampedInt` | `getPci()` | with RSRP |
 | `radio_earfcn` | `keelson.TimestampedInt` | `getEarfcn()` / `getNrarfcn()` | with RSRP |
 | `radio_band` | `keelson.TimestampedString` | `getBands()` | with RSRP |
+| `radio_downlink_bandwidth_mhz` | `keelson.TimestampedFloat` | `CellIdentityLte.getBandwidth()` | with RSRP; LTE only |
 | `audio` | `keelson.Audio` | `AudioRecord`, WAV-framed PCM | off by default; 1 chunk/s when on |
 | `image_compressed` | `foxglove.CompressedImage` | CameraX `ImageCapture`, JPEG | off by default; 1 frame/2 s at 720p when on |
 | `log_message` | `foxglove.Log` | an operator pressing a button | only when marked |
@@ -460,6 +461,19 @@ reports only the anchor on this hardware — no `CellIdentityNr` appears at all 
 metrics come from the NR leg. So `radio_cell_id` is *not* the 5G cell id on NSA. It still does its job,
 since an anchor handover does invalidate comparisons, but do not read it as identifying the NR carrier.
 On standalone NR the NR identity appears and the mismatch disappears.
+
+**`radio_downlink_bandwidth_mhz` is LTE-only, and its uplink counterpart is not published at all.**
+Android reports a cell's bandwidth in only one place an ordinary app can reach —
+`CellIdentityLte.getBandwidth()`, in kHz — and that field does not exist on `CellIdentityNr`, so the
+subject falls silent on 5G rather than publishing a zero. Note also what the platform does and does not
+promise: the documentation says "Cell bandwidth in kHz" and names no direction. It is published as the
+downlink because that is what the LTE cell identity's bandwidth is, which is a reading rather than
+something the API states.
+
+The uplink is genuinely different on an asymmetric carrier, and there is no way to get it: it lives on
+`PhysicalChannelConfig`, whose listener requires `READ_PRECISE_PHONE_STATE` — protection level
+`signature|privileged`, so no app outside the system image can hold it. `radio_tx_power_dbm` is absent
+for the same kind of reason: `requestModemActivityInfo()` reports time spent in power buckets, not dBm.
 
 **Identity is stamped with the cell list's own report time**, not the publish time, because
 `getAllCellInfo()` returns a cache. Consecutive samples that share a timestamp are the *same* reading

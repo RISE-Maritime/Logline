@@ -61,6 +61,7 @@ internal val subjectSchemaNames: Map<String, String> = mapOf(
     Subjects.RADIO_PHYSICAL_CELL_ID to "keelson.TimestampedInt",
     Subjects.RADIO_EARFCN to "keelson.TimestampedInt",
     Subjects.RADIO_BAND to "keelson.TimestampedString",
+    Subjects.RADIO_DOWNLINK_BANDWIDTH_MHZ to "keelson.TimestampedFloat",
 )
 
 /** The asset protoc writes at build time — a serialised `FileDescriptorSet`. */

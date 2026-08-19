@@ -59,34 +59,6 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-- [x] **Liveliness is three tiers now, and the app declares the legacy one.** §5 defines source-level
-      (`{realm}/@v0/{entity}/*/{source}`), pubsub subject-level
-      (`{realm}/@v0/{entity}/pubsub/{subject}/{source}`) and RPC interface-level tokens. What
-      `livelinessKey()` builds — `{realm}/@v0/{entity}/pubsub/*/{source}` — is §5.7's **"legacy coarse
-      token (transition)"**, kept only "until connectors of operational interest have migrated".
-      The cost is not cosmetic and is visible in upstream's own code: `entity_health2keelson.py`
-      classifies a `*` subject chunk as "counts as **presence** but not advertisement", and
-      `authority.py` drops `NOT_ADVERTISED` subjects from the coverage denominator entirely as *the
-      monitor's own config error*. So a fleet health monitor watching this phone today sees it present
-      and all 52 of its subjects as a suspected typo, contributing nothing to the composite score
-      however well the run is going.
-      Three details worth not re-deriving. The source-level `*` sits in the **category** slot, not the
-      subject slot, and §5.5 says classification depends on that position. §5.2 makes the subject token
-      **capability, not activity** — it must not be retracted on silence, which is what lets
-      `heading_true_north_deg` hold a token while it waits for the first fix, and lets absent hardware
-      hold none via `sensorCapabilities()`. And a switched-off subject *should* undeclare, since a
-      switch is configuration rather than silence — the signal already exists as the `offSubjects`
-      flow that `supervise()` consumes, but note this makes the per-subject switch do something on the
-      wire for the first time. Keep declaring the legacy token for one release alongside the new ones:
-      §5.7 asks aggregators to subscribe to both shapes, and one that has not been updated needs the
-      coarse token to see the phone at all.
-      Roughly 58 tokens against 6 — **measure the cost at session open** before committing to it; a
-      visibly slower Start is paid on every run. `CLAUDE.md:110` must change in the same commit: it
-      says declaring one token per subject "is a misreading of the spec", which was right against the
-      old §5.1 and is exactly backwards against the new one. `README.md:1308` ("No liveliness tokens")
-      and the discovery snippet at `README.md:597` are stale with it.
-      Done in ceb872b.
-
 - [ ] **`illuminance_lux` is in no released keelson.** Not in `0.6.0-pre.3`, not in `dev`, not in
       `0.5.4` — it exists only on the unmerged one-commit branch `feat/illuminance-subject`, as a
       single line in `subjects.yaml`. The app has been publishing an unratified subject name, against
@@ -94,13 +66,25 @@ rewritten from the ground up. These are the consequences.
       consume. Merging that line upstream is the fix; tearing out a working sensor to satisfy
       bookkeeping is the alternative, and it is worse. Needs a decision from whoever owns `keelson`,
       and it should not go quiet for a second release running.
+      *(2026-08-19: [keelson#201](https://github.com/RISE-Maritime/keelson/pull/201) ratifies it,
+      open against `dev`. Nothing to change here — the app's subject name and payload type already
+      match what that PR adds.)*
 
 - [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
       previous item: a release has now shipped without messages this app builds against, and
       `ChecklistWireTest`'s golden bytes are the only thing pinning them. Reconstructed definitions
       living in one downstream repo is exactly the situation that produced them.
+      *(2026-08-19: not lost after all — the definitions were committed in `keelson` on
+      `feature/checklist-subjects` and the branch had simply never been pushed, which is why no PR
+      existed and the release went without them. Rebased onto `dev` and opened as
+      [keelson#202](https://github.com/RISE-Maritime/keelson/pull/202); GitHub reports it mergeable.
+      The four files there are byte-identical to this app's vendored copies, checked before and after
+      the rebase, so no drift crept in while they sat unmerged. Two review points carried in the PR
+      body rather than hidden: the design itself is unreviewed, and `checklist_state` /
+      `checklist_procedure` want the router storage backing that `../keelson-router/` now has and
+      that repo does not. **Leave this open until #202 merges.**)*
 
-- [ ] **Two new radio subjects are worth adding; three are not.** Of the 27 subjects added since
+- [x] **Two new radio subjects are worth adding; three are not.** *(One, not two — see below.)* Of the 27 subjects added since
       `0.5.4`, the phone already publishes most of the radio family and the rest — routes, voyages,
       command authority, point clouds — is vessel-system work a handset cannot source.
       `radio_downlink_bandwidth_mhz` and `radio_uplink_bandwidth_mhz` come off
@@ -112,6 +96,14 @@ rewritten from the ground up. These are the consequences.
       `requestModemActivityInfo()` reports time-in-power-bucket rather than dBm. `radio_rssi`
       duplicates `radio_rssi_dbm`, which is already published. `radio_channel_ppm_pct` is not a
       concept a handset exposes.
+      *(2026-08-19: **this item was wrong about the uplink.** `radio_uplink_bandwidth_mhz` is not
+      sourceable either: the only Android class carrying it is `PhysicalChannelConfig`, delivered by a
+      listener annotated `@RequiresPermission(READ_PRECISE_PHONE_STATE, ACCESS_FINE_LOCATION)`, and
+      `pm list permissions -f` on the phone reports that permission as `signature|privileged` — no app
+      outside the system image can hold it. `CellIdentityNr` has no bandwidth field at all, so 5G gives
+      nothing by either route. So one subject was added, `radio_downlink_bandwidth_mhz`, LTE only, and
+      the four others are recorded in the README as unreachable with the reason.)*
+      Done in <sha>.
 
 - [ ] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** The app answers
       crowsnest's `get_config` probe but is not an RPC server in the interface/version sense, and §3.6's

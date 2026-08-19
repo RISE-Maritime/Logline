@@ -57,6 +57,15 @@ data class CellIdentitySample(
     val physicalCellId: Int?,
     val earfcn: Int?,
     val band: String?,
+    /**
+     * The serving cell's bandwidth in kHz, or null.
+     *
+     * **LTE only.** `CellIdentityNr` has no bandwidth field — the only place 5G carries one is
+     * `PhysicalChannelConfig`, which needs `READ_PRECISE_PHONE_STATE` (`signature|privileged`, verified
+     * with `pm list permissions -f`), so no ordinary app can reach it. Null on NR is therefore the
+     * truth, not a hole worth filling with a guess.
+     */
+    val downlinkBandwidthKhz: Int?,
     val measuredAtElapsedNanos: Long?,
 )
 
@@ -151,6 +160,8 @@ class RadioProvider(private val context: Context) {
                 physicalCellId = id.pci.intOrAbsent(CellInfo.UNAVAILABLE),
                 earfcn = id.nrarfcn.intOrAbsent(CellInfo.UNAVAILABLE),
                 band = formatBands(id.bands, nr = true),
+                // No such field on NR — see CellIdentitySample.downlinkBandwidthKhz.
+                downlinkBandwidthKhz = null,
                 measuredAtElapsedNanos = at,
             )
             is CellIdentityLte -> CellIdentitySample(
@@ -158,6 +169,7 @@ class RadioProvider(private val context: Context) {
                 physicalCellId = id.pci.intOrAbsent(CellInfo.UNAVAILABLE),
                 earfcn = id.earfcn.intOrAbsent(CellInfo.UNAVAILABLE),
                 band = formatBands(id.bands, nr = false),
+                downlinkBandwidthKhz = id.bandwidth.intOrAbsent(CellInfo.UNAVAILABLE),
                 measuredAtElapsedNanos = at,
             )
             // GSM/WCDMA/CDMA carry different identity shapes; publishing them under EARFCN/PCI names

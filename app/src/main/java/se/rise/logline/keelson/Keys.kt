@@ -86,6 +86,12 @@ object Subjects {
     const val RADIO_EARFCN = "radio_earfcn"
     const val RADIO_BAND = "radio_band"
 
+    // How much spectrum the serving cell has, which is what makes an RSRP reading interpretable.
+    // Note the *uplink* counterpart exists upstream and is deliberately not published here: Android
+    // exposes it only through `PhysicalChannelConfig`, which needs `READ_PRECISE_PHONE_STATE` — a
+    // `signature|privileged` permission no ordinary app can hold. See `RadioProvider`.
+    const val RADIO_DOWNLINK_BANDWIDTH_MHZ = "radio_downlink_bandwidth_mhz"
+
     // Collaborative checklists. Deliberately **not** in `PublishedSubject`: that registry is the
     // *sensor* publishing set, and every derived thing — sampling rates, `SensorManager` types, MCAP
     // channels, live-view rings, the main screen's rows, the per-subject switches — reads it. A

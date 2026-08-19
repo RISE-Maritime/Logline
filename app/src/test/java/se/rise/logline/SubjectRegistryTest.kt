@@ -205,6 +205,7 @@ class SubjectRegistryTest {
                 "radio_physical_cell_id",
                 "radio_earfcn",
                 "radio_band",
+                "radio_downlink_bandwidth_mhz",
                 "audio",
                 "image_compressed",
                 "log_message",

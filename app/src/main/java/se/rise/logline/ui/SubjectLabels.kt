@@ -102,6 +102,7 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     Subjects.RADIO_PHYSICAL_CELL_ID -> SubjectLabel("Physical cell ID")
     Subjects.RADIO_EARFCN -> SubjectLabel("EARFCN")
     Subjects.RADIO_BAND -> SubjectLabel("Band")
+    Subjects.RADIO_DOWNLINK_BANDWIDTH_MHZ -> SubjectLabel("Downlink bandwidth", "MHz")
 
     // The rig, not the phone. "Sensor pose" rather than "Frame transform" because that is what the
     // message says about the world; the wire name is still on the subject's own screen.

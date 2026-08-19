@@ -52,6 +52,7 @@ import se.rise.logline.sensors.WavChunk
 import se.rise.logline.sensors.thumbnail
 import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.hectopascalToPascal
+import se.rise.logline.sensors.kilohertzToMegahertz
 import se.rise.logline.sensors.metresPerSecondToKnots
 import se.rise.logline.sensors.attitudeRatesOf
 import se.rise.logline.sensors.normaliseHeadingDegrees
@@ -1634,6 +1635,12 @@ class SensorPublisher(private val appContext: Context) {
                         emitOne(PublishedSubject.PHYSICAL_CELL_ID, timestampedInt(at, it))
                     }
                     id.earfcn?.let { emitOne(PublishedSubject.EARFCN, timestampedInt(at, it)) }
+                    id.downlinkBandwidthKhz?.let {
+                        emitOne(
+                            PublishedSubject.CELL_BANDWIDTH_DOWNLINK,
+                            timestampedFloat(at, kilohertzToMegahertz(it)),
+                        )
+                    }
                     id.band?.let {
                         emitOne(
                             PublishedSubject.BAND,

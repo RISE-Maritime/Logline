@@ -104,6 +104,7 @@ val RADIO_SUBJECTS = setOf(
     PublishedSubject.PHYSICAL_CELL_ID,
     PublishedSubject.EARFCN,
     PublishedSubject.BAND,
+    PublishedSubject.CELL_BANDWIDTH_DOWNLINK,
 )
 
 /**

@@ -10,6 +10,7 @@ import se.rise.logline.sensors.microampToAmp
 import se.rise.logline.sensors.microteslaToGauss
 import se.rise.logline.sensors.millivoltToVolt
 import se.rise.logline.sensors.WIFI_RSSI_DISCONNECTED
+import se.rise.logline.sensors.kilohertzToMegahertz
 import se.rise.logline.sensors.megabitsPerSecondToBitsPerSecond
 import se.rise.logline.sensors.orAbsent
 import se.rise.logline.sensors.wifiLinkSpeedOrAbsent
@@ -161,6 +162,31 @@ class UnitsTest {
     fun `no bands reported is absent rather than empty string`() {
         assertNull(formatBands(intArrayOf(), nr = false))
         assertNull(formatBands(intArrayOf(), nr = true))
+    }
+
+    /**
+     * Every LTE carrier width, because the narrow ones are where an integer division would hide.
+     *
+     * 20 MHz is what a Pixel 6 on Tele2 band 7 reported while this was written (`dumpsys
+     * telephony.registry`, `mBandwidth=20000`) — the check that the factor is 1000 and not 1 000 000.
+     * 1.4 MHz is the one that cannot survive integer arithmetic: it would come out 1.
+     */
+    @Test
+    fun `cell bandwidth converts from kilohertz to megahertz`() {
+        assertEquals(20f, kilohertzToMegahertz(20_000), 0.001f)
+        assertEquals(1.4f, kilohertzToMegahertz(1_400), 0.001f)
+        assertEquals(3f, kilohertzToMegahertz(3_000), 0.001f)
+        assertEquals(15f, kilohertzToMegahertz(15_000), 0.001f)
+    }
+
+    /**
+     * The sentinel is the 32-bit one. `getBandwidth()` returns `CellInfo.UNAVAILABLE`, and publishing
+     * that unchecked would put 2 147 483 647 kHz — two terahertz of spectrum — on the bus.
+     */
+    @Test
+    fun `an unavailable bandwidth is absent, not a sentinel`() {
+        assertNull(Integer.MAX_VALUE.intOrAbsent(Integer.MAX_VALUE))
+        assertEquals(20_000, 20_000.intOrAbsent(Integer.MAX_VALUE))
     }
 
     @Test
