@@ -114,7 +114,7 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       reader gets is "Router Connected" rather than the chip's own text, and that is what the
       assertions read; and `formatCount` groups digits with U+202F, a narrow no-break space, so an
       expectation typed with an ordinary space fails in a way that looks like the text being absent.)*
-      Done in <sha>.
+      Done in 7927cc9.
 
 - [ ] **Dependency bumps.** Lint reports nine outdated dependencies, five with newer versions
       available, plus an AGP update. Worth one deliberate pass rather than drifting — and zenoh-kotlin
