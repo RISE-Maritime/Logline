@@ -1012,6 +1012,16 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   `AveragedFix` reports both numbers and `SensorMount.accuracyExceedsOffset` drives a red line on the
   row. A phone is honest for platform-scale geometry; decimetre offsets on a small rig want a tape
   measure, which is why manual entry is the primary path rather than the fallback.
+- **`connectedDebugAndroidTest` reinstalls the app, which wipes `filesDir` — and that takes the mTLS
+  credentials with it.** Learned the hard way: after an instrumented run the next Start failed with
+  "needs TLS but no root CA certificate has been imported", the settings were back to defaults, and the
+  **entity id had regenerated from `phone` to `pixel_6`**, silently moving every key the phone
+  publishes on. Nothing about the failure points at the test run. Before running instrumented tests on
+  a phone that holds credentials, export a settings profile; afterwards, re-import it, re-import the
+  three PEMs (or push them straight in with
+  `adb shell "run-as se.rise.logline sh -c 'cat > files/tls/root_ca.pem'" < minica.pem`, likewise
+  `client_cert.pem` and `client_key.pem`), and **set the entity id back by hand** — a profile
+  deliberately does not carry it.
 - **Emulators are useless here.** GNSS, IMU and the camera all need a physical device.
 
 ## TODO.md

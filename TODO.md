@@ -98,28 +98,31 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
 
-
-- [x] **No instrumented tests at all** — `app/src/androidTest` is an empty directory tree. The 39 JVM
-      tests cover the wire format, the registry, the units and the formatting well; nothing covers a
-      screen. A handful of Compose tests over `MainScreen`'s status states (not publishing / publishing
-      / disconnected / stalled) would catch the class of regression that currently only shows up on a
-      phone.
-      *(2026-08-19: five `MainScreenTest` cases now run on the device — idle, a finished run still
-      reported, publishing, a lost router, and a stalled subject counted in the detail. The count above
-      is stale by an order of magnitude, incidentally: it is 551 JVM tests across 59 classes.
-      **Espresso had to be bumped first.** 3.5.1 reflects on `InputManager.getInstance`, which Android
-      17 no longer has, so every instrumented test died in `Espresso.onIdle` before touching a
-      composable — nothing to do with the tests themselves. espresso-core 3.7.0 and ext-junit 1.3.0.
-      Two things the tests taught: the connection chip is `clearAndSetSemantics`, so what a screen
-      reader gets is "Router Connected" rather than the chip's own text, and that is what the
-      assertions read; and `formatCount` groups digits with U+202F, a narrow no-break space, so an
-      expectation typed with an ordinary space fails in a way that looks like the text being absent.)*
-      Done in 7927cc9.
-
-- [ ] **Dependency bumps.** Lint reports nine outdated dependencies, five with newer versions
+- [x] **Dependency bumps.** Lint reports nine outdated dependencies, five with newer versions
       available, plus an AGP update. Worth one deliberate pass rather than drifting — and zenoh-kotlin
       in particular wants checking against the `Zenoh.scout` crash and the `initLogFromEnvOr` guard
       before it moves.
+      *(2026-08-19: **zenoh-kotlin needed no checking — 1.10.0 is the latest published version**, so the
+      `Zenoh.scout` crash and the `initLogFromEnvOr` guard are untouched. Ten libraries bumped: core-ktx
+      1.19.0, lifecycle 2.11.0, activity-compose 1.13.0, compose-bom 2026.08.00, navigation 2.9.8,
+      play-services-location 21.4.0, datastore 1.2.1, coroutines-play-services 1.11.0, zxing 3.5.4, and
+      espresso 3.7.0 / ext-junit 1.3.0 (which the instrumented tests forced first — 3.5.1 does not run
+      on Android 17 at all).
+      `kotlinx-serialization-json` went to **1.7.3, not the latest 1.11.0**, and the comment above it now
+      says why: it is pinned to whatever zenoh already pulls in so that declaring it adds nothing to the
+      APK, and it had drifted — it said 1.6.0 while zenoh had moved to 1.7.3, so Gradle was resolving
+      upward and the number described nothing.
+      Verified: 551 JVM tests, 5 instrumented, lint down from 16 categories to 15, and a real run on the
+      bumped build publishing 48/48 streams over TLS.)*
+      Done in <sha>.
+
+- [ ] **Left deliberately un-bumped, and each wants its own pass.** protobuf 3.25.5 → **4.35.1** is a
+      major version: generated-code and runtime compatibility is the whole risk, and this project both
+      vendors protos and feeds a build-time descriptor set to the MCAP writer, so it needs its own
+      verification rather than riding along. The Kotlin compose plugin 2.2.10 → **2.4.10** means moving
+      Kotlin itself, with the daemon toolchain pinned in `gradle/gradle-daemon-jvm.properties`. Gradle
+      9.5.0 → 9.7.0 is build tooling with no runtime effect and no urgency. Bundling any of these with
+      the library bumps would have made a failure ambiguous, which is the argument for the split.
 
 - [ ] **Lint nits**, all one-liners: two `AutoboxingStateCreation` (`ChecklistScreen.kt:365`,
       `SensorMountScreen.kt:87` — `mutableIntStateOf` / `mutableLongStateOf`), `UseKtx` in

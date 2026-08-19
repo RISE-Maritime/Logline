@@ -1,28 +1,31 @@
 [versions]
 agp = "9.3.1"
-coreKtx = "1.10.1"
+coreKtx = "1.19.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
-lifecycleRuntimeKtx = "2.6.1"
-activityCompose = "1.8.0"
+lifecycleRuntimeKtx = "2.11.0"
+activityCompose = "1.13.0"
 kotlin = "2.2.10"
-composeBom = "2026.02.01"
-navigationCompose = "2.8.4"
+composeBom = "2026.08.00"
+navigationCompose = "2.9.8"
 protobuf = "3.25.5"
 protobufPlugin = "0.10.0"
 zenoh = "1.10.0"
-playServicesLocation = "21.3.0"
-datastore = "1.1.1"
-coroutinesPlayServices = "1.9.0"
+playServicesLocation = "21.4.0"
+datastore = "1.2.1"
+coroutinesPlayServices = "1.11.0"
 osmdroid = "6.1.20"
 camerax = "1.6.1"
 # QR only: the pure-Java core, no Android artifact and no Play Services. Generating a code needs
 # QRCodeWriter, reading one needs MultiFormatReader over the YUV CameraX already delivers.
-zxing = "3.5.3"
+zxing = "3.5.4"
 # Pinned to what zenoh-kotlin-android already pulls in at runtime scope, so declaring it
-# changes nothing that ships — it only makes an existing transitive dependency honest.
-kotlinxSerializationJson = "1.6.0"
+# changes nothing that ships — it only makes an existing transitive dependency honest. Check that
+# claim when bumping: it said 1.6.0 while zenoh had moved to 1.7.3, so Gradle was quietly resolving
+# upward and the number here described nothing. A *newer* version than zenoh's would add weight to
+# the APK, which is the one thing this pin exists to avoid.
+kotlinxSerializationJson = "1.7.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
