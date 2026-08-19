@@ -163,6 +163,32 @@ fun rpcKey(
 ): String = "$realm/@v0/$entityId/@rpc/$interfaceName/$version/$procedure/$responderId"
 
 /**
+ * Key for an RPC interface's liveliness token, per the protocol specification §3.5 and §5.3.
+ *
+ * One token per `(interface, version)` a source serves, and the `*` is literal — "any procedure in
+ * this scope". Note this is the **third** distinct wildcard position in the three liveliness tiers:
+ * the category slot for [sourceLivelinessKey], the subject slot for [legacyLivelinessKey], the
+ * *procedure* slot here. They are three different facts and a key that puts the wildcard one chunk
+ * out is a different, wrong claim rather than an error.
+ *
+ * Because no wildcard crosses `@rpc` any more than it crosses `@v0`, this token is invisible to every
+ * pattern that finds the other two — a discovery client needs a second subscription spelling `@rpc`
+ * out. That is the specification's own note, and the reason a consumer seeing no RPC on this phone
+ * has usually asked the wrong question.
+ *
+ * **Declaring this is a commitment.** §3.6's full-interface rule says a source holding the token must
+ * answer *every* procedure in the interface — with a typed refusal where it cannot comply, but never
+ * with silence. See `PlatformSync` for what that means for `configurable/v1`.
+ */
+fun rpcInterfaceLivelinessKey(
+    realm: String,
+    entityId: String,
+    interfaceName: String,
+    version: String,
+    sourceId: String,
+): String = "$realm/@v0/$entityId/@rpc/$interfaceName/$version/*/$sourceId"
+
+/**
  * The key crowsnest actually probes for a platform's configuration.
  *
  * **Not the specification's shape**, and that is the point of it having its own function. Crowsnest

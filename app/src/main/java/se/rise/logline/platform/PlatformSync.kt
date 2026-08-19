@@ -2,6 +2,7 @@ package se.rise.logline.platform
 
 import android.content.Context
 import android.util.Log
+import io.zenoh.liveliness.LivelinessToken
 import io.zenoh.pubsub.Subscriber
 import io.zenoh.query.Queryable
 import kotlinx.coroutines.CancellationException
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import core.EnvelopeOuterClass.Envelope
 import keelson.Primitives.TimestampedString
+import keelson.interfaces.ErrorResponseOuterClass.ErrorResponse
 import se.rise.logline.calibrate.RigCalibration
 import se.rise.logline.calibrate.parsePlatformGeometry
 import se.rise.logline.calibrate.toPlatformGeometryJson
@@ -29,6 +31,7 @@ import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.entityIdFromKey
 import se.rise.logline.keelson.legacyPlatformConfigKey
 import se.rise.logline.keelson.qosForSubject
+import se.rise.logline.keelson.rpcInterfaceLivelinessKey
 import se.rise.logline.keelson.rpcKey
 
 /** Everything the sync needs to open a link and know who it is. */
@@ -90,6 +93,14 @@ class PlatformSync(private val appContext: Context) {
     private var scope: CoroutineScope? = null
     private var session: KeelsonSession? = null
     private var queryables: List<Queryable<Unit>> = emptyList()
+
+    /**
+     * The `configurable/v1` interface tokens, one per rig — held apart from [queryables] only because
+     * they are a different Zenoh type, not a different lifetime. Undeclared on the same path: §3.5 says
+     * a source MUST NOT hold a token for an interface it does not currently serve, and this session
+     * lives only while a rig screen is up.
+     */
+    private var interfaceTokens: List<LivelinessToken> = emptyList()
 
     /**
      * Long-lived subscribers, guarded because two coroutines append to it — [subscribeLibrary] on the
@@ -167,10 +178,12 @@ class PlatformSync(private val appContext: Context) {
         val runScope = scope ?: return
         val open = session
         val openQueryables = queryables
+        val openTokens = interfaceTokens
         val openSubscribers = synchronized(subscriberLock) { subscribers.toList().also { subscribers.clear() } }
         scope = null
         session = null
         queryables = emptyList()
+        interfaceTokens = emptyList()
         config = null
         // A scan in flight is cancelled with the scope, so its "Done" is never reached. Left as
         // Scanning, the button stays disabled and `discover()` early-returns on the same check —
@@ -183,6 +196,9 @@ class PlatformSync(private val appContext: Context) {
         runScope.cancel()
         closeScope.launch {
             runCatching { openQueryables.forEach { it.close() } }
+            // Before the session goes, so a consumer gets a leave event now rather than one waiting on
+            // transport teardown — the same reason SensorPublisher undeclares its own tokens by hand.
+            openTokens.forEach { runCatching { it.undeclare() } }
             runCatching { openSubscribers.forEach { it.close() } }
             runCatching { open?.close() }
         }
@@ -299,13 +315,39 @@ class PlatformSync(private val appContext: Context) {
                 // nothing else answers it. See legacyPlatformConfigKey.
                 legacyPlatformConfigKey(current.realm, rig.entityId),
             )
-            keys.mapNotNull { key ->
+            val answering = keys.mapNotNull { key ->
                 runCatching { open.declareQueryable(key) { document } }
                     .onFailure { Log.w(TAG, "queryable for $key failed; continuing without it", it) }
                     .getOrNull()
             }
+            // Serialised here rather than in the callback, like the document above and for the same
+            // reason: that callback runs on Zenoh's receive path.
+            val refusal = setConfigRefusal().toByteArray()
+            val setConfigKey =
+                rpcKey(current.realm, rig.entityId, "configurable", "v1", "set_config", current.calibrationSource)
+            val refusing = runCatching { open.declareRefusingQueryable(setConfigKey, refusal) }
+                .onFailure { Log.w(TAG, "queryable for $setConfigKey failed; continuing without it", it) }
+                .getOrNull()
+            answering + listOfNotNull(refusing)
+        }
+
+        // The interface token, once the procedures behind it are up — §3.5 asks for exactly that
+        // ordering, and it is what stops a consumer discovering the interface a moment before anything
+        // answers on it.
+        interfaceTokens = current.rigs.mapNotNull { rig ->
+            val key = rpcInterfaceLivelinessKey(
+                current.realm,
+                rig.entityId,
+                "configurable",
+                "v1",
+                current.calibrationSource,
+            )
+            runCatching { open.declareLivelinessToken(key) }
+                .onFailure { Log.w(TAG, "interface token for $key failed; continuing without it", it) }
+                .getOrNull()
         }
     }
+
 
     // ── the shared library ──────────────────────────────────────────────────────────────────────
 
@@ -377,3 +419,30 @@ internal fun decodeConfigurationJson(bytes: ByteArray): String? {
     // Not enveloped: an RPC reply, or anything else putting the document on directly.
     return bytes.toString(Charsets.UTF_8).takeIf { it.trimStart().startsWith("{") }
 }
+
+/**
+ * The refusal `set_config` answers with, every time.
+ *
+ * **The app serves `configurable/v1` read-only, and this is what makes that legal.** §3.6's
+ * full-interface rule says a source advertising an interface must answer every procedure in it —
+ * with a typed response naming the limitation "never silence" — so declaring the token obliges the
+ * phone to reply to `set_config` whether or not it will ever comply. It will not: a rig's geometry
+ * is edited on the phone or taken from the shared library through [mergeRemoteRigs], which
+ * deliberately never deletes a rig this phone is publishing and never accepts remote *policy*. An
+ * unauthenticated write from anyone on the fleet bus would go around all of that.
+ *
+ * `PERMISSION_DENIED` is the closest the enum comes — its upstream comment reads "lock-down rules".
+ * It is not quite right: §3.6 distinguishes a permanent structural refusal from a conditional one
+ * and asks for the permanent signal here, which `ErrorResponse.Code` has no value for. Hence the
+ * description saying so in words, where a person will read it, and an upstream note in TODO.md.
+ * `UNAVAILABLE` was the alternative and is worse — it reads as "not ready yet" and invites a retry
+ * that can never succeed.
+ */
+internal fun setConfigRefusal(): ErrorResponse = ErrorResponse.newBuilder()
+    .setCode(ErrorResponse.Code.PERMISSION_DENIED)
+    .setErrorDescription(
+        "This platform is configured on the phone and never remotely; the refusal is permanent " +
+            "and by design, not a transient condition. Read it with get_config, or share a rig " +
+            "library on platform_registry.",
+    )
+    .build()

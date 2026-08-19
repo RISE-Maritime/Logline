@@ -157,6 +157,30 @@ class KeelsonSession private constructor(private val session: Session) {
     }
 
     /**
+     * A queryable that answers every call with the same error.
+     *
+     * Exists because of the protocol's **full-interface implementation rule** (§3.6): a source
+     * advertising an interface must answer *every* procedure in it, and where it cannot comply it must
+     * say so in a way the caller can decode — "never silence". A refusal nobody can parse is worth no
+     * more than a timeout, so the payload is a serialised `keelson.interfaces.ErrorResponse` rather
+     * than a string.
+     *
+     * Deliberately a separate function rather than a flag on [declareQueryable]: whether a key answers
+     * or refuses is a fact about the service, decided once at declaration, and reading it off the call
+     * site beats reading it out of a boolean.
+     */
+    fun declareRefusingQueryable(key: String, error: ByteArray): Queryable<Unit> {
+        val keyExpr = key.intoKeyExpr().getOrThrow()
+        return session.declareQueryable(
+            keyExpr,
+            Callback<Query> { query ->
+                runCatching { query.replyErr(ZBytes.from(error)) }
+            },
+            complete = true,
+        ).getOrThrow()
+    }
+
+    /**
      * Put one value on a key without declaring a publisher for it.
      *
      * For the write-once case: seeding a router storage with a library of records, each on its own key.

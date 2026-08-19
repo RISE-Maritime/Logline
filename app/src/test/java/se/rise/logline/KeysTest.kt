@@ -6,6 +6,7 @@ import se.rise.logline.keelson.legacyPlatformConfigKey
 import se.rise.logline.keelson.legacyLivelinessKey
 import se.rise.logline.keelson.sourceLivelinessKey
 import se.rise.logline.keelson.pubsubKey
+import se.rise.logline.keelson.rpcInterfaceLivelinessKey
 import se.rise.logline.keelson.rpcKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -128,5 +129,44 @@ class KeysTest {
         assertNull(entityIdFromKey("rise/@v1/pixel_6/pubsub/location_fix/phone"))
         assertNull(entityIdFromKey("rise/@v0/*/pubsub/location_fix/phone"))
         assertNull(entityIdFromKey(""))
+    }
+
+    /**
+     * The third wildcard position, and the one most easily put a chunk out.
+     *
+     * `sourceLivelinessKey` wildcards the category slot, `legacyLivelinessKey` the subject slot, and
+     * this one the **procedure** slot — three different claims that all look like "a liveliness key
+     * with a star in it". §5.5 classifies a received token by chunk position, so a key built one along
+     * is not an error, it is a different and wrong statement.
+     */
+    @Test
+    fun `the rpc interface token wildcards the procedure slot`() {
+        val key = rpcInterfaceLivelinessKey("rise", "rig_a", "configurable", "v1", "survey")
+
+        assertEquals("rise/@v0/rig_a/@rpc/configurable/v1/*/survey", key)
+        val chunks = key.split("/")
+        assertEquals("@rpc", chunks[3])
+        assertEquals("*", chunks[6])
+        // One chunk further along than the legacy token's star — the thing worth pinning.
+        assertEquals("*", legacyLivelinessKey("rise", "rig_a", "survey").split("/")[4])
+    }
+
+    /**
+     * Both `@`-prefixed chunks are verbatim, so no wildcard reaches this token — a discovery client
+     * has to spell `@rpc` out. A subscriber on the realm's own recursive wildcard receives nothing
+     * here, which is the specification's own warning and the likeliest reason somebody concludes the
+     * phone serves no RPC.
+     */
+    @Test
+    fun `the rpc token sits behind two verbatim chunks`() {
+        val chunks = rpcInterfaceLivelinessKey("rise", "rig_a", "configurable", "v1", "gnss/0").split("/")
+
+        assertEquals("@v0", chunks[1])
+        assertEquals("@rpc", chunks[3])
+        // A multi-chunk source id survives unescaped, as everywhere else.
+        assertEquals(
+            "rise/@v0/rig_a/@rpc/configurable/v1/*/gnss/0",
+            rpcInterfaceLivelinessKey("rise", "rig_a", "configurable", "v1", "gnss/0"),
+        )
     }
 }

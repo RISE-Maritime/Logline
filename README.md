@@ -622,6 +622,23 @@ silence. That is the one place a per-subject switch is visible beyond the phone:
 off now withdraws the claim, so a monitor sees it retracted rather than waiting for samples that are
 never coming.
 
+**RPC interface tier** — while a rig screen is open, each rig also advertises the `configurable/v1`
+interface it answers on:
+
+```
+rise/@v0/{rig}/@rpc/configurable/v1/*/calibration
+```
+
+No wildcard crosses `@rpc` any more than it crosses `@v0`, so this token is invisible to every pattern
+that finds the others — a discovery client needs a second subscription spelling `@rpc` out. Holding the
+token obliges the app to answer *every* procedure in the interface, so `get_config` returns the
+platform document and **`set_config` returns a typed refusal** — a serialised
+`keelson.interfaces.ErrorResponse` with `PERMISSION_DENIED` and a description saying the refusal is
+permanent. A rig's geometry is edited on the phone or taken from a shared library under rules that
+protect a rig this phone is publishing; a remote write would bypass them. The token is declared only
+while `PlatformSync` has a session, which is while a rig screen is up — a phone that is merely logging
+advertises no RPC, which is what the specification asks for and worth knowing before you go looking.
+
 **Legacy coarse token** — the pre-3-tier shape, still declared beside the source tier:
 
 ```

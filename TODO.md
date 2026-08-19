@@ -84,26 +84,6 @@ rewritten from the ground up. These are the consequences.
       `checklist_procedure` want the router storage backing that `../keelson-router/` now has and
       that repo does not. **Leave this open until #202 merges.**)*
 
-- [x] **Two new radio subjects are worth adding; three are not.** *(One, not two — see below.)* Of the 27 subjects added since
-      `0.5.4`, the phone already publishes most of the radio family and the rest — routes, voyages,
-      command authority, point clouds — is vessel-system work a handset cannot source.
-      `radio_downlink_bandwidth_mhz` and `radio_uplink_bandwidth_mhz` come off
-      `CellIdentityLte.getBandwidth()` (API 28, kHz, so `Units.kt` earns another conversion and another
-      test against a known value), and `RadioProvider.kt:156` already parses that class — LTE only,
-      since `CellIdentityNr` carries no bandwidth and whether `PhysicalChannelConfig` is reachable
-      without a privileged permission needs checking before promising it. `radio_tx_power_dbm` is
-      **not sourceable**: there is no public Android API for modem transmit power, and
-      `requestModemActivityInfo()` reports time-in-power-bucket rather than dBm. `radio_rssi`
-      duplicates `radio_rssi_dbm`, which is already published. `radio_channel_ppm_pct` is not a
-      concept a handset exposes.
-      *(2026-08-19: **this item was wrong about the uplink.** `radio_uplink_bandwidth_mhz` is not
-      sourceable either: the only Android class carrying it is `PhysicalChannelConfig`, delivered by a
-      listener annotated `@RequiresPermission(READ_PRECISE_PHONE_STATE, ACCESS_FINE_LOCATION)`, and
-      `pm list permissions -f` on the phone reports that permission as `signature|privileged` — no app
-      outside the system image can hold it. `CellIdentityNr` has no bandwidth field at all, so 5G gives
-      nothing by either route. So one subject was added, `radio_downlink_bandwidth_mhz`, LTE only, and
-      the four others are recorded in the README as unreachable with the reason.)*
-      Done in dc4a224.
 
 - [ ] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** The app answers
       crowsnest's `get_config` probe but is not an RPC server in the interface/version sense, and §3.6's
@@ -112,7 +92,6 @@ rewritten from the ground up. These are the consequences.
       pubsub tiers. Noted here so the omission is a decision rather than an oversight.
 
 ## P3 — product
-
 
 
 - [ ] **Export and import settings.** Provisioning a second phone means retyping realm, entity, source

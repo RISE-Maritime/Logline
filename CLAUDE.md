@@ -67,7 +67,8 @@ LoglineApp
 LoglineApp
   └── PlatformSync ─── its own KeelsonSession, opened only while a rig screen is up
         ├── discovers  liveliness + a listening window on configuration_json
-        ├── serves     configurable/v1 get_config (and crowsnest's older key shape) per rig
+        ├── serves     configurable/v1 — get_config per rig (plus crowsnest's older key shape),
+        │               set_config refused in a typed way, and the interface liveliness token
         └── shares     the rig library as raw JSON on platform_registry/library/latest
 ```
 
@@ -176,6 +177,7 @@ lite bindings are generated at build time into `app/build/generated/source/proto
 | `Envelope.proto` | `../keelson/messages/Envelope.proto` |
 | `Primitives.proto`, `Decomposed3DVector.proto`, `Audio.proto`, `LocationFixQuality.proto` | `../keelson/messages/payloads/` |
 | `Checklist{Event,State,Presence,Procedure}.proto` | `../keelson/messages/payloads/` |
+| `ErrorResponse.proto` | `../keelson/interfaces/` — **not** `payloads/`, the only one from that directory |
 | `foxglove/{LocationFix,Quaternion,Vector3,CompressedImage,Log,FrameTransform}.proto` | `../keelson/messages/payloads/foxglove/` |
 
 Editing these locally forks the protocol silently. To take an upstream change, copy the file over
@@ -346,6 +348,23 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   `keelson.TimestampedString`; as a `get_config` reply it is **raw JSON bytes**. Crowsnest carries the
   same fork. `decodeConfigurationJson()` handles both, and anything reading these documents that
   handles only one silently finds nothing on half the sources.
+- **Advertising an RPC interface commits the app to answering every procedure in it**, protocol
+  specification §3.6 — with a typed refusal where it cannot comply, but **never with silence**. That is
+  the whole reason `configurable/v1`'s token was safe to declare: the interface is two procedures, and
+  the app serves `get_config` and refuses `set_config` with a serialised `keelson.interfaces.ErrorResponse`
+  (`setConfigRefusal()` in `platform/PlatformSync.kt`, `declareRefusingQueryable()` in `KeelsonSession`).
+  Refusing is a decision on the merits, not laziness: geometry arrives either from the phone's own
+  editor or through `mergeRemoteRigs`, which never deletes a rig this phone is publishing and never
+  takes remote *policy* — an unauthenticated `set_config` from anyone on the fleet bus goes around all
+  of it. The code is `PERMISSION_DENIED` because `ErrorResponse.Code` **has no `UNSUPPORTED`**, which is
+  what §3.6 actually asks for here; the description says "permanent" in words so a consumer's operator
+  is not invited to retry, and `ConfigurableRpcTest` pins that wording. Do not soften it to
+  `UNAVAILABLE`, which reads as "not ready yet".
+- **The RPC interface token lives and dies with the rig screens**, because `PlatformSync` does. §3.5
+  forbids holding a token for an interface a source does not currently serve, so that is correct rather
+  than a bug — but it does mean a fleet tool probing a phone that is *logging* finds no configurable
+  interface at all. The intermittency is now visible instead of silent, which is the improvement; making
+  the service always available is a separate decision with a battery cost, filed in TODO.md.
 - **The `get_config` reply is the one unwrapped thing this app puts on the wire.** `configurable/v1`
   replies raw JSON (`op.reply_ok(json.dumps(...).encode())` upstream); wrapping it in an envelope would
   break every consumer that already speaks it. Do not "fix" it to match the everything-is-wrapped rule.
