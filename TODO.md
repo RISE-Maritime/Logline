@@ -59,22 +59,8 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-- [x] **`illuminance_lux` is in no released keelson.** Not in `0.6.0-pre.3`, not in `dev`, not in
-      `0.5.4` — it exists only on the unmerged one-commit branch `feat/illuminance-subject`, as a
-      single line in `subjects.yaml`. The app has been publishing an unratified subject name, against
-      its own rule that subject names are protocol and inventing one here produces messages nobody can
-      consume. Merging that line upstream is the fix; tearing out a working sensor to satisfy
-      bookkeeping is the alternative, and it is worse. Needs a decision from whoever owns `keelson`,
-      and it should not go quiet for a second release running.
-      *(2026-08-19: ratified in **`0.6.0-pre.5`** — `illuminance_lux: keelson.TimestampedFloat`, which
-      is what the app already publishes, plus a units-table row in the specification giving lux as the
-      unit (no conversion, as `sensors/Units.kt` has always assumed). #201 was closed and folded into
-      #202, which is where the commit now lives. **Note the tag was cut from `feature/checklist-subjects`,
-      not from `dev`** — `dev` still lacks the line until #202 merges, so a `git show dev:...` lookup
-      still comes back empty. Nothing to change in this app.)*
-      Done in 0.6.0-pre.5 upstream; no commit here.
-
-- [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
+## Chcklist
+ [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
       previous item: a release has now shipped without messages this app builds against, and
       `ChecklistWireTest`'s golden bytes are the only thing pinning them. Reconstructed definitions
       living in one downstream repo is exactly the situation that produced them.
@@ -94,15 +80,33 @@ rewritten from the ground up. These are the consequences.
       is**: the tag was cut from its branch rather than from `dev`, so `dev` has neither the checklist
       subjects nor `illuminance_lux` until that PR merges. Close this when it does.)*
 
+[ ] **Commit the checklist protos upstream.** `../keelson` still has four untracked protos and four
+`subjects.yaml` entries sitting on `feature/operational-authority`
+(`Checklist{Event,State,Presence,Procedure}.proto`). Until they are on a branch and merged, nobody
+else can build against the checklist feature, and this app's vendored copies are the only
+definition of a wire format two projects already speak — crowsnest reconstructed from its
+generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
 ## P3 — product
 
-- [ ] **Samples queued at Stop are dropped rather than drained.** `Recorder.stop()` closes the queue
+- [x] **Samples queued at Stop are dropped rather than drained.** *(Right symptom, wrong cause — see below.)* `Recorder.stop()` closes the queue
       and then `cancelAndJoin`s the drain scope, and cancellation beats the `for (sample in queue)`
       loop's remaining buffered elements — so up to `QUEUE_CAPACITY` samples can be lost from the tail
       of every recording. In practice the drain keeps up and the queue is nearly empty, which is why
       nothing has been noticed; it is still a hole the file does not admit to, which is the one thing
       the recorder is careful about everywhere else. Noticed while adding the post-run summary.
+      *(2026-08-19: **the loss was real and the diagnosis was not.** Cancellation does not beat a closed
+      channel's buffer: `receive()` only checks for cancellation when it has to suspend, and on a closed
+      channel holding elements it never does, so the drain consumes every one of them — pinned now by
+      `RecorderStopTest` so nobody fixes the thing that was never broken.
+      The actual cause was ordering: `stopInternal()` stopped the recorder *before* cancelling the
+      collectors, so for the tens of milliseconds the cancel took, samples met a queue that had already
+      been cleared and `offer()` ignored them silently. Measured at 12 of 88 102. The cancel now comes
+      first and the recorder stop follows it, guarded by a token so a Stop-then-Start cannot close the
+      new run's file. Verified: 94 443 published, 94 443 written, and 94 443 messages read back out of
+      the MCAP with the `mcap` library. `stop()` also joins the drain with a 5 s grace and counts
+      anything left over, which is the honest shape even though it was not the bug.)*
+      Done in <sha>.
 
 - [ ] **Confirm the Pixel 6 actually emits NMEA.** `raw_nmea0183` is implemented and unit-tested, but
       no sentence has been seen: it needs a publishing run, and `addNmeaListener` delivers only while
@@ -118,14 +122,6 @@ rewritten from the ground up. These are the consequences.
       protos below cannot be PR'd from this side. Creating it is a decision about where this lives
       rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
       is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
-
-- [ ] **Commit the checklist protos upstream.** `../keelson` still has four untracked protos and four
-      `subjects.yaml` entries sitting on `feature/operational-authority`
-      (`Checklist{Event,State,Presence,Procedure}.proto`). Until they are on a branch and merged, nobody
-      else can build against the checklist feature, and this app's vendored copies are the only
-      definition of a wire format two projects already speak — crowsnest reconstructed from its
-      generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
-
 
 - [ ] **CLAUDE.md's QoS note is stale in the same way** — it says only the three GNSS subjects differ
       from Zenoh's defaults. It is eight subjects across four profiles today: five `elevated`

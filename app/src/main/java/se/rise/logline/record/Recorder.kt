@@ -2,6 +2,7 @@ package se.rise.logline.record
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import se.rise.logline.publish.RuntimeEstimate
 import se.rise.logline.publish.RuntimeEstimator
 import java.io.File
@@ -116,6 +118,7 @@ class Recorder(private val appContext: Context) {
 
     @Volatile
     private var scope: CoroutineScope? = null
+    private var drainJob: Job? = null
 
     private val recordingsDir: File get() = recordingsDir(appContext)
 
@@ -146,7 +149,11 @@ class Recorder(private val appContext: Context) {
         scope = newScope
         _status.value = RecordingStatus(recording = true, startedAtEpochMillis = System.currentTimeMillis())
 
-        newScope.launch {
+        // Held on its own, not reached for through the scope: `stop()` waits for *this* coroutine to
+        // finish what is queued, and the scope's other children include a poll loop that only ends
+        // once the run is marked stopped — which happens after that wait. Joining the scope would be
+        // joining something waiting on the join.
+        drainJob = newScope.launch {
             // Its own run's channel, not whatever the field points at by then: a Stop immediately
             // followed by a Start must not have this loop draining the new run's samples into the old
             // run's file.
@@ -213,6 +220,12 @@ class Recorder(private val appContext: Context) {
                     session = openSession(descriptor, maxBytes) ?: return
                 }
             }
+        } catch (c: CancellationException) {
+            // Not a fault, and not the error field's business: the run was told to stop. Rethrown so
+            // the coroutine ends cancelled, and the `finally` below still closes and publishes the
+            // file. Catching it as an error put "Recording problem" on screen over a recording that
+            // had just saved perfectly well — the same shape as the publishOrphans race.
+            throw c
         } catch (t: Throwable) {
             Log.e(TAG, "recording stopped", t)
             _status.update { it.copy(error = t.message ?: t.javaClass.simpleName) }
@@ -241,18 +254,51 @@ class Recorder(private val appContext: Context) {
         return RecordingSession(File(recordingsDir, "logline-$stamp.mcap"), descriptor, maxBytes)
     }
 
-    fun stop() {
+    /**
+     * Identifies the run currently recording, for [stop]'s benefit. Null when nothing is.
+     *
+     * Exists because the stop has to happen *after* the publisher's collectors are cancelled — see
+     * `SensorPublisher.stopInternal` — which means it happens on a coroutine, which means a fast Stop
+     * then Start can have the new run already recording by the time the old stop lands. Handing the
+     * token back is what lets that stop recognise it is stale and do nothing, rather than closing the
+     * new run's file. That failure has a precedent here: a single long-lived channel once made the
+     * second run in a process record nothing at all.
+     */
+    fun runToken(): Any? = scope
+
+    fun stop(token: Any? = null) {
         val runScope = scope ?: return
+        if (token != null && token !== runScope) {
+            Log.i(TAG, "stale stop ignored; a newer run is recording")
+            return
+        }
         scope = null
         // Cleared before closing, so a sample arriving mid-stop is ignored rather than counted as a
         // drop against a queue that is on its way out.
         val runQueue = queue
         queue = null
         // Closing the channel ends the for-loop, which runs the finally that closes and publishes the
-        // file. Joining would block a Service callback on disk I/O, so this is fire-and-forget like
-        // SensorPublisher.stop().
+        // file. Fire-and-forget, like SensorPublisher.stop(): waiting here would block a Service
+        // callback on disk I/O.
         runQueue?.close()
+        val finishing = drainJob
+        drainJob = null
         CoroutineScope(Dispatchers.IO).launch {
+            // **Wait for the drain to end on its own; do not cancel it.** Closing a channel does not
+            // discard what is already buffered — the loop would write every one of those samples — but
+            // cancellation beats it, because `receive()` is cancellable. Cancelling here therefore
+            // threw away up to QUEUE_CAPACITY samples from the tail of every recording, and counted
+            // none of them: measured, a run that published 47 381 samples wrote 47 360 messages.
+            val finished = withTimeoutOrNull(DRAIN_GRACE_MILLIS) { finishing?.join() } != null
+            if (!finished) {
+                // The grace is generous for writing, and deliberately not generous enough to sit
+                // through a 512 MB rotation copy. If it ever expires, say how much it cost rather than
+                // letting the file be quietly short — `dropped` is already on screen.
+                var lost = 0
+                while (runQueue?.tryReceive()?.isSuccess == true) lost++
+                Log.w(TAG, "drain did not finish within ${DRAIN_GRACE_MILLIS}ms; $lost samples not written")
+                if (lost > 0) _status.update { it.copy(dropped = it.dropped + lost) }
+            }
             runCatching { runScope.coroutineContext[Job]?.cancelAndJoin() }
             // The estimate goes with the run that measured it: a stopped recording is not filling
             // anything, and a stale "40 min of space left" would outlive the thing it described.
@@ -315,6 +361,16 @@ class Recorder(private val appContext: Context) {
          * Generous: at 217 samples/s this is about 45 seconds of slack, so an I/O stall has to be
          * severe before anything is dropped — and if it is, [RecordingStatus.dropped] says so.
          */
+        /**
+         * How long Stop waits for the queue to finish writing before giving up on it.
+         *
+         * Ten thousand buffered samples are a fraction of a second of writing. The case that could
+         * genuinely take longer is a rotation landing in the final drain, where `publish()` copies up
+         * to 512 MB into Downloads — five seconds covers the first comfortably and declines to sit
+         * through the second, which would leave Stop looking hung.
+         */
+        private const val DRAIN_GRACE_MILLIS = 5_000L
+
         private const val QUEUE_CAPACITY = 10_000
 
 

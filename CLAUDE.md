@@ -787,6 +787,23 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   what a normal session does. Verified fixed by two consecutive runs in one process producing 10 596 and
   9 703 messages, both read back with the `mcap` Python library.
 
+- **The recorder is stopped *after* the collectors, not before, and that ordering is the whole of a
+  bug that hid for months.** `stopInternal()` used to call `recorder.stop()` synchronously and cancel
+  the collectors on a coroutine afterwards — so for the tens of milliseconds the cancel took, every
+  sample published met a queue that had already been cleared, and `offer()` ignored it *silently*
+  rather than counting it. Measured on a Pixel 6: 88 102 samples published, 88 090 written, twelve
+  gone with nothing on screen admitting it. Now the cancel comes first and `recorder.stop(token)`
+  follows it, and a run measures **94 443 published, 94 443 written, and 94 443 messages in the file**.
+  The token is not decoration: the stop now lands on a coroutine, so a Stop immediately followed by a
+  Start could otherwise close the *new* run's file — the same shape as the single-channel bug that
+  once made the second run in a process record nothing.
+- **Closing a `Channel` does not lose what is buffered in it, even under cancellation.** Worth knowing
+  because the obvious diagnosis of the above was that `stop()` cancelled the drain too eagerly — it
+  did cancel it, and that turned out to cost nothing: `receive()` only checks for cancellation when it
+  has to *suspend*, and on a closed channel that still holds elements it never does. `RecorderStopTest`
+  pins this so the next person does not fix the thing that was never broken. `stop()` still joins the
+  drain rather than cancelling it, with a 5 s grace and a count of anything left over, because that is
+  the honest shape — but it is belt and braces, not the fix.
 - **`OutboxBuffer.evicted` is not a loss, and must never be shown as one.** The ring is full about two
   and a half minutes into any run, so from then on every add evicts something and a healthy hour evicts
   most of a million samples. What costs data is only the part of the *replay window* that overflowed,

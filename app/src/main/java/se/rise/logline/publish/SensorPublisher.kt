@@ -457,8 +457,17 @@ class SensorPublisher(private val appContext: Context) {
         rigPublishers = emptyList()
         livelinessTokens = emptyList()
         statusStore.stopped()
-        recorder.stop()
-        if (runScope == null && openSession == null) return
+        // **Not stopped here.** The collectors keep publishing for as long as it takes the cancel
+        // below to land — tens of milliseconds, and at ~217 samples/s that is a dozen samples — and a
+        // recorder stopped first drops every one of them on the floor without counting them. Measured:
+        // a run that published 88 102 samples wrote 88 090 messages. So the recorder is stopped after
+        // the collectors are, with a token so a Stop immediately followed by a Start cannot have this
+        // one close the *new* run's file.
+        val recorderToken = recorder.runToken()
+        if (runScope == null && openSession == null) {
+            recorder.stop(recorderToken)
+            return
+        }
 
         closeScope.launch {
             val startedAt = SystemClock.uptimeMillis()
@@ -466,6 +475,8 @@ class SensorPublisher(private val appContext: Context) {
             // inside JNI when the session is closed underneath it. Safe from here — joining the run
             // scope from inside itself would deadlock, which is why this runs on a separate scope.
             runScope?.coroutineContext?.get(Job)?.cancelAndJoin()
+            // Now that nothing can publish another sample, the queue can be closed and drained.
+            recorder.stop(recorderToken)
             // Before the session goes: closing it would drop the tokens anyway, but undeclaring gives
             // consumers a leave event now rather than one that waits on transport teardown.
             tokens.forEach {
