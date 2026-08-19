@@ -46,6 +46,7 @@ Every sample is serialised as its payload type, wrapped in `core.Envelope` (whic
 | `radio_downlink_bandwidth_mhz` | `keelson.TimestampedFloat` | `CellIdentityLte.getBandwidth()` | with RSRP; LTE only |
 | `audio` | `keelson.Audio` | `AudioRecord`, WAV-framed PCM | off by default; 1 chunk/s when on |
 | `image_compressed` | `foxglove.CompressedImage` | CameraX `ImageCapture`, JPEG | off by default; 1 frame/2 s at 720p when on |
+| `video_compressed` | `foxglove.CompressedVideo` | `MediaCodec` H.264, Annex B | off by default; 10 fps at 640x480 when on, replaces the time-lapse |
 | `log_message` | `foxglove.Log` | an operator pressing a button | only when marked |
 | `frame_transform` | `foxglove.FrameTransform` | a rig calibration, one message per sensor | every 10 s, only when a rig is calibrated |
 | `configuration_json` | `keelson.TimestampedString` | the same calibration as one document | with `frame_transform` |
@@ -81,6 +82,23 @@ the same `Location` object as `location_fix`, the battery scalars from one poll,
 from another. Their settings screen says so rather than offering a rate control that would do nothing.
 Those groupings are also what a switch releases: switching off one of the four subjects that ride the
 GNSS fix leaves the other three publishing and the receiver on.
+
+**Video replaces the time-lapse; the camera will not serve both.** Binding a `Preview` that feeds the
+H.264 encoder alongside `ImageCapture` kills the camera HAL on a Pixel 6 — `ERROR_CAMERA_DEVICE` within
+a second, at matching resolutions as well as mismatched — so switching video on switches the stills off.
+Which to pick is a question of what the run is for: the time-lapse is 158 MB/h for one frame every two
+seconds, video is **131 MB/h measured for ten frames a second** at the 640x480, 300 kbps default. Video
+is cheaper per hour *and* twenty times the frames at that setting; at 720p and 2 Mbps it is 858 MB/h and
+turns ten days of recording into under two, which is why the settings screen prints the figure.
+
+The frame rate is asked of the camera, not the encoder — `MediaFormat.KEY_FRAME_RATE` only tells the
+encoder how to spend its bitrate, and a request for 10 fps encoded 29.9 until the camera itself was
+asked. The bitrate is honoured closely: 131 MB/h against 128 predicted, the difference being envelope
+overhead.
+
+Each message holds one frame in Annex B framing, and every keyframe carries its own parameter sets, so
+a subscriber joining mid-run can start decoding at the next keyframe — at most two seconds. Verified by
+cutting a recording at its 1 260th frame of 2 499 and decoding the remainder with `ffmpeg`.
 
 **`illuminance_lux` is held between readings, and that is deliberate.** The ambient light sensor is
 *on-change*: it reports when the light changes and not otherwise — measured on a Pixel 6, twenty

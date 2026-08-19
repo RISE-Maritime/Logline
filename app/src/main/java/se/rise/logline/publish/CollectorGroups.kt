@@ -91,6 +91,16 @@ val BATTERY_SUBJECTS = setOf(
     PublishedSubject.DEVICE_UPTIME,
 )
 
+/**
+ * One camera session, two use cases: `ImageCapture` for the stills and a `Preview` feeding the H.264
+ * encoder. Both subjects share a collector, and the camera is released only when both are off.
+ *
+ * Named here rather than spelled at the two call sites, because it *was* spelled at both — and when
+ * video was added to the group but not to `SensorPublisher.start()`, the collector simply never ran
+ * with the time-lapse switched off. Nothing failed; the subject sat claimed and silent.
+ */
+val CAMERA_SUBJECTS = setOf(PublishedSubject.IMAGE_COMPRESSED, PublishedSubject.VIDEO_COMPRESSED)
+
 val RADIO_SUBJECTS = setOf(
     PublishedSubject.CELLULAR_RSRP,
     PublishedSubject.CELLULAR_RSRQ,
@@ -128,7 +138,16 @@ val CALIBRATION_SUBJECTS = setOf(
  * permission. So the type mask has to be right on the first call, which makes them a start-time
  * decision however the switch is presented. Everything else can be switched mid-run.
  */
-val START_TIME_SUBJECTS = setOf(PublishedSubject.AUDIO, PublishedSubject.IMAGE_COMPRESSED)
+val START_TIME_SUBJECTS = setOf(
+    PublishedSubject.AUDIO,
+    PublishedSubject.IMAGE_COMPRESSED,
+    // Video is here for a second reason on top of the foreground-service type it shares with the
+    // stills: it rides the *same* collector as `image_compressed`, and `supervise()` only starts a
+    // collector on the all-off → any-on edge. Switching video on mid-run while the time-lapse was
+    // already going would therefore rebind nothing and produce no frame, with nothing on screen
+    // looking wrong. The restart is what makes the switch mean something.
+    PublishedSubject.VIDEO_COMPRESSED,
+)
 
 /**
  * Every collector in [SensorPublisher], and what each one publishes.
@@ -155,7 +174,7 @@ val COLLECTOR_GROUPS: List<CollectorGroup> = listOf(
     CollectorGroup("pressure", setOf(PublishedSubject.AIR_PRESSURE)),
     CollectorGroup("illuminance", setOf(PublishedSubject.ILLUMINANCE)),
     CollectorGroup("audio", setOf(PublishedSubject.AUDIO)),
-    CollectorGroup("camera", setOf(PublishedSubject.IMAGE_COMPRESSED)),
+    CollectorGroup("camera", CAMERA_SUBJECTS),
     CollectorGroup("battery", BATTERY_SUBJECTS),
     CollectorGroup("radio", RADIO_SUBJECTS),
     CollectorGroup("calibration", CALIBRATION_SUBJECTS),

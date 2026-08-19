@@ -35,6 +35,9 @@ import se.rise.logline.record.RecordingStatus
 import se.rise.logline.sensors.AudioProvider
 import se.rise.logline.sensors.BatteryProvider
 import se.rise.logline.sensors.CameraProvider
+import se.rise.logline.sensors.CameraOutput
+import se.rise.logline.sensors.StillsConfig
+import se.rise.logline.sensors.VideoConfig
 import se.rise.logline.sensors.ImuProvider
 import se.rise.logline.sensors.LocationProvider
 import se.rise.logline.sensors.MslAltitudeResolver
@@ -66,6 +69,7 @@ import foxglove.CompressedImageOuterClass.CompressedImage
 import foxglove.LogOuterClass.Log as FoxgloveLog
 import foxglove.FrameTransformOuterClass.FrameTransform
 import foxglove.LocationFixOuterClass.LocationFix
+import foxglove.CompressedVideoOuterClass.CompressedVideo
 import foxglove.QuaternionOuterClass.Quaternion
 import foxglove.Vector3OuterClass.Vector3
 import io.zenoh.liveliness.LivelinessToken
@@ -106,6 +110,18 @@ private const val MAX_AUDIO_CHUNK_MILLIS = 10_000L
  */
 private const val MIN_FRAME_INTERVAL_MILLIS = 500L
 private const val MAX_FRAME_INTERVAL_MILLIS = 600_000L
+
+/** Falls back to the settings default when a rate cannot be read as an interval. */
+private const val DEFAULT_VIDEO_FRAME_RATE = 10
+
+/**
+ * 30 fps, and it is a data-rate guard rather than a hardware one.
+ *
+ * The encoder holds the bitrate roughly constant whatever the frame rate, so a higher rate buys
+ * smoothness rather than bytes — but it also multiplies the message count, and every frame is a
+ * separate `put`, an MCAP record and a live-store append.
+ */
+private const val MAX_VIDEO_FRAME_RATE = 30
 
 /** What `CompressedImage.frame_id` says the picture was taken with. */
 private const val FRAME_ID_REAR = "camera_rear"
@@ -393,8 +409,10 @@ class SensorPublisher(private val appContext: Context) {
                         runAudio(opened, publishers.of(PublishedSubject.AUDIO), settings)
                     }
                 }
-                if (settings.cameraEnabled) {
-                    supervised("camera", setOf(PublishedSubject.IMAGE_COMPRESSED)) {
+                // Either camera subject keeps the collector alive; `runCamera` decides which use
+                // cases to bind from the switches.
+                if (settings.cameraEnabled || settings.videoEnabled) {
+                    supervised("camera", CAMERA_SUBJECTS) {
                         runCamera(opened, publishers.of(PublishedSubject.IMAGE_COMPRESSED), settings)
                     }
                 }
@@ -1404,6 +1422,13 @@ class SensorPublisher(private val appContext: Context) {
      * of the run untouched. The heaviest subject here by a wide margin — about 270 MB/h at the default
      * two-second interval — which is why it is off unless someone asked for it.
      */
+    /**
+     * The camera collector: a time-lapse, continuous H.264, or both.
+     *
+     * One binding serves both subjects, so this is a single collector with two sinks rather than two
+     * collectors fighting over one camera — see `COLLECTOR_GROUPS`. Either subject alone keeps the
+     * camera open; both off releases it, which `supervise()` handles.
+     */
     private suspend fun runCamera(
         session: KeelsonSession,
         publisher: AdvancedPublisher,
@@ -1420,48 +1445,92 @@ class SensorPublisher(private val appContext: Context) {
             Log.w(TAG, "no camera on this device; skipping camera publisher")
             return
         }
-        // `SensorRate.Max` is meaningless for a camera — it would ask for frames as fast as the shutter
-        // will go, which is video at a hundred times the data rate.
-        val intervalMillis = settings.rate(Subjects.IMAGE_COMPRESSED).toIntervalMillis()
-            .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS)
-        val frameId = if (settings.cameraLensFront) FRAME_ID_FRONT else FRAME_ID_REAR
+        val off = offSubjects.value
+        val wantStills = PublishedSubject.IMAGE_COMPRESSED !in off
+        val wantVideo = PublishedSubject.VIDEO_COMPRESSED !in off
+        if (!wantStills && !wantVideo) return
 
-        val sink = SubjectSink(PublishedSubject.IMAGE_COMPRESSED, session)
-        sink.guard {
-            var checked = false
-            camera.frames(
-                intervalMillis = intervalMillis,
-                front = settings.cameraLensFront,
-                size = Size(settings.cameraWidth, settings.cameraHeight),
-                quality = Settings.CAMERA_JPEG_QUALITY,
-            ).collect { frame ->
-                // The camera's exposure timestamp, not the instant the JPEG arrived here — the same
-                // observation-time rule every other subject follows.
-                val observedAtNanos = SensorClock.epochNanosNow(frame.elapsedNanos)
-                if (!checked) {
-                    checked = true
-                    warnIfClockBaseLooksWrong(Subjects.IMAGE_COMPRESSED, observedAtNanos)
-                }
-                val msg = CompressedImage.newBuilder()
-                    .setTimestamp(protoTimestamp(observedAtNanos))
-                    .setFrameId(frameId)
-                    // foxglove's field takes a media type a browser knows, not an enum.
-                    .setFormat("jpeg")
-                    .setData(ByteString.copyFrom(frame.jpeg))
-                    .build()
-                // What the sparkline plots is the frame size: a picture is not a scalar, and kB per
-                // frame is the number that says the exposure changed or the stream is degrading.
-                val result = sink.emit(publisher, msg.toByteArray(), frame.jpeg.size / 1024f)
-                // Only what actually went out, as for every other live value — and downscaled here
-                // rather than in the UI, so Compose never holds a 150 kB frame.
-                if (result?.isSuccess == true) {
-                    thumbnail(frame.jpeg)?.let {
-                        liveStore.recordFrame(
-                            FramePreview(it.jpeg, it.width, it.height, System.currentTimeMillis())
-                        )
+        val frameId = if (settings.cameraLensFront) FRAME_ID_FRONT else FRAME_ID_REAR
+        val stills = if (!wantStills) null else StillsConfig(
+            // `SensorRate.Max` is meaningless for a camera — it would ask for frames as fast as the
+            // shutter will go, which is video at a hundred times the data rate. That is what
+            // `video_compressed` is for.
+            intervalMillis = settings.rate(Subjects.IMAGE_COMPRESSED).toIntervalMillis()
+                .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS),
+            size = Size(settings.cameraWidth, settings.cameraHeight),
+            quality = Settings.CAMERA_JPEG_QUALITY,
+        )
+        val video = if (!wantVideo) null else VideoConfig(
+            size = Size(settings.videoWidth, settings.videoHeight),
+            bitrateKbps = settings.videoBitrateKbps,
+            frameRate = settings.rate(Subjects.VIDEO_COMPRESSED).toIntervalMillis()
+                .let { if (it > 0) (1000L / it).toInt() else DEFAULT_VIDEO_FRAME_RATE }
+                .coerceIn(1, MAX_VIDEO_FRAME_RATE),
+            keyframeSeconds = settings.videoKeyframeSeconds,
+        )
+
+        val stillSink = SubjectSink(PublishedSubject.IMAGE_COMPRESSED, session)
+        val videoSink = SubjectSink(PublishedSubject.VIDEO_COMPRESSED, session)
+        val videoPublisher = publishers[PublishedSubject.VIDEO_COMPRESSED]
+        stillSink.guard {
+            var checkedStill = false
+            var checkedVideo = false
+            camera.stream(stills = stills, video = video, front = settings.cameraLensFront)
+                .collect { out ->
+                    when (out) {
+                        is CameraOutput.Still -> {
+                            val frame = out.frame
+                            // The camera's exposure timestamp, not the instant the JPEG arrived here —
+                            // the same observation-time rule every other subject follows.
+                            val observedAtNanos = SensorClock.epochNanosNow(frame.elapsedNanos)
+                            if (!checkedStill) {
+                                checkedStill = true
+                                warnIfClockBaseLooksWrong(Subjects.IMAGE_COMPRESSED, observedAtNanos)
+                            }
+                            val msg = CompressedImage.newBuilder()
+                                .setTimestamp(protoTimestamp(observedAtNanos))
+                                .setFrameId(frameId)
+                                // foxglove's field takes a media type a browser knows, not an enum.
+                                .setFormat("jpeg")
+                                .setData(ByteString.copyFrom(frame.jpeg))
+                                .build()
+                            // What the sparkline plots is the frame size: a picture is not a scalar, and
+                            // kB per frame is the number that says the exposure changed or the stream is
+                            // degrading.
+                            val result = stillSink.emit(publisher, msg.toByteArray(), frame.jpeg.size / 1024f)
+                            // Only what actually went out, as for every other live value — and
+                            // downscaled here rather than in the UI, so Compose never holds a 150 kB
+                            // frame.
+                            if (result?.isSuccess == true) {
+                                thumbnail(frame.jpeg)?.let {
+                                    liveStore.recordFrame(
+                                        FramePreview(it.jpeg, it.width, it.height, System.currentTimeMillis())
+                                    )
+                                }
+                            }
+                        }
+
+                        is CameraOutput.Video -> {
+                            if (videoPublisher == null) return@collect
+                            val frame = out.frame
+                            // The encoder carries the camera's own presentation time through, so this is
+                            // the exposure clock rather than the moment the access unit was drained —
+                            // and `warnIfClockBaseLooksWrong` says so out loud if the device disagrees.
+                            val observedAtNanos = SensorClock.epochNanosNow(frame.presentationTimeUs * 1_000)
+                            if (!checkedVideo) {
+                                checkedVideo = true
+                                warnIfClockBaseLooksWrong(Subjects.VIDEO_COMPRESSED, observedAtNanos)
+                            }
+                            val msg = CompressedVideo.newBuilder()
+                                .setTimestamp(protoTimestamp(observedAtNanos))
+                                .setFrameId(frameId)
+                                .setFormat("h264")
+                                .setData(ByteString.copyFrom(frame.bytes))
+                                .build()
+                            videoSink.emit(videoPublisher, msg.toByteArray(), frame.bytes.size / 1024f)
+                        }
                     }
                 }
-            }
         }
     }
 

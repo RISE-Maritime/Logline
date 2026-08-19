@@ -146,6 +146,31 @@ data class Settings(
     val cameraWidth: Int = DEFAULT_CAMERA_WIDTH,
     val cameraHeight: Int = DEFAULT_CAMERA_HEIGHT,
     /**
+     * Publish continuous H.264 on `video_compressed`, alongside or instead of the time-lapse.
+     *
+     * Off by default, for exactly the reason [cameraEnabled] is — more so, since this is not a frame
+     * every two seconds but everything the lens sees.
+     *
+     * The defaults are chosen so that switching it on cannot shorten a run: 640x480 at 300 kbps is
+     * **128 MB/h**, against the time-lapse's 158 MB/h for a twentieth of the frames. Video is only
+     * cheap *per frame* — at 720p and 2 Mbps it is 858 MB/h, five times the stills — so
+     * [videoBitrateKbps] is the setting that decides whether a long run fits on the phone, and
+     * `ui/SettingsScreen.kt` prints the figure beside it.
+     */
+    val videoEnabled: Boolean = false,
+    val videoWidth: Int = DEFAULT_VIDEO_WIDTH,
+    val videoHeight: Int = DEFAULT_VIDEO_HEIGHT,
+    /** What the encoder is *asked* to produce. Unlike the JPEG estimate, the per-hour cost follows. */
+    val videoBitrateKbps: Int = DEFAULT_VIDEO_BITRATE_KBPS,
+    /**
+     * Seconds between keyframes.
+     *
+     * A live subscriber can decode nothing until one arrives, so this is how long a joiner waits — and
+     * because a keyframe costs many times a delta frame, at 10 fps it is also most of the bitrate. The
+     * knob trades join latency against nearly all of the cost.
+     */
+    val videoKeyframeSeconds: Int = DEFAULT_VIDEO_KEYFRAME_SECONDS,
+    /**
      * Subjects the user has switched off, by registry *entry*.
      *
      * Entries rather than subject names, unlike [qosOverrides] and [sensorRates]: `radio_rssi_dbm` is
@@ -240,6 +265,21 @@ data class Settings(
         const val DEFAULT_CAMERA_HEIGHT = 720
 
         /**
+         * 640x480 at 300 kbps and 10 fps — **128 MB/h**, which is the whole point of the choice.
+         *
+         * That is less per hour than the time-lapse's 158 MB/h while carrying twenty times the frames,
+         * so switching video on can never make a run shorter than it already was. 720p at 2 Mbps is
+         * 858 MB/h and turns ten days of recording into under two; it is available in Settings, as a
+         * decision rather than a default.
+         */
+        const val DEFAULT_VIDEO_WIDTH = 640
+        const val DEFAULT_VIDEO_HEIGHT = 480
+        const val DEFAULT_VIDEO_BITRATE_KBPS = 300
+
+        /** Two seconds: a live joiner waits at most that long for a decodable frame. */
+        const val DEFAULT_VIDEO_KEYFRAME_SECONDS = 2
+
+        /**
          * JPEG quality, fixed rather than exposed.
          *
          * 80 is the knee of the curve — above it the file grows faster than the picture improves, below
@@ -250,6 +290,17 @@ data class Settings(
 
         /** What the settings screen offers, cheapest first. */
         val CAMERA_RESOLUTIONS = listOf(640 to 480, 1280 to 720, 1920 to 1080)
+
+        /** The same three sizes; 1080p video at a sensible bitrate is a different order of cost. */
+        val VIDEO_RESOLUTIONS = listOf(640 to 480, 1280 to 720, 1920 to 1080)
+
+        /**
+         * 128, 429, 858 and 1 717 MB/h respectively — the reason the list is short and starts low.
+         *
+         * Only the first is cheaper per hour than the time-lapse it sits beside; the rest are a
+         * deliberate trade of endurance for detail, which is why the screen prints the figure.
+         */
+        val VIDEO_BITRATES_KBPS = listOf(300, 1_000, 2_000, 4_000)
 
         /**
          * What the annotation screen offers before anybody has configured it.
@@ -305,7 +356,14 @@ data class Settings(
     fun offSubjects(): Set<PublishedSubject> = buildSet {
         addAll(disabledSubjects)
         if (!audioEnabled) add(PublishedSubject.AUDIO)
-        if (!cameraEnabled) add(PublishedSubject.IMAGE_COMPRESSED)
+        // **The two camera subjects cannot both run**, and this is where that is enforced rather
+        // than in the UI, so an imported profile with both set cannot reach a state the hardware
+        // refuses. Measured on a Pixel 6: binding CameraX's `Preview` (feeding the H.264 encoder)
+        // alongside `ImageCapture` kills the camera HAL within a second — `ERROR_CAMERA_DEVICE`, the
+        // provider process dies and restarts in a loop — at matching resolutions as well as
+        // mismatched ones. Video wins because it is the strictly more informative of the two.
+        if (!cameraEnabled || videoEnabled) add(PublishedSubject.IMAGE_COMPRESSED)
+        if (!videoEnabled) add(PublishedSubject.VIDEO_COMPRESSED)
         // Nothing calibrated means nothing to say. Treated as off rather than as a subject that
         // merely never publishes, so the row reads "Off" instead of going stale and the collector is
         // never started in the first place.

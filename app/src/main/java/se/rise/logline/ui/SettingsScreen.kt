@@ -96,6 +96,10 @@ fun SettingsScreen(
     var cameraLensFront by remember { mutableStateOf(initial.cameraLensFront) }
     var cameraWidth by remember { mutableIntStateOf(initial.cameraWidth) }
     var cameraHeight by remember { mutableIntStateOf(initial.cameraHeight) }
+    var videoEnabled by remember { mutableStateOf(initial.videoEnabled) }
+    var videoWidth by remember { mutableIntStateOf(initial.videoWidth) }
+    var videoHeight by remember { mutableIntStateOf(initial.videoHeight) }
+    var videoBitrateKbps by remember { mutableIntStateOf(initial.videoBitrateKbps) }
     var checklistEnabled by remember { mutableStateOf(initial.checklistEnabled) }
     var operatorName by remember { mutableStateOf(initial.operatorName) }
     var operatorRole by remember { mutableStateOf(initial.operatorRole) }
@@ -126,6 +130,10 @@ fun SettingsScreen(
         cameraLensFront = cameraLensFront,
         cameraWidth = cameraWidth,
         cameraHeight = cameraHeight,
+        videoEnabled = videoEnabled,
+        videoWidth = videoWidth,
+        videoHeight = videoHeight,
+        videoBitrateKbps = videoBitrateKbps,
         checklistEnabled = checklistEnabled,
         operatorName = operatorName.trim(),
         operatorRole = operatorRole.trim(),
@@ -545,8 +553,12 @@ fun SettingsScreen(
                     "publishes it as a JPEG. It photographs whatever is in front of the phone — " +
                     "Android shows its camera indicator throughout, and this is off unless you turn " +
                     "it on.",
-                checked = cameraEnabled,
-                onCheckedChange = { cameraEnabled = it },
+                checked = cameraEnabled && !videoEnabled,
+                onCheckedChange = {
+                    cameraEnabled = it
+                    // One camera consumer at a time — see the video switch below.
+                    if (it) videoEnabled = false
+                },
             )
             if (cameraEnabled) {
                 Text(
@@ -584,6 +596,56 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            SettingSwitch(
+                title = "Record video",
+                description = "Publishes continuous H.264 on video_compressed. Replaces the " +
+                    "time-lapse rather than joining it — the camera will not serve both at once — and " +
+                    "is off by default for the same reason: this one records everything the lens " +
+                    "sees, not a frame every few seconds.",
+                checked = videoEnabled,
+                onCheckedChange = {
+                    videoEnabled = it
+                    if (it) cameraEnabled = false
+                },
+            )
+            if (videoEnabled) {
+                Text(
+                    "About ${videoMegabytesPerHour(videoBitrateKbps)} MB per hour — the bitrate is what " +
+                        "the encoder is told to produce, so unlike the time-lapse figure above this is " +
+                        "not an estimate. At the default it costs less per hour than the time-lapse " +
+                        "and carries twenty times the frames; at 2 Mbps it is five times the cost and " +
+                        "turns ten days of recording into under two.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Settings.VIDEO_RESOLUTIONS.forEach { (width, height) ->
+                        FilterChip(
+                            selected = width == videoWidth && height == videoHeight,
+                            onClick = {
+                                videoWidth = width
+                                videoHeight = height
+                            },
+                            label = { Text("${width}x$height") },
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Settings.VIDEO_BITRATES_KBPS.forEach { kbps ->
+                        FilterChip(
+                            selected = kbps == videoBitrateKbps,
+                            onClick = { videoBitrateKbps = kbps },
+                            label = { Text(if (kbps >= 1_000) "${kbps / 1_000} Mbps" else "$kbps kbps") },
+                        )
+                    }
+                }
+                Text(
+                    "The frame rate is the video_compressed rate, on its own row in the subject list.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             SectionHeader("Checklists")

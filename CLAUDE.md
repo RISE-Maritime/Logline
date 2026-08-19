@@ -852,6 +852,28 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   `replay()` paces by *message count*, ~400/s, so a dozen buffered 150 kB frames is a multi-megabyte
   burst that the DROP-everywhere egress queue sheds silently — and takes the live navigation data queued
   behind it. A two-minute-old time-lapse frame is not worth that; the MCAP recording is the complete copy.
+- **Video and the time-lapse cannot both run, and the reason is the camera HAL rather than taste.**
+  Measured on a Pixel 6: binding CameraX's `Preview` (feeding the H.264 encoder) alongside
+  `ImageCapture` produces `ERROR_CAMERA_DEVICE` within a second, the camera provider process dies and
+  reinitialises in a loop, and no frame is ever produced — at **matching** resolutions as well as
+  mismatched ones, so it is the combination itself. `Preview` alone is flawless. `Settings.offSubjects()`
+  enforces it (`videoEnabled` wins) rather than the UI, so an imported profile with both set cannot
+  reach a state the hardware refuses.
+- **`MediaFormat.KEY_FRAME_RATE` is a bitrate hint, not a throttle.** The camera drives the encoder's
+  input surface, so the encoder compresses whatever arrives: asking for 10 fps produced **29.9**,
+  measured. The frame rate has to be asked of the *camera*, through
+  `Camera2Interop.setCaptureRequestOption(CONTROL_AE_TARGET_FPS_RANGE, …)` — an experimental API opted
+  into deliberately, because the alternative is a setting that silently does nothing. With it, the same
+  request measures **10.0 fps and 131 MB/h against the 128 MB/h the settings screen promises**.
+- **Every keyframe must carry its SPS, and `MediaCodec` sends it once.** `foxglove.CompressedVideo`
+  requires Annex B framing — which is what `MediaCodec` emits natively, so AVCC would be the wrong
+  guess — and that "each message containing a key frame (IDR) must also include a SPS NAL unit". The
+  codec delivers SPS/PPS exactly once, in a `BUFFER_FLAG_CODEC_CONFIG` buffer before the first frame,
+  so `withCodecConfig()` caches and prepends them. Without it the recording plays from the start and
+  from nowhere else — which is what a subscriber joining mid-run, or the file after a 512 MB rotation,
+  actually holds. `MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES` asks the encoder to do this instead
+  and is deliberately unused: the platform documentation says a codec that does not support it **fails
+  to configure**. Verified by cutting a recording at frame 1260 of 2499 and decoding it with `ffmpeg`.
 - **The camera is the most expensive subject: ~158 MB/h at the 1280x720, 0.5 Hz default**, against
   ~109 MB/h for audio and ~77 MB/h for everything else combined. `cameraMegabytesPerHour()` in
   `ui/SettingsScreen.kt` is an *estimate* at 0.10 bytes per pixel — deliberately above the 0.04–0.07

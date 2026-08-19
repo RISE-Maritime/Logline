@@ -52,6 +52,11 @@ object Subjects {
     // what a phone should be putting on a bus.
     const val IMAGE_COMPRESSED = "image_compressed"
 
+    // Continuous video, as an H.264 bitstream rather than a stream of stills. One message per access
+    // unit; `foxglove.CompressedVideo` requires **Annex B** framing and a SPS NAL alongside every
+    // keyframe, which is what `sensors/VideoEncoder.kt` exists to guarantee.
+    const val VIDEO_COMPRESSED = "video_compressed"
+
     // Operator annotations. `foxglove.Log` is the one upstream payload carrying free text with a
     // severity, and Foxglove's Log panel reads it natively — filtering on `level` and on `name`, which
     // is why a mark's category goes in `name` rather than being spelled into the message.

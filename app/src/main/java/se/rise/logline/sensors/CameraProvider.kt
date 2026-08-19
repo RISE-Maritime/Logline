@@ -4,16 +4,21 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.hardware.display.DisplayManager
+import android.hardware.camera2.CaptureRequest
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import android.util.Range
 import android.util.Size
 import android.view.Display
 import android.view.Surface
 import androidx.camera.core.AspectRatio
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.Preview
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -29,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import se.rise.logline.config.Settings
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
@@ -82,6 +88,29 @@ data class CameraFrame(
  * interval that would be most of the duty cycle spent opening. The cost is that the camera is powered
  * throughout, which is the honest trade for a subject someone deliberately switched on.
  */
+/**
+ * One camera session, two kinds of output.
+ *
+ * `image_compressed` and `video_compressed` are independently switchable and share a single binding —
+ * `ImageCapture` for the stills, a `Preview` feeding the H.264 encoder for the video — so the flow
+ * carries both rather than there being two camera sessions competing for one device.
+ */
+sealed interface CameraOutput {
+    data class Still(val frame: CameraFrame) : CameraOutput
+    data class Video(val frame: EncodedFrame, val width: Int, val height: Int) : CameraOutput
+}
+
+/** What the time-lapse wants. Null when `image_compressed` is switched off. */
+data class StillsConfig(val intervalMillis: Long, val size: Size, val quality: Int)
+
+/** What the encoder wants. Null when `video_compressed` is switched off. */
+data class VideoConfig(
+    val size: Size,
+    val bitrateKbps: Int,
+    val frameRate: Int,
+    val keyframeSeconds: Int,
+)
+
 class CameraProvider(private val context: Context) {
 
     /** Whether this device has a camera at all, for the "unavailable" row rather than a silent one. */
@@ -95,13 +124,17 @@ class CameraProvider(private val context: Context) {
      *
      * Requires `CAMERA`; the caller checks that, as `runLocation` does for its own permission.
      */
-    fun frames(
-        intervalMillis: Long,
+    // `Camera2Interop` is still marked experimental in CameraX 1.6 — opted into deliberately, because
+    // it is the only way to ask the camera for a frame rate and the alternative is a setting that
+    // silently does nothing. Narrow in scope: one capture-request option, on one use case.
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
+    fun stream(
+        stills: StillsConfig?,
+        video: VideoConfig?,
         front: Boolean,
-        size: Size,
-        quality: Int,
-    ): Flow<CameraFrame> = callbackFlow {
-        jpegQuality = quality
+    ): Flow<CameraOutput> = callbackFlow {
+        require(stills != null || video != null) { "the camera collector runs only when a subject wants it" }
+        jpegQuality = stills?.quality ?: Settings.CAMERA_JPEG_QUALITY
         loggedScaling = false
         val lifecycle = CameraLifecycle()
         // One thread for the capture callbacks: they arrive off the camera's own threads otherwise, and
@@ -109,46 +142,131 @@ class CameraProvider(private val context: Context) {
         val executor = Executors.newSingleThreadExecutor()
         val provider = ProcessCameraProvider.awaitInstance(context)
 
-        val capture = ImageCapture.Builder()
-            // Latency over quality: the frame wanted is the one at the tick, not a slightly better one
-            // assembled from several exposures a moment later.
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setFlashMode(ImageCapture.FLASH_MODE_OFF)
-            .setJpegQuality(quality)
-            .setResolutionSelector(
-                ResolutionSelector.Builder()
-                    // The aspect ratio has to be stated, and stating it is not optional. A selector's
-                    // default strategy prefers 4:3 and filters the candidate list *before* the
-                    // resolution strategy sees it, so asking for 1280x720 on this phone's front camera
-                    // produced 1920x1440 — a 4:3 frame at 2.7x the pixels and 2.7x the data rate,
-                    // silently. Measured, not theorised.
-                    .setAspectRatioStrategy(aspectRatioStrategyFor(size))
-                    .setResolutionStrategy(
-                        ResolutionStrategy(size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)
+        val capture = stills?.let {
+            ImageCapture.Builder()
+                // Latency over quality: the frame wanted is the one at the tick, not a slightly better
+                // one assembled from several exposures a moment later.
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setFlashMode(ImageCapture.FLASH_MODE_OFF)
+                .setJpegQuality(it.quality)
+                .setResolutionSelector(resolutionSelectorFor(it.size))
+                // Without a preview there is nothing to infer orientation from, so it is taken from the
+                // display: a phone mounted in landscape then produces upright frames. Consumers that
+                // ignore EXIF are the norm, which is why this is set rather than left to the default.
+                .setTargetRotation(displayRotation())
+                .build()
+        }
+
+        // The encoder cannot be built until the camera says what size it granted — see the surface
+        // provider below — so it is created there and read from here once it exists.
+        // Written on the camera's executor when the surface is granted, read by the pump coroutine on
+        // another thread — an atomic rather than a plain var, for the same visibility reason the live
+        // ring buffers are synchronized.
+        val encoderRef = java.util.concurrent.atomic.AtomicReference<VideoEncoder?>(null)
+        val preview = video?.let { cfg ->
+            Preview.Builder()
+                .setResolutionSelector(resolutionSelectorFor(cfg.size))
+                .setTargetRotation(displayRotation())
+                .also { builder ->
+                    // **The encoder cannot set the frame rate; only the camera can.**
+                    // `MediaFormat.KEY_FRAME_RATE` is a hint for the encoder's bitrate allocation, not
+                    // a throttle — measured here, asking for 10 fps produced 29.9, because the camera
+                    // drives a surface and the encoder compresses whatever arrives. The rate has to be
+                    // asked of the camera, which CameraX exposes only through Camera2 interop.
+                    //
+                    // The device picks from the ranges it advertises, so this is a request like every
+                    // other rate in the app; `SurfaceRequest` will not tell us what it settled on, so
+                    // the measured rate is what the live view's own counter shows.
+                    Camera2Interop.Extender(builder).setCaptureRequestOption(
+                        CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                        Range(cfg.frameRate, cfg.frameRate),
                     )
-                    .build()
-            )
-            // Without a preview there is nothing to infer orientation from, so it is taken from the
-            // display: a phone mounted in landscape then produces upright frames. Consumers that ignore
-            // EXIF are the norm, which is why this is set rather than left to the default.
-            .setTargetRotation(displayRotation())
-            .build()
+                }
+                .build()
+        }
+        // `setSurfaceProvider` is main-thread only — `Preview` asserts it — which is the same
+        // constraint binding and `LifecycleRegistry` are under, so it goes in the block below.
+        val provideEncoderSurface: () -> Unit = {
+            val cfg = video
+            if (preview != null && cfg != null) {
+                preview.setSurfaceProvider(executor) { request ->
+                    // **Configure the encoder to the resolution the camera actually granted**,
+                    // rather than the one asked for. CameraX picks from what the device offers, and
+                    // this app has already been bitten once by assuming the request was honoured —
+                    // a 1280x720 JPEG request came back 1920x1080. Taking the size from the request
+                    // means the encoder and the producer can never disagree.
+                    val granted = request.resolution
+                    if (granted.width != cfg.size.width || granted.height != cfg.size.height) {
+                        Log.i(
+                            TAG,
+                            "camera granted ${granted.width}x${granted.height} for a " +
+                                "${cfg.size.width}x${cfg.size.height} video request; encoding at " +
+                                "the granted size",
+                        )
+                    }
+                    val enc = VideoEncoder(
+                        width = granted.width,
+                        height = granted.height,
+                        bitrateKbps = cfg.bitrateKbps,
+                        frameRate = cfg.frameRate,
+                        keyframeSeconds = cfg.keyframeSeconds,
+                    )
+                    val surface = try {
+                        enc.start()
+                        enc.inputSurface
+                    } catch (t: Throwable) {
+                        Log.e(TAG, "could not start the encoder", t)
+                        null
+                    }
+                    if (surface == null) {
+                        request.willNotProvideSurface()
+                    } else {
+                        encoderRef.set(enc)
+                        request.provideSurface(surface, executor) { enc.stop() }
+                    }
+                }
+            }
+        }
 
         val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        val useCases = listOfNotNull(preview, capture).toTypedArray()
 
         // Binding is main-thread only, and so is LifecycleRegistry.
         withContext(Dispatchers.Main) {
+            provideEncoderSurface()
             lifecycle.resume()
             provider.unbindAll()
-            provider.bindToLifecycle(lifecycle, selector, capture)
+            provider.bindToLifecycle(lifecycle, selector, *useCases)
         }
         Log.i(
             TAG,
-            "camera bound (${if (front) "front" else "rear"}, requested ${size.width}x${size.height}, " +
-                "q$quality); one frame every ${intervalMillis}ms",
+            "camera bound (${if (front) "front" else "rear"}): " +
+                (stills?.let { "stills ${it.size.width}x${it.size.height} q${it.quality} every ${it.intervalMillis}ms" } ?: "no stills") +
+                ", " +
+                (video?.let { "video ${it.size.width}x${it.size.height} ${it.bitrateKbps}kbps ${it.frameRate}fps" } ?: "no video"),
         )
 
-        val ticker = launch {
+        // Drains the encoder whenever it has an access unit ready. A short poll rather than a blocking
+        // dequeue, so cancelling the collector does not wait on the codec.
+        val videoPump = video?.let {
+            launch {
+                while (isActive) {
+                    val enc = encoderRef.get()
+                    if (enc == null) {
+                        delay(50)
+                        continue
+                    }
+                    val frames = enc.drain()
+                    if (frames.isEmpty()) {
+                        delay(10)
+                    } else {
+                        frames.forEach { f -> send(CameraOutput.Video(f, enc.width, enc.height)) }
+                    }
+                }
+            }
+        }
+
+        val ticker = if (stills == null || capture == null) null else launch {
             var consecutiveFailures = 0
             while (isActive) {
                 val startedAt = SystemClock.elapsedRealtime()
@@ -162,17 +280,21 @@ class CameraProvider(private val context: Context) {
                 }
                 if (frame != null) {
                     consecutiveFailures = 0
-                    send(scaleIfOversized(frame, size.width))
+                    send(CameraOutput.Still(scaleIfOversized(frame, stills.size.width)))
                 }
                 // Measured from the start of the capture, so the period is the interval rather than the
                 // interval plus however long the camera took.
-                val remaining = intervalMillis - (SystemClock.elapsedRealtime() - startedAt)
+                val remaining = stills.intervalMillis - (SystemClock.elapsedRealtime() - startedAt)
                 if (remaining > 0) delay(remaining)
             }
         }
 
         awaitClose {
-            ticker.cancel()
+            ticker?.cancel()
+            videoPump?.cancel()
+            // Before the camera is unbound: the encoder owns the surface the camera is writing into,
+            // and leaving it alive across a restart is how the next run hands the HAL a stale one.
+            encoderRef.getAndSet(null)?.stop()
             // awaitClose cannot suspend, and both of these must happen on the main thread. Posting is
             // what releases the camera; without it the indicator stays lit until the process dies.
             Handler(Looper.getMainLooper()).post {
@@ -182,6 +304,22 @@ class CameraProvider(private val context: Context) {
             executor.shutdown()
         }
     }.flowOn(Dispatchers.Default)
+
+    /**
+     * The selector both use cases share.
+     *
+     * **The aspect ratio has to be stated, and stating it is not optional.** A selector's default
+     * strategy prefers 4:3 and filters the candidate list *before* the resolution strategy sees it, so
+     * asking for 1280x720 on this phone's front camera produced 1920x1440 — a 4:3 frame at 2.7x the
+     * pixels and 2.7x the data rate, silently. Measured, not theorised.
+     */
+    private fun resolutionSelectorFor(size: Size): ResolutionSelector =
+        ResolutionSelector.Builder()
+            .setAspectRatioStrategy(aspectRatioStrategyFor(size))
+            .setResolutionStrategy(
+                ResolutionStrategy(size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)
+            )
+            .build()
 
     /**
      * Bring a frame down to the requested width when the camera could not capture it that small.

@@ -120,7 +120,7 @@ class PublisherService : Service() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         // Same rule for the camera: on Android 14+ declaring the type without CAMERA throws.
-        cameraMode = pendingSettings?.cameraEnabled == true &&
+        cameraMode = (pendingSettings?.cameraEnabled == true || pendingSettings?.videoEnabled == true) &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         var type = baseType
@@ -161,7 +161,7 @@ class PublisherService : Service() {
     /** See [forBootStart]: a boot start cannot carry the microphone or camera types. */
     private fun forThisStart(settings: Settings, fromBoot: Boolean): Settings {
         if (!fromBoot) return settings
-        if (settings.audioEnabled || settings.cameraEnabled) {
+        if (settings.audioEnabled || settings.cameraEnabled || settings.videoEnabled) {
             Log.i(TAG, "boot start: audio and the camera stay off, which this broadcast cannot start")
         }
         return forBootStart(settings)

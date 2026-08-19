@@ -67,7 +67,11 @@ fun policyQosForSubject(subject: String): QosProfile = when (subject) {
     // `image_compressed` is listed under the same profile, and the comment above about radar spokes and
     // camera frames is upstream's own example of why: high-rate, short-lived, each superseded by the
     // next. A time-lapse frame that will not fit is worth less than the navigation data behind it.
+    // `video_compressed: transient` upstream too, and the argument is strongest here: a video frame
+    // that will not fit down a congested link is superseded by the next one within a tenth of a
+    // second, and the keyframe after it re-synchronises the decoder anyway.
     Subjects.AUDIO,
+    Subjects.VIDEO_COMPRESSED,
     Subjects.IMAGE_COMPRESSED -> QosProfile.TRANSIENT
     // `log_message: background` upstream — "raw passthrough, logging and audit trails. Correctness
     // over latency, lowest priority so it never crowds out live data." Reliable, so a mark that is

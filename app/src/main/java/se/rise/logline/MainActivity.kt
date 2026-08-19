@@ -1352,6 +1352,7 @@ private fun toggleSubject(
         when (entry) {
             PublishedSubject.AUDIO -> saveSettings(app, current.copy(audioEnabled = enabled))
             PublishedSubject.IMAGE_COMPRESSED -> saveSettings(app, current.copy(cameraEnabled = enabled))
+            PublishedSubject.VIDEO_COMPRESSED -> saveSettings(app, current.copy(videoEnabled = enabled))
             else -> app.settingsRepository.update(current.withSubjects(listOf(entry), enabled))
         }
     }
@@ -1401,7 +1402,7 @@ private fun startupPermissions(settings: Settings): List<String> = buildList {
     // would be the surest way to teach them to refuse it.
     if (settings.audioEnabled) add(Manifest.permission.RECORD_AUDIO)
     // Same shape, same reason: nothing opens the camera unless the subject is switched on.
-    if (settings.cameraEnabled) add(Manifest.permission.CAMERA)
+    if (settings.cameraEnabled || settings.videoEnabled) add(Manifest.permission.CAMERA)
 }
 
 private fun hasLocationPermission(context: Context): Boolean =

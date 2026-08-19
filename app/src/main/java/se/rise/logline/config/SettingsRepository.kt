@@ -74,6 +74,11 @@ internal object Keys {
     val CAMERA_LENS_FRONT = stringPreferencesKey("camera_lens_front")
     val CAMERA_WIDTH = stringPreferencesKey("camera_width")
     val CAMERA_HEIGHT = stringPreferencesKey("camera_height")
+    val VIDEO_ENABLED = stringPreferencesKey("video_enabled")
+    val VIDEO_WIDTH = stringPreferencesKey("video_width")
+    val VIDEO_HEIGHT = stringPreferencesKey("video_height")
+    val VIDEO_BITRATE_KBPS = stringPreferencesKey("video_bitrate_kbps")
+    val VIDEO_KEYFRAME_SECONDS = stringPreferencesKey("video_keyframe_seconds")
 
     /**
      * Switched-off subjects, newline-delimited registry entry names.
@@ -225,6 +230,17 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
             ?: Settings.DEFAULT_CAMERA_WIDTH,
         cameraHeight = prefs[Keys.CAMERA_HEIGHT]?.toIntOrNull()?.takeIf { it > 0 }
             ?: Settings.DEFAULT_CAMERA_HEIGHT,
+        // Absent means off, the same rule as audio and the stills: recording everything the lens sees
+        // is never a state a phone arrives in without somebody choosing it.
+        videoEnabled = prefs[Keys.VIDEO_ENABLED]?.toBooleanStrictOrNull() ?: false,
+        videoWidth = prefs[Keys.VIDEO_WIDTH]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_VIDEO_WIDTH,
+        videoHeight = prefs[Keys.VIDEO_HEIGHT]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_VIDEO_HEIGHT,
+        videoBitrateKbps = prefs[Keys.VIDEO_BITRATE_KBPS]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_VIDEO_BITRATE_KBPS,
+        videoKeyframeSeconds = prefs[Keys.VIDEO_KEYFRAME_SECONDS]?.toIntOrNull()?.takeIf { it > 0 }
+            ?: Settings.DEFAULT_VIDEO_KEYFRAME_SECONDS,
         disabledSubjects = parseDisabledSubjects(prefs[Keys.DISABLED_SUBJECTS]),
         annotationButtons = readAnnotationButtons(prefs),
         qosOverrides = readQosOverrides(prefs),
@@ -272,6 +288,11 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.CAMERA_LENS_FRONT] = settings.cameraLensFront.toString()
     prefs[Keys.CAMERA_WIDTH] = settings.cameraWidth.toString()
     prefs[Keys.CAMERA_HEIGHT] = settings.cameraHeight.toString()
+    prefs[Keys.VIDEO_ENABLED] = settings.videoEnabled.toString()
+    prefs[Keys.VIDEO_WIDTH] = settings.videoWidth.toString()
+    prefs[Keys.VIDEO_HEIGHT] = settings.videoHeight.toString()
+    prefs[Keys.VIDEO_BITRATE_KBPS] = settings.videoBitrateKbps.toString()
+    prefs[Keys.VIDEO_KEYFRAME_SECONDS] = settings.videoKeyframeSeconds.toString()
     prefs[Keys.DISABLED_SUBJECTS] = settings.disabledSubjects.serialiseDisabledSubjects()
     prefs[Keys.ANNOTATION_BUTTONS] = settings.annotationButtons.serialiseAnnotationButtons()
     overridableSubjects.forEach { subject ->

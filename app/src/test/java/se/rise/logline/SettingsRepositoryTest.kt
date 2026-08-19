@@ -385,6 +385,8 @@ class SettingsRepositoryTest {
             setOf(
                 PublishedSubject.AUDIO,
                 PublishedSubject.IMAGE_COMPRESSED,
+                // Video is off by default for the same reason as the two above it.
+                PublishedSubject.VIDEO_COMPRESSED,
                 // Nothing calibrated: the two rig subjects have nothing to say, so they read as off
                 // rather than going stale on a screen while publishing nothing.
                 PublishedSubject.FRAME_TRANSFORM,
@@ -440,6 +442,7 @@ class SettingsRepositoryTest {
         assertEquals(
             setOf(
                 PublishedSubject.ANGULAR_VEL,
+                PublishedSubject.VIDEO_COMPRESSED,
                 PublishedSubject.FRAME_TRANSFORM,
                 PublishedSubject.CONFIGURATION_JSON,
                 PublishedSubject.CALIBRATION_ZERO,
@@ -457,6 +460,7 @@ class SettingsRepositoryTest {
             setOf(
                 PublishedSubject.AUDIO,
                 PublishedSubject.IMAGE_COMPRESSED,
+                PublishedSubject.VIDEO_COMPRESSED,
                 PublishedSubject.FRAME_TRANSFORM,
                 PublishedSubject.CONFIGURATION_JSON,
                 PublishedSubject.CALIBRATION_ZERO,

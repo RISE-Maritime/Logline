@@ -70,6 +70,11 @@ data class SettingsProfile(
     val cameraLensFront: Boolean? = null,
     val cameraWidth: Int? = null,
     val cameraHeight: Int? = null,
+    val videoEnabled: Boolean? = null,
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    val videoBitrateKbps: Int? = null,
+    val videoKeyframeSeconds: Int? = null,
 
     // ---- per-subject configuration ----------------------------------------------------------------
     /** Registry entry names, newline-delimited, as `serialiseDisabledSubjects` writes them. */
@@ -142,6 +147,11 @@ fun SettingsProfile.encode(pretty: Boolean = true): String {
         putIfPresent("camera_lens_front", cameraLensFront)
         putIfPresent("camera_width", cameraWidth)
         putIfPresent("camera_height", cameraHeight)
+        putIfPresent("video_enabled", videoEnabled)
+        putIfPresent("video_width", videoWidth)
+        putIfPresent("video_height", videoHeight)
+        putIfPresent("video_bitrate_kbps", videoBitrateKbps)
+        putIfPresent("video_keyframe_seconds", videoKeyframeSeconds)
         putIfPresent("disabled_subjects", disabledSubjects)
         sensorRates?.takeIf { it.isNotEmpty() }?.let { rates ->
             put(
@@ -208,6 +218,11 @@ fun parseSettingsProfile(text: String): SettingsProfile? {
         cameraLensFront = root.bool("camera_lens_front"),
         cameraWidth = root.int("camera_width"),
         cameraHeight = root.int("camera_height"),
+        videoEnabled = root.bool("video_enabled"),
+        videoWidth = root.int("video_width"),
+        videoHeight = root.int("video_height"),
+        videoBitrateKbps = root.int("video_bitrate_kbps"),
+        videoKeyframeSeconds = root.int("video_keyframe_seconds"),
         disabledSubjects = root.string("disabled_subjects"),
         sensorRates = (root["sensor_rates"] as? JsonObject)
             ?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }
@@ -273,6 +288,11 @@ fun Settings.toProfile(): SettingsProfile = SettingsProfile(
     cameraLensFront = cameraLensFront,
     cameraWidth = cameraWidth,
     cameraHeight = cameraHeight,
+    videoEnabled = videoEnabled,
+    videoWidth = videoWidth,
+    videoHeight = videoHeight,
+    videoBitrateKbps = videoBitrateKbps,
+    videoKeyframeSeconds = videoKeyframeSeconds,
     disabledSubjects = disabledSubjects.serialiseDisabledSubjects(),
     sensorRates = sensorRates.mapValues { (_, rate) -> rate.serialise() }.ifEmpty { null },
     qosOverrides = qosOverrides.mapValues { (_, qos) ->
@@ -340,6 +360,11 @@ fun Settings.applyProfile(profile: SettingsProfile, withOperator: Boolean = true
     cameraLensFront = profile.cameraLensFront ?: cameraLensFront,
     cameraWidth = profile.cameraWidth ?: cameraWidth,
     cameraHeight = profile.cameraHeight ?: cameraHeight,
+    videoEnabled = profile.videoEnabled ?: videoEnabled,
+    videoWidth = profile.videoWidth ?: videoWidth,
+    videoHeight = profile.videoHeight ?: videoHeight,
+    videoBitrateKbps = profile.videoBitrateKbps ?: videoBitrateKbps,
+    videoKeyframeSeconds = profile.videoKeyframeSeconds ?: videoKeyframeSeconds,
     disabledSubjects = profile.disabledSubjects?.let { parseDisabledSubjects(it) } ?: disabledSubjects,
     sensorRates = profile.sensorRates
         ?.mapNotNull { (subject, stored) -> parseSensorRate(stored)?.let { subject to it } }

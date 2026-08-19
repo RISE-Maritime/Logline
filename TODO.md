@@ -85,67 +85,10 @@ rewritten from the ground up. These are the consequences.
       that repo does not. **Leave this open until #202 merges.**)*
 
 
-- [x] **RPC interface-level liveliness (§3.5, §5.3) is deliberately not planned.** *(Reconsidered — planned and done; see below.)* The app answers
-      crowsnest's `get_config` probe but is not an RPC server in the interface/version sense, and §3.6's
-      **full-interface implementation rule** means declaring the token commits to serving all of
-      `configurable/v1`. That is a commitment to make deliberately, not in passing while fixing the
-      pubsub tiers. Noted here so the omission is a decision rather than an oversight.
-      *(2026-08-19: **the reading above was too pessimistic, and the work is done.** §3.6 requires a
-      *typed answer* to every procedure, not compliance with every procedure — "never silence" — and
-      names `ErrorResponse` on `reply_err` for interfaces like this one, whose replies carry no
-      `CommandResult`. `configurable/v1` is two procedures; `get_config` was already served and
-      `set_config` is now refused in a way a caller can decode. Verified against the live bus.)*
-      Done in 6f3b071.
-
-- [ ] **`keelson.interfaces.ErrorResponse` has no `UNSUPPORTED` code**, and §3.6 asks for exactly that
-      distinction — a *permanent* structural refusal against a conditional one a caller may retry. The
-      enum offers `PERMISSION_DENIED` ("lock-down rules") and `UNAVAILABLE` ("backend not ready"), and
-      neither says "this will never work". The app uses `PERMISSION_DENIED` and puts the word
-      "permanent" in `error_description`, which is then the only place the distinction survives: a
-      consumer reading the enum alone will offer a retry that can never succeed. Worth an upstream
-      issue against `interfaces/ErrorResponse.proto`, alongside `keelson#201` and `#202`.
-      *(2026-08-19: filed as [keelson#203](https://github.com/RISE-Maritime/keelson/issues/203). The
-      gap is sharper than written above — keelson already draws this distinction in `CommandResult`
-      (`interfaces/VehicleCommon.proto` carries both `COMMAND_RESULT_UNSUPPORTED` and
-      `COMMAND_RESULT_DENIED`); it is only missing from the enum §3.6 sends `ErrorResponse` interfaces
-      to. That makes §3.6's "MUST NOT return DENIED for a procedure it can never fulfill" impossible to
-      obey on those interfaces, and it affects `AlarmAck`, `RoutePlanner`, `SimulationControl`,
-      `VehicleControl` and `VehicleSimulatorControl` as well as this app. Suggested fix is one additive
-      value, `UNSUPPORTED = 9`. **Leave open until it is resolved upstream** — if it lands, change
-      `setConfigRefusal()` to use it and relax `ConfigurableRpcTest`'s wording assertion.)*
-
-- [ ] **The config RPC is served only while a rig screen is open**, because `PlatformSync`'s session is
-      scoped to `route.startsWith("calibration")`. A phone that is *logging* therefore advertises no
-      `configurable/v1` and answers no `get_config` — a fleet tool probing it finds nothing. That is
-      spec-correct (§3.5 forbids holding a token for an interface a source is not currently serving),
-      and the token at least makes the intermittency visible rather than silent, but the interface is
-      unavailable exactly when the phone is most in use. Making it always available means a second
-      Zenoh session open for the life of the app — against the deliberate design note in CLAUDE.md,
-      with a battery cost during runs. A product decision, not a bug.
-
 ## P3 — product
 
 
-- [x] **Export and import settings.** Provisioning a second phone means retyping realm, entity, source
-      ids, endpoints, per-subject switches, rates, QoS overrides and the operator identity through the
-      settings screen. A JSON export and import (share sheet, or a QR code for the small case) makes a
-      fleet reproducible. TLS credentials stay out of it — they are files, and the whole point of the
-      backup exclusions is that they should not travel casually.
-      *(2026-08-19: **entity id deliberately does not travel**, against the wording above. It names this
-      hardware on the bus, and two phones sharing one publish on byte-identical keys — so it is absent
-      from `SettingsProfile` entirely, along with `operatorId`, `rigRegistryOrigin`,
-      `rigRegistryVersion` and `batteryExemptionAsked`. An import cannot copy them even by mistake. A
-      profile configures a phone; it does not clone one. Do not "fix" the omission.
-      Verified on the device: the exported file contains none of those five (checked against the
-      phone's real operator UUID read out of DataStore) and no TLS material; importing it back applied
-      cleanly and left the entity id as `phone`; and the QR shown on screen was screenshotted and
-      decoded off the pixels to the connection profile alone. **The camera scanner is the one part
-      never exercised on hardware** — a phone cannot read its own screen, so it needs two devices:
-      show the QR on one, Scan QR on the other, and confirm the endpoints arrive and the entity id does
-      not.)*
-      Done in ceb872b.
-
-- [ ] **Video: `video_compressed`, not WebRTC** — the answer to the old "can we use keelson webrtc for
+- [x] **Video: `video_compressed`, not WebRTC** — the answer to the old "can we use keelson webrtc for
       video?" question. Upstream's answer for WebRTC is `connectors/mediamtx`, which proxies MediaMTX's
       WHEP endpoint through a Zenoh queryable — signalling over the bus, media over WebRTC, live only,
       nothing recorded and nothing replayable, and it needs a MediaMTX instance the phone can reach.
@@ -156,6 +99,20 @@ rewritten from the ground up. These are the consequences.
       order of magnitude cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before
       deciding — the honest unknowns are keyframe interval against the replay story, and whether
       `CompressedVideo`'s framing wants Annex B or AVCC.
+      *(2026-08-19: **built, and both unknowns answered — plus two the item did not anticipate.**
+      Framing is **Annex B**, which is what `MediaCodec` emits natively; the real trap is that every
+      keyframe must carry its SPS while the codec sends it once, so it is cached and prepended.
+      Keyframes every 2 s, which bounds a live joiner's wait and is most of the bitrate at 10 fps.
+      **The cost claim was backwards**: video is ~11x cheaper per *frame* and 5.4x more expensive per
+      *hour* at 720p/2 Mbps, so the default is 640x480 at 300 kbps — 131 MB/h measured, below the
+      time-lapse's 158 for twenty times the frames.
+      Two findings the plan did not predict. **The camera will not serve `Preview` and `ImageCapture`
+      together** — `ERROR_CAMERA_DEVICE`, HAL restart loop, at matching resolutions too — so video and
+      the time-lapse are mutually exclusive, enforced in `Settings.offSubjects()`. And
+      **`KEY_FRAME_RATE` is a bitrate hint, not a throttle**: 10 fps requested encoded at 29.9 until
+      the rate was asked of the camera through `Camera2Interop`, after which it measured 10.0.
+      Proven end to end by cutting a recording at frame 1260 of 2499 and decoding it with `ffmpeg`.)*
+      Done in <sha>.
 
 - [ ] **Samples queued at Stop are dropped rather than drained.** `Recorder.stop()` closes the queue
       and then `cancelAndJoin`s the drain scope, and cancellation beats the `for (sample in queue)`

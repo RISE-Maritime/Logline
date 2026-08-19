@@ -26,6 +26,7 @@ internal val subjectSchemaNames: Map<String, String> = mapOf(
     Subjects.ILLUMINANCE_LUX to "keelson.TimestampedFloat",
     Subjects.AUDIO to "keelson.Audio",
     Subjects.IMAGE_COMPRESSED to "foxglove.CompressedImage",
+    Subjects.VIDEO_COMPRESSED to "foxglove.CompressedVideo",
     Subjects.FRAME_TRANSFORM to "foxglove.FrameTransform",
     Subjects.RAW_NMEA0183 to "keelson.TimestampedString",
     Subjects.LOCATION_FIX_SATELLITES_USED to "keelson.TimestampedInt",

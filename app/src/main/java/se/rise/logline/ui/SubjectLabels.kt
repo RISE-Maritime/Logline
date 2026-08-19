@@ -77,6 +77,7 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     // Same reasoning: the subject carries a picture, and what a sparkline can show of it is how big
     // each frame came out. The frame itself is drawn above the plot in the live view.
     Subjects.IMAGE_COMPRESSED -> SubjectLabel("Frame size", "kB")
+    Subjects.VIDEO_COMPRESSED -> SubjectLabel("Video", "kB/frame")
     Subjects.BATTERY_STATE_OF_CHARGE_PCT -> SubjectLabel("Charge", "%")
     Subjects.BATTERY_VOLTAGE_V -> SubjectLabel("Battery voltage", "V")
     Subjects.BATTERY_CURRENT_A -> SubjectLabel("Battery current", "A")
@@ -140,7 +141,8 @@ fun formatLiveValue(entry: PublishedSubject, value: Float): String = when (entry
     Subjects.SPEED_OVER_GROUND_KNOTS -> "%.1f".fmt(value)
     Subjects.AIR_PRESSURE_PA -> "%.0f".fmt(value)
     // Frame sizes run to hundreds of kB; a decimal place on that is noise.
-    Subjects.IMAGE_COMPRESSED -> "%.0f".fmt(value)
+    Subjects.IMAGE_COMPRESSED,
+    Subjects.VIDEO_COMPRESSED -> "%.0f".fmt(value)
     Subjects.BATTERY_STATE_OF_CHARGE_PCT -> "%.0f".fmt(value)
     Subjects.BATTERY_VOLTAGE_V -> "%.2f".fmt(value)
     Subjects.BATTERY_CURRENT_A -> "%+.2f".fmt(value)

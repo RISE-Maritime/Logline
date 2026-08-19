@@ -65,6 +65,17 @@ class QosTest {
     }
 
     /**
+     * `video_compressed: transient` upstream, under the same heading.
+     *
+     * The strongest case of the three: a frame that will not fit down a congested link is superseded
+     * within a tenth of a second, and the next keyframe re-synchronises the decoder regardless.
+     */
+    @Test
+    fun `video_compressed is transient, as upstream lists it`() {
+        assertSame(QosProfile.TRANSIENT, policyQosForSubject(Subjects.VIDEO_COMPRESSED))
+    }
+
+    /**
      * `log_message: background` upstream — the lowest priority there is, so an annotation can never
      * delay live navigation data. Reliable all the same: it is an audit trail, and losing one is
      * losing the thing somebody deliberately recorded.
@@ -84,6 +95,7 @@ class QosTest {
         val listedUpstream = setOf(
             Subjects.AUDIO,
             Subjects.IMAGE_COMPRESSED,
+            Subjects.VIDEO_COMPRESSED,
             Subjects.LOCATION_FIX,
             Subjects.SPEED_OVER_GROUND_KNOTS,
             Subjects.COURSE_OVER_GROUND_DEG,

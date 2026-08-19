@@ -8,6 +8,7 @@ import se.rise.logline.ui.BASE_MEGABYTES_PER_HOUR
 import se.rise.logline.ui.formatBytes
 import se.rise.logline.ui.formatCapacity
 import se.rise.logline.ui.megabytesPerHour
+import se.rise.logline.ui.videoMegabytesPerHour
 import se.rise.logline.ui.recordingCapacityMillis
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -124,5 +125,22 @@ class CapacityTest {
 
         // (64 GB − the 256 MB floor) ÷ 77 MB/h ≈ 848 h.
         assertEquals("35 days", formatCapacity(millis))
+    }
+
+    /**
+     * Exact, unlike the JPEG figure beside it: a bitrate is what the encoder was told to make, not a
+     * guess about how well a scene compresses.
+     *
+     * 128 MB/h at the default is the number the whole choice of default rests on — it is *below* the
+     * time-lapse's 158 MB/h while carrying twenty times the frames, so switching video on cannot make
+     * a run shorter than it already was. If this figure ever rises above 158 the defaults need
+     * revisiting, not the test.
+     */
+    @Test
+    fun `video costs what its bitrate says`() {
+        assertEquals(128, videoMegabytesPerHour(300))
+        assertEquals(429, videoMegabytesPerHour(1_000))
+        assertEquals(858, videoMegabytesPerHour(2_000))
+        assertEquals(0, videoMegabytesPerHour(0))
     }
 }

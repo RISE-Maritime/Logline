@@ -32,8 +32,23 @@ internal fun megabytesPerHour(settings: Settings): Int {
         .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS)
     return BASE_MEGABYTES_PER_HOUR +
         (if (settings.audioEnabled) audioMegabytesPerHour(settings.audioSampleRateHz, settings.audioChannels) else 0) +
-        (if (settings.cameraEnabled) cameraMegabytesPerHour(settings.cameraWidth, settings.cameraHeight, frameHz) else 0)
+        (if (settings.cameraEnabled) cameraMegabytesPerHour(settings.cameraWidth, settings.cameraHeight, frameHz) else 0) +
+        (if (settings.videoEnabled) videoMegabytesPerHour(settings.videoBitrateKbps) else 0)
 }
+
+/**
+ * What continuous video costs per hour — **exact, unlike the JPEG figure beside it.**
+ *
+ * `cameraMegabytesPerHour` guesses at how well a scene will compress, and deliberately guesses high. A
+ * bitrate needs no guess: it is what the encoder was told to produce and what it holds to within a few
+ * percent, so this is arithmetic on a number the user chose.
+ *
+ * At the 300 kbps default that is 128 MB/h — less than the time-lapse's 158 MB/h for twenty times the
+ * frames, which is the whole reason those defaults were picked. At 2 Mbps it is 858 MB/h and turns ten
+ * days of recording into under two.
+ */
+internal fun videoMegabytesPerHour(bitrateKbps: Int): Int =
+    (bitrateKbps.toLong() * 1000 / 8 * 3600 / 1_048_576).toInt()
 
 /**
  * How long the free space lasts at that rate, in milliseconds, or null when there is none to be had.

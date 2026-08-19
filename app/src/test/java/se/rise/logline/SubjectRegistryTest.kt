@@ -208,6 +208,7 @@ class SubjectRegistryTest {
                 "radio_downlink_bandwidth_mhz",
                 "audio",
                 "image_compressed",
+                "video_compressed",
                 "log_message",
                 "frame_transform",
                 "configuration_json",

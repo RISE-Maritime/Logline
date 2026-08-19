@@ -397,6 +397,28 @@ enum class PublishedSubject(
         source = SourceKind.DEVICE,
         bufferedForReplay = false,
     ),
+
+    /**
+     * Continuous H.264, one message per frame.
+     *
+     * Shares the camera with [IMAGE_COMPRESSED] rather than replacing it — a time-lapse is the cheap
+     * option for a long unattended run and this is the one that shows motion, and the two bind as one
+     * `Preview` + `ImageCapture` pair on a single camera session.
+     *
+     * `bufferedForReplay = false` for the same reason as the stills, only more so: `replay()` paces by
+     * *message count*, so a buffered second of video is a burst of ten multi-kilobyte frames that the
+     * DROP-everywhere egress queue sheds silently, taking the live navigation data queued behind it.
+     * The recording is the complete copy.
+     *
+     * The rate here is the *encoder's* frame rate rather than a sampling interval — nothing polls it,
+     * the camera pushes — so the per-subject rate control sets what the encoder is asked to produce.
+     */
+    VIDEO_COMPRESSED(
+        subject = Subjects.VIDEO_COMPRESSED,
+        defaultRate = SensorRate.Hz(10.0),
+        source = SourceKind.DEVICE,
+        bufferedForReplay = false,
+    ),
     /**
      * Operator annotations — a marker pressed by a human to say "this is the bit that matters".
      *

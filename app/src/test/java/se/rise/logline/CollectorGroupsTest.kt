@@ -73,11 +73,22 @@ class CollectorGroupsTest {
         }
     }
 
-    /** The two that cannot be switched on mid-run, because their service type is fixed at start. */
+    /**
+     * The three that cannot be switched on mid-run.
+     *
+     * Audio and the stills because their foreground-service type is fixed at `startForeground`. Video
+     * for a second reason as well: it shares the camera collector with the stills, and `supervise()`
+     * only starts a collector on the all-off → any-on edge — so switching video on while the
+     * time-lapse was already running would rebind nothing and produce no frame, silently.
+     */
     @Test
-    fun `audio and the camera are the start-time subjects`() {
+    fun `audio and both camera subjects are the start-time subjects`() {
         assertEquals(
-            setOf(PublishedSubject.AUDIO, PublishedSubject.IMAGE_COMPRESSED),
+            setOf(
+                PublishedSubject.AUDIO,
+                PublishedSubject.IMAGE_COMPRESSED,
+                PublishedSubject.VIDEO_COMPRESSED,
+            ),
             START_TIME_SUBJECTS,
         )
     }

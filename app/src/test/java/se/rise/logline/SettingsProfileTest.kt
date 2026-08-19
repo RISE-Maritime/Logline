@@ -53,6 +53,11 @@ class SettingsProfileTest {
         cameraLensFront = true,
         cameraWidth = 1920,
         cameraHeight = 1080,
+        videoEnabled = true,
+        videoWidth = 640,
+        videoHeight = 480,
+        videoBitrateKbps = 1_000,
+        videoKeyframeSeconds = 4,
         disabledSubjects = setOf(PublishedSubject.ILLUMINANCE, PublishedSubject.WIFI_RSSI),
         annotationButtons = listOf(
             AnnotationButton("Man overboard", AnnotationSeverity.Error, "incident"),
@@ -113,6 +118,11 @@ class SettingsProfileTest {
         assertEquals(original.cameraLensFront, out.cameraLensFront)
         assertEquals(original.cameraWidth, out.cameraWidth)
         assertEquals(original.cameraHeight, out.cameraHeight)
+        assertEquals(original.videoEnabled, out.videoEnabled)
+        assertEquals(original.videoWidth, out.videoWidth)
+        assertEquals(original.videoHeight, out.videoHeight)
+        assertEquals(original.videoBitrateKbps, out.videoBitrateKbps)
+        assertEquals(original.videoKeyframeSeconds, out.videoKeyframeSeconds)
         assertEquals(original.disabledSubjects, out.disabledSubjects)
         assertEquals(original.sensorRates, out.sensorRates)
         assertEquals(original.qosOverrides, out.qosOverrides)
