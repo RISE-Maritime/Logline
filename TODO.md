@@ -59,7 +59,7 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-- [ ] **Liveliness is three tiers now, and the app declares the legacy one.** §5 defines source-level
+- [x] **Liveliness is three tiers now, and the app declares the legacy one.** §5 defines source-level
       (`{realm}/@v0/{entity}/*/{source}`), pubsub subject-level
       (`{realm}/@v0/{entity}/pubsub/{subject}/{source}`) and RPC interface-level tokens. What
       `livelinessKey()` builds — `{realm}/@v0/{entity}/pubsub/*/{source}` — is §5.7's **"legacy coarse
@@ -85,6 +85,7 @@ rewritten from the ground up. These are the consequences.
       says declaring one token per subject "is a misreading of the spec", which was right against the
       old §5.1 and is exactly backwards against the new one. `README.md:1308` ("No liveliness tokens")
       and the discovery snippet at `README.md:597` are stale with it.
+      Done in ceb872b.
 
 - [ ] **`illuminance_lux` is in no released keelson.** Not in `0.6.0-pre.3`, not in `dev`, not in
       `0.5.4` — it exists only on the unmerged one-commit branch `feat/illuminance-subject`, as a
@@ -169,11 +170,12 @@ rewritten from the ground up. These are the consequences.
       definition of a wire format two projects already speak — crowsnest reconstructed from its
       generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
-- [ ] **The README's "Known limitations" section is stale, and it is the misleading kind.** All four
+- [x] **The README's "Known limitations" section is stale, and it is the misleading kind.** All four
       bullets are wrong now: QoS profiles exist (`keelson/Qos.kt`, verified against `dev`'s `qos.yaml`
       with no drift), liveliness tokens are declared per (entity, source) pair, `ExampleUnitTest` is
       long gone and there are 39 test classes, and `applicationId` is not a template default. A reader
       deciding whether this app is fit for a run reads that section first.
+      Done in ceb872b.
 
 - [ ] **CLAUDE.md's QoS note is stale in the same way** — it says only the three GNSS subjects differ
       from Zenoh's defaults. It is eight subjects across four profiles today: five `elevated`
