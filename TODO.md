@@ -12,11 +12,6 @@ measured as a claim to confirm on a device.
 
 ## P1 — a long unattended run should not lie, and should not die quietly
 
-- [ ] **The notification's sample count is ungrouped.** `strings.xml` has `notification_samples` as
-      `%1$d samples`, so the lock screen reads `681204 samples` while every other surface in the app
-      reads `681 204`. `formatCount` is right there. (Lint also flags this string as a plurals
-      candidate — same fix.)
-
 ## P2 — subjects this phone could publish and does not
 
 This is the answer to the old "other sensors" question below. Every name here exists in
@@ -170,7 +165,7 @@ Highest value first:
 
 - [ ] **Lint nits**, all one-liners: two `AutoboxingStateCreation` (`ChecklistScreen.kt:365`,
       `SensorMountScreen.kt:87` — `mutableIntStateOf` / `mutableLongStateOf`), `UseKtx` in
-      `ChecklistReminders.kt:120` (`String.toUri`), a `RedundantLabel` in the manifest, and the
-      `PluralsCandidate` folded into the notification item in P1. `UsableSpace` in `Recorder.kt` is
+      `ChecklistReminders.kt:120` (`String.toUri`), and a `RedundantLabel` in the manifest.
+      `UsableSpace` in `Recorder.kt` is
       *not* one of these: `getAllocatableBytes` counts clearable cache the recorder cannot actually
       have, and the floor being predicted is real free space.

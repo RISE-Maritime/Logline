@@ -22,6 +22,7 @@ import se.rise.logline.LoglineApp
 import se.rise.logline.MainActivity
 import se.rise.logline.R
 import se.rise.logline.config.Settings
+import se.rise.logline.ui.formatCounted
 import se.rise.logline.ui.formatRuntimeLeft
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -236,7 +237,12 @@ class PublisherService : Service() {
         }
         val detail = buildString {
             if (totalSamples != null) {
-                append(getString(R.string.notification_samples, totalSamples))
+                // Through `formatCounted` like every other count in the app, rather than a `%d` in a
+                // string resource: that read `681204 samples` on the lock screen while the screen two
+                // taps away read `681 204`, and `1 samples` at the start of every run. The noun and its
+                // plural live in one place for the same reason the grouping does — the other strings
+                // here are fixed phrases, this one is a quantity.
+                append(formatCounted(totalSamples, "sample"))
             }
             // A frozen sample count on its own looks identical to a crash; say which it is.
             if (app.publisher.status.value.connection == ConnectionState.Disconnected) {
