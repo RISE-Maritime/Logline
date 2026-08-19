@@ -87,32 +87,6 @@ else can build against the checklist feature, and this app's vendored copies are
 definition of a wire format two projects already speak — crowsnest reconstructed from its
 generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
-## P3 — product
-
-
-- [x] **Confirm the Pixel 6 actually emits NMEA.** `raw_nmea0183` is implemented and unit-tested, but
-      no sentence has been seen: it needs a publishing run, and `addNmeaListener` delivers only while
-      something is requesting position. Worth checking on the first run — the subject's row rate, and
-      `adb logcat -s SensorPublisher:V` — because a receiver that reports nothing looks identical to a
-      collector that failed to register, and the two want different fixes. Check the timestamp branch
-      while there: sentences dated to 1970 mean the callback is on the boot clock after all.
-      *(2026-08-19: **confirmed, both halves.** A 97 s run recorded **7 096 sentences** — the receiver
-      talks and the listener registers, so neither of the two fixes this item was hedging between is
-      needed. **0 of them carry a pre-2001 timestamp**, so `addNmeaListener` delivers epoch millis on
-      this device and the `EPOCH_FLOOR_MILLIS` fallback never fires here; it stays for the older
-      `GpsStatus.NmeaListener` devices `NmeaTest` covers. Payload-to-log skew under a second.
-      Indoors with no fix, `GPGGA` and `GPRMC` still arrive at 1 Hz alongside `GSV`/`GSA` for GPS,
-      GLONASS, Galileo, BeiDou and QZSS.)*
-      Done in the run recorded at 20:13; no code change needed.
-
-- [ ] **Most of `raw_nmea0183` is Qualcomm debug chatter.** Measured in that same run: `PGLOR` (2 922)
-      and `PSSGR` (1 261) are **59% of all NMEA and 4.4% of every message the run published** — vendor
-      proprietary status sentences, not navigation data. The whole subject is 7.5% of the run's messages
-      at ~73 sentences/s. Filtering to standard talkers would cut that by more than half, and argues
-      against itself: the subject is called *raw*, and a consumer asking for raw sentences and getting a
-      curated subset is the kind of surprise this app avoids elsewhere. Worth a decision rather than a
-      default — either filter and say so plainly in the README, or leave it and note the cost beside
-      the subject's row so nobody is surprised by the message count.
 
 ## P4 — housekeeping
 
@@ -122,11 +96,16 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
       is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
 
-- [ ] **CLAUDE.md's QoS note is stale in the same way** — it says only the three GNSS subjects differ
+- [x] **CLAUDE.md's QoS note is stale in the same way** — it says only the three GNSS subjects differ
       from Zenoh's defaults. It is eight subjects across four profiles today: five `elevated`
       (`location_fix`, `speed_over_ground_knots`, `course_over_ground_deg`, `heading_magnetic_deg`,
       `heading_true_north_deg`), two `transient` (`audio`, `image_compressed`), one `background`
       (`log_message`).
+      *(2026-08-19: fixed — and **the count in this item was stale too**, which is the argument for
+      deriving it rather than writing it down. It is **ten** subjects, not eight: `raw_nmea0183` is
+      `background` and was missed here, and `video_compressed` is `transient` and postdates it. All ten
+      cross-checked against `0.6.0-pre.5`'s `qos.yaml` with no drift.)*
+      Done in <sha>.
 
 - [ ] **No instrumented tests at all** — `app/src/androidTest` is an empty directory tree. The 39 JVM
       tests cover the wire format, the registry, the units and the formatting well; nothing covers a

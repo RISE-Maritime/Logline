@@ -102,10 +102,14 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `rise/**` matches nothing and fails silently, `rise/@v0/**` works. `KeysTest` pins the chunk position.
 - **QoS comes from `qos.yaml`, via `qosForSubject()`** in `keelson/Qos.kt`. Those profiles are a
   transcription of `../keelson/messages/qos.yaml` — a copy, like the vendored protos. Never hand-tune a
-  publisher's priority or reliability here; if a profile is wrong it is wrong upstream first. Only the
-  three GNSS subjects (`elevated`) differ from Zenoh's defaults today; everything else is unlisted
-  upstream and inherits `default` on purpose, so the same subject travels identically from every
-  connector. The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
+  publisher's priority or reliability here; if a profile is wrong it is wrong upstream first. **Ten
+  subjects differ from Zenoh's defaults**, across three profiles — five `elevated` (`location_fix`,
+  `speed_over_ground_knots`, `course_over_ground_deg`, and both headings), three `transient` (`audio`,
+  `image_compressed`, `video_compressed`), two `background` (`raw_nmea0183`, `log_message`) — and
+  everything else is unlisted upstream and inherits `default` on purpose, so the same subject travels
+  identically from every connector. Verified against `0.6.0-pre.5` with no drift; that check is a
+  dozen lines of script and worth re-running against each release rather than reading this list, which
+  has been wrong before. The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
   is upstream policy, `qosForSubject(subject, overrides)` is what actually gets used. Overrides are an
   escape hatch, not the norm: default them to Auto and keep the policy path the one that works.
 - **Liveliness is three tiers, and the app declares two of them** (protocol specification §5, as
