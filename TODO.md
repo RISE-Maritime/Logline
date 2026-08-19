@@ -105,7 +105,7 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       deriving it rather than writing it down. It is **ten** subjects, not eight: `raw_nmea0183` is
       `background` and was missed here, and `video_compressed` is `transient` and postdates it. All ten
       cross-checked against `0.6.0-pre.5`'s `qos.yaml` with no drift.)*
-      Done in <sha>.
+      Done in f074931.
 
 - [ ] **No instrumented tests at all** — `app/src/androidTest` is an empty directory tree. The 39 JVM
       tests cover the wire format, the registry, the units and the formatting well; nothing covers a
