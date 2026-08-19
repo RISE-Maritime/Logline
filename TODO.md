@@ -17,7 +17,9 @@ measured as a claim to confirm on a device.
 
 - [ ] The phone should be able to hold multiple calibration rigs at ones as we using multipel rigs when data logging, keelson have something called platforms If you look at crowsenst there is one "own ship slector" or platform selector I think we should be synced with that one. 
 
-- [ ] On main page have the categoris colapsed by deaflut 
+- [x] On main page have the categoris colapsed by deaflut
+      Done in 2cbb3b5 — the group headings already carry the badge and the colour, so nothing needed to
+      be opened to see whether a run is healthy. Checked on the phone. 
 
 ## P2 — subjects this phone could publish and does not
 
