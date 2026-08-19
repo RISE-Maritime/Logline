@@ -73,6 +73,9 @@ class SettingsRepositoryTest {
         // it. Defaulting the other way would mean a fresh install silently never asks — and the phones
         // that need the exemption are exactly the ones nobody is watching.
         assertEquals(false, settings.batteryExemptionAsked)
+        // Off unless somebody asked for it. A phone that begins publishing on its own after a restart
+        // is a surprise to anyone who did not set it up that way.
+        assertEquals(false, settings.startOnBoot)
     }
 
     // ---- checklist identity ----
@@ -171,6 +174,7 @@ class SettingsRepositoryTest {
             // Set to the non-default here on purpose: it defaults to false, so a version of this test
             // that left it alone would pass just as well against a write path that never stored it.
             batteryExemptionAsked = true,
+            startOnBoot = true,
         )
 
         val prefs = mutablePreferencesOf()

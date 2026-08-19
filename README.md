@@ -956,6 +956,25 @@ nothing announces a change to it.
 > anyone considering publishing it should expect to drop the direct dialog and send users to the system
 > list instead.
 
+### Starting again after a reboot
+
+Off by default; **Settings → Background running → Start on boot**. `START_STICKY` already brings a run
+back when the process is killed, and nothing brought it back after a restart — which for a phone wired
+into a rig is the difference between an unattended install and one somebody has to go and visit.
+
+A boot start is narrower than one you press Start for, and both limits are the platform's:
+
+- **It needs the location permission.** Without it the run would be a `dataSync` service, and Android
+  15+ refuses that type from a `BOOT_COMPLETED` broadcast. The receiver checks and declines rather than
+  letting `startForeground` throw; `adb logcat -s BootReceiver:V` says which happened.
+- **It never brings audio or the camera**, whatever the settings say — `microphone` and `camera` are
+  refused from that broadcast for the same reason. They are dropped from the settings the run is given,
+  so the service's type mask and the collectors agree; switch them back on by hand when you next want
+  them. Given both record people, a run that starts itself is arguably the last place they belong.
+
+A run stopped by hand stays stopped: this is about surviving a restart, not about refusing to be
+switched off.
+
 ## Verify it is working
 
 From a machine with a Zenoh client, subscribe to everything the phone emits (locators use Zenoh's

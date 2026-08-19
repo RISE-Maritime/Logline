@@ -57,6 +57,15 @@ data class Settings(
      */
     val batteryExemptionAsked: Boolean = false,
     /**
+     * Start a run again after the phone restarts. Off by default, and deliberately.
+     *
+     * A phone that begins publishing on its own is a surprise to anyone who does not know it was set
+     * up that way, and the two subjects that record people — audio and the camera — are never part of
+     * a boot start regardless, because Android 15+ refuses those foreground service types from a
+     * `BOOT_COMPLETED` broadcast.
+     */
+    val startOnBoot: Boolean = false,
+    /**
      * Capture the microphone and publish it as `audio`.
      *
      * **Off by default, and that is a deliberate choice rather than a cautious one.** A phone logging

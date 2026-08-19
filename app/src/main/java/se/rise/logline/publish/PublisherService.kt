@@ -90,18 +90,18 @@ class PublisherService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            else -> startPublishing()
+            else -> startPublishing(fromBoot = intent?.getBooleanExtra(EXTRA_FROM_BOOT, false) == true)
         }
         return START_STICKY
     }
 
-    private fun startPublishing() {
+    private fun startPublishing(fromBoot: Boolean = false) {
         if (running) return
 
         // Blocking, and deliberately: `startForeground` must be called within five seconds of the
         // start, and its type mask depends on whether audio is on. One DataStore read of a small
         // preferences file is a few milliseconds against that budget.
-        pendingSettings = runBlocking { app.settingsRepository.settings.first() }
+        pendingSettings = forThisStart(runBlocking { app.settingsRepository.settings.first() }, fromBoot)
 
         locationMode = ContextCompat.checkSelfPermission(
             this, Manifest.permission.ACCESS_FINE_LOCATION
@@ -140,7 +140,7 @@ class PublisherService : Service() {
         acquireWakeLock()
 
         scope.launch {
-            val current = pendingSettings ?: app.settingsRepository.settings.first()
+            val current = pendingSettings ?: forThisStart(app.settingsRepository.settings.first(), fromBoot)
             settings = current
             app.publisher.start(current)
             // Attached *after* the run has begun, and that ordering is load-bearing: `start()` clears
@@ -155,6 +155,15 @@ class PublisherService : Service() {
 
         watchOffSubjects()
         refreshNotificationPeriodically()
+    }
+
+    /** See [forBootStart]: a boot start cannot carry the microphone or camera types. */
+    private fun forThisStart(settings: Settings, fromBoot: Boolean): Settings {
+        if (!fromBoot) return settings
+        if (settings.audioEnabled || settings.cameraEnabled) {
+            Log.i(TAG, "boot start: audio and the camera stay off, which this broadcast cannot start")
+        }
+        return forBootStart(settings)
     }
 
     private fun stopPublishing() {
@@ -345,8 +354,13 @@ class PublisherService : Service() {
         const val ACTION_START = "se.rise.logline.action.START"
         const val ACTION_STOP = "se.rise.logline.action.STOP"
 
-        fun start(context: Context) {
-            val intent = Intent(context, PublisherService::class.java).setAction(ACTION_START)
+        /** Set only by [BootReceiver]; see [forThisStart] for what it changes. */
+        private const val EXTRA_FROM_BOOT = "se.rise.logline.extra.FROM_BOOT"
+
+        fun start(context: Context, fromBoot: Boolean = false) {
+            val intent = Intent(context, PublisherService::class.java)
+                .setAction(ACTION_START)
+                .putExtra(EXTRA_FROM_BOOT, fromBoot)
             ContextCompat.startForegroundService(context, intent)
         }
 

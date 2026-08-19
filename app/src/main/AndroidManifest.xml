@@ -76,6 +76,18 @@
             </intent-filter>
         </receiver>
 
+        <!-- Not directBootAware on purpose: the settings live in credential-encrypted storage, so
+             there is nothing to read until the user has unlocked the phone after a restart. Not
+             registered for MY_PACKAGE_REPLACED either — an update is done by somebody who is standing
+             there, and a run restarting under them is a surprise rather than a service. -->
+        <receiver
+            android:name=".publish.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".publish.PublisherService"
             android:exported="false"

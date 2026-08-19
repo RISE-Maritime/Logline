@@ -306,6 +306,17 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   visibility on Android 11+ can hide a perfectly launchable activity, which would send some devices
   down the fallback path for no reason. The permission is Play-policy restricted; that is deliberate
   and `@SuppressLint("BatteryLife")` says why.
+- **A boot start cannot use every foreground service type, and the failure is an exception.** Android
+  15+ refuses `dataSync`, `microphone` and `camera` foreground services started from a
+  `BOOT_COMPLETED` broadcast — `startForeground` throws rather than quietly dropping the type, so a
+  boot start carrying audio would lose the *whole run* rather than one subject. Hence two rules that
+  look like product decisions and are not: `BootReceiver` declines unless `ACCESS_FINE_LOCATION` is
+  granted (that is what makes the run a `location` service, which is permitted), and `forBootStart()`
+  takes audio and the camera off the settings the run is given — in *settings*, so the type mask and
+  the collectors cannot disagree. `BootStartTest` pins it. Note also the service is started from
+  inside `onReceive` rather than a coroutine: the exemption from Android 12's ban on background
+  foreground-service starts belongs to the broadcast, so the settings read there is deliberately
+  blocking.
 - **The foreground service type is chosen per start.** `location` when `ACCESS_FINE_LOCATION` is
   granted, `dataSync` (IMU only) when it isn't. `dataSync` carries a ~6 h/24 h cap on Android 15+,
   which is why `PublisherService.onTimeout()` exists — removing it turns a cap into a crash.

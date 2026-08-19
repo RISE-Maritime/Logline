@@ -55,6 +55,7 @@ internal object Keys {
     val RECORDING_ENABLED = stringPreferencesKey("recording_enabled")
     val BACKFILL_ENABLED = stringPreferencesKey("backfill_enabled")
     val BATTERY_EXEMPTION_ASKED = stringPreferencesKey("battery_exemption_asked")
+    val START_ON_BOOT = stringPreferencesKey("start_on_boot")
     val SCOUT_ADDRESS = stringPreferencesKey("scout_address")
     val AUDIO_ENABLED = stringPreferencesKey("audio_enabled")
     val AUDIO_SAMPLE_RATE = stringPreferencesKey("audio_sample_rate_hz")
@@ -168,6 +169,7 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
     recordingEnabled = prefs[Keys.RECORDING_ENABLED]?.toBooleanStrictOrNull() ?: true,
     backfillEnabled = prefs[Keys.BACKFILL_ENABLED]?.toBooleanStrictOrNull() ?: true,
     batteryExemptionAsked = prefs[Keys.BATTERY_EXEMPTION_ASKED]?.toBooleanStrictOrNull() ?: false,
+    startOnBoot = prefs[Keys.START_ON_BOOT]?.toBooleanStrictOrNull() ?: false,
     scoutAddress = prefs[Keys.SCOUT_ADDRESS]?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_SCOUT_ADDRESS,
     // Absent means off: a stored value is the only thing that turns the microphone on.
     audioEnabled = prefs[Keys.AUDIO_ENABLED]?.toBooleanStrictOrNull() ?: false,
@@ -210,6 +212,7 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.RECORDING_ENABLED] = settings.recordingEnabled.toString()
     prefs[Keys.BACKFILL_ENABLED] = settings.backfillEnabled.toString()
     prefs[Keys.BATTERY_EXEMPTION_ASKED] = settings.batteryExemptionAsked.toString()
+    prefs[Keys.START_ON_BOOT] = settings.startOnBoot.toString()
     prefs[Keys.SCOUT_ADDRESS] = settings.scoutAddress
     prefs[Keys.AUDIO_ENABLED] = settings.audioEnabled.toString()
     prefs[Keys.AUDIO_SAMPLE_RATE] = settings.audioSampleRateHz.toString()

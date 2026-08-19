@@ -12,12 +12,6 @@ measured as a claim to confirm on a device.
 
 ## P1 — a long unattended run should not lie, and should not die quietly
 
-- [ ] **Start on boot, opt-in.** `RECEIVE_BOOT_COMPLETED` is already declared (the checklist reminders
-      need it) and `PublisherService` is already `START_STICKY`, so a process kill resumes — but a
-      reboot does not. For a phone left wired into a rig this is the difference between an unattended
-      install and one somebody has to visit. Wants its own setting, defaulting off, and it must not
-      start audio or the camera without the permissions already being granted.
-
 - [ ] **The recording vanishes from the screen the moment you press Stop.** The recording card is
       rendered only while `recording.recording` is true, so the last thing a run tells you — file name,
       message count, size, that it was copied to Downloads/Logline — disappears at exactly the moment
@@ -127,6 +121,13 @@ Highest value first:
       order of magnitude cheaper than the current time-lapse's ~158 MB/h. Worth prototyping before
       deciding — the honest unknowns are keyframe interval against the replay story, and whether
       `CompressedVideo`'s framing wants Annex B or AVCC.
+
+- [ ] **Verify the boot start on a phone.** Implemented and unit-tested, but never exercised: `adb`
+      cannot send `BOOT_COMPLETED` on Android 17 (`SecurityException`, uid 2000 not allowed), so the
+      only test is a real restart. Switch **Start on boot** on, reboot, and watch
+      `adb logcat -s BootReceiver:V SensorPublisher:V`. The specific risk is that the run is refused
+      with a `ForegroundServiceStartNotAllowedException` even as a `location` service, which would put
+      "boot starts are not possible at all on Android 15+" in place of the current design.
 
 ## P4 — housekeeping
 

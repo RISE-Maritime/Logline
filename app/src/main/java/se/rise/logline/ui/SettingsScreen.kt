@@ -73,6 +73,7 @@ fun SettingsScreen(
     var imuSource by remember { mutableStateOf(initial.imuSource) }
     var recordingEnabled by remember { mutableStateOf(initial.recordingEnabled) }
     var backfillEnabled by remember { mutableStateOf(initial.backfillEnabled) }
+    var startOnBoot by remember { mutableStateOf(initial.startOnBoot) }
     var audioEnabled by remember { mutableStateOf(initial.audioEnabled) }
     var audioSampleRateHz by remember { mutableIntStateOf(initial.audioSampleRateHz) }
     var audioChannels by remember { mutableIntStateOf(initial.audioChannels) }
@@ -100,6 +101,7 @@ fun SettingsScreen(
         imuSource = imuSource.trim(),
         recordingEnabled = recordingEnabled,
         backfillEnabled = backfillEnabled,
+        startOnBoot = startOnBoot,
         scoutAddress = scoutAddress.trim().ifEmpty { Settings.DEFAULT_SCOUT_ADDRESS },
         audioEnabled = audioEnabled,
         audioSampleRateHz = audioSampleRateHz,
@@ -369,6 +371,15 @@ fun SettingsScreen(
             )
 
             SectionHeader("Background running")
+            SettingSwitch(
+                title = "Start on boot",
+                description = "Begin a run again after the phone restarts, for a phone left wired into " +
+                    "a rig. Needs the location permission — Android will not allow an IMU-only run to " +
+                    "start itself — and never brings audio or the camera with it, which that same rule " +
+                    "forbids. A run stopped by hand stays stopped until the next restart.",
+                checked = startOnBoot,
+                onCheckedChange = { startOnBoot = it },
+            )
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
