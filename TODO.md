@@ -106,7 +106,7 @@ generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked o
       new run's file. Verified: 94 443 published, 94 443 written, and 94 443 messages read back out of
       the MCAP with the `mcap` library. `stop()` also joins the drain with a 5 s grace and counts
       anything left over, which is the honest shape even though it was not the bug.)*
-      Done in <sha>.
+      Done in 7fcbc3d.
 
 - [ ] **Confirm the Pixel 6 actually emits NMEA.** `raw_nmea0183` is implemented and unit-tested, but
       no sentence has been seen: it needs a publishing run, and `addNmeaListener` delivers only while
