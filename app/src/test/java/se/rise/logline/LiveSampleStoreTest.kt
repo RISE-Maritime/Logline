@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -213,5 +214,73 @@ class LiveSampleStoreTest {
         assertTrue(snapshot.track.isEmpty())
         assertNull(snapshot.lastFix)
         assertNull(snapshot.frame)
+    }
+
+    /**
+     * Text is kept for the subjects that have any, and **both** rings are written.
+     *
+     * The numeric one still gets the sentence length, which is what keeps the subject a rate, a sample
+     * count and a place in the health checks like every other one — the text is an addition, not a
+     * substitution.
+     */
+    @Test
+    fun `a text subject keeps its lines and its numbers`() {
+        val store = LiveSampleStore(textLines = 4)
+        store.recordText(PublishedSubject.RAW_NMEA0183, 1_000L, 6f, "\$GPGGA")
+        store.recordText(PublishedSubject.RAW_NMEA0183, 2_000L, 6f, "\$GPRMC")
+
+        val text = store.text(PublishedSubject.RAW_NMEA0183)
+        assertEquals(listOf("\$GPGGA", "\$GPRMC"), text.lines.map { it.text })
+        assertEquals(listOf(1_000L, 2_000L), text.lines.map { it.timeMillis })
+        assertEquals(2, store.window(PublishedSubject.RAW_NMEA0183).size)
+    }
+
+    /** The ring drops its head, and says so — a log that silently truncates reads as a complete one. */
+    @Test
+    fun `the text ring drops the oldest and reports that it is full`() {
+        val store = LiveSampleStore(textLines = 3)
+        repeat(5) { store.recordText(PublishedSubject.RAW_NMEA0183, it.toLong(), 1f, "line $it") }
+
+        val text = store.text(PublishedSubject.RAW_NMEA0183)
+        assertEquals(listOf("line 2", "line 3", "line 4"), text.lines.map { it.text })
+        assertTrue("a full ring must say so", text.isFull)
+        assertEquals(3, text.capacity)
+    }
+
+    /**
+     * **No ring for the other forty-seven.** A `TextRing` each would be that many arrays of nulls to
+     * serve one subject, and the map is indexed on the publish path where a miss is the normal case.
+     */
+    @Test
+    fun `a subject with no text history returns nothing rather than an empty ring`() {
+        val store = LiveSampleStore()
+        store.record(PublishedSubject.AIR_PRESSURE, 1_000L, 100_000f)
+
+        val text = store.text(PublishedSubject.AIR_PRESSURE)
+        assertTrue(text.lines.isEmpty())
+        assertEquals("no ring, so no capacity to report", 0, text.capacity)
+        assertFalse("an absent ring is not a full one", text.isFull)
+    }
+
+    /** A new run starts empty on both sides, matching every other buffer here. */
+    @Test
+    fun `clear empties the text as well`() {
+        val store = LiveSampleStore()
+        store.recordText(PublishedSubject.RAW_NMEA0183, 1_000L, 6f, "\$GPGGA")
+        store.clear()
+
+        assertTrue(store.text(PublishedSubject.RAW_NMEA0183).lines.isEmpty())
+    }
+
+    /** One subject's window must match what the whole snapshot says about it. */
+    @Test
+    fun `a single-subject window agrees with the snapshot`() {
+        val store = LiveSampleStore()
+        repeat(4) { store.record(PublishedSubject.AIR_PRESSURE, it.toLong(), it.toFloat()) }
+
+        assertEquals(
+            store.snapshot()[PublishedSubject.AIR_PRESSURE],
+            store.window(PublishedSubject.AIR_PRESSURE),
+        )
     }
 }

@@ -159,6 +159,17 @@ class SensorPublisher(private val appContext: Context) {
     private val liveStore = LiveSampleStore()
     fun liveSnapshot(): LiveSnapshot = liveStore.snapshot()
 
+    /**
+     * One subject's window, for a screen that draws a single trace.
+     *
+     * [liveSnapshot] copies every ring — about 390 000 floats — which is the right trade for a view
+     * showing all of them and the wrong one for a view showing one.
+     */
+    fun liveWindow(subject: PublishedSubject): SampleWindow = liveStore.window(subject)
+
+    /** One subject's text history. Empty for the subjects that keep none — see `TEXT_SUBJECTS`. */
+    fun liveText(subject: PublishedSubject): TextHistory = liveStore.text(subject)
+
     /** Just the newest reading per subject — what the main screen shows in each row. */
     fun liveLatest(): LiveLatest = liveStore.latest()
 
@@ -1091,7 +1102,15 @@ class SensorPublisher(private val appContext: Context) {
                     .setTimestamp(protoTimestamp(observedAtNanos))
                     .setValue(nmea.sentence)
                     .build()
-                sink.emit(publisher, payload.toByteArray(), nmea.sentence.length.toFloat())
+                // The length keeps the subject a rate and a sample count; the sentence is what its
+                // detail screen actually shows. Plotting the length is meaningless and the card knows
+                // not to — see `detailKind`.
+                sink.emit(
+                    publisher,
+                    payload.toByteArray(),
+                    nmea.sentence.length.toFloat(),
+                    nmea.sentence,
+                )
             }
         }
     }
@@ -2081,6 +2100,14 @@ class SensorPublisher(private val appContext: Context) {
             publisher: AdvancedPublisher,
             payload: ByteArray,
             value: Float? = null,
+            /**
+             * The line itself, for a subject a person reads rather than plots.
+             *
+             * Passed beside [value] rather than instead of it: the numeric ring still gets a number, so
+             * the subject keeps its rate, its sample count and its place in the health checks like every
+             * other one. See `LiveSampleStore.recordText`.
+             */
+            text: String? = null,
         ): Result<Unit>? {
             if (subject in offSubjects.value) return null
             // Always: this is the file's copy, and the file is what analysis is run against.
@@ -2088,7 +2115,11 @@ class SensorPublisher(private val appContext: Context) {
             if (decimator?.due(System.nanoTime()) == false) return Result.success(Unit)
             buffer(payload)
             val result = session.publish(publisher, enveloped)
-            if (value != null) record(result, value) else record(result)
+            when {
+                value != null && text != null -> record(result, value, text)
+                value != null -> record(result, value)
+                else -> record(result)
+            }
             return result
         }
 
@@ -2177,6 +2208,14 @@ class SensorPublisher(private val appContext: Context) {
         fun record(result: Result<Unit>, value: Float) {
             record(result)
             if (result.isSuccess) liveStore.record(subject, System.currentTimeMillis(), value)
+        }
+
+        /** As [record], and keep the line for the detail screen's text log. */
+        fun record(result: Result<Unit>, value: Float, text: String) {
+            record(result)
+            if (result.isSuccess) {
+                liveStore.recordText(subject, System.currentTimeMillis(), value, text)
+            }
         }
 
         private fun logOnce(what: String, t: Throwable) {

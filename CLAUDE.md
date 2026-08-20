@@ -980,6 +980,35 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   the **(subject, source) pair**, navigation and status are keyed on the *entry* name, and
   `PublishedSubject.forSubject()` returns whichever entry publishes that subject — fine for
   subject-scoped settings (QoS, rate), wrong for identity. Use `forName()` for identity.
+- **Tapping a live card opens the subject, and `detailKind()` decides what it opens *as*.** Three
+  presentations — a full plot, a text log, a state timeline — and one classifier in `ui/DetailKind.kt`
+  that both the card and the screen branch on, so a subject cannot be plotted in one place and
+  tabulated in the other. `raw_nmea0183` is **Text**; `location_fix_quality`, `battery_is_charging` and
+  the three radio identifiers are **Timeline**; everything else plots. The identifiers are there because
+  a cell id is a *name* that happens to be a number: the difference between two of them is not seven of
+  anything, and what one is read for on a moving vessel is handovers.
+  **The detail plot draws against the data's true range, deliberately not `plotBounds`.** That floor
+  exists because a 34dp sparkline has no axis, so a full-height wobble is indistinguishable from a real
+  swing and a barometer varying 0.002% has to render flat. A labelled axis removes the ambiguity — and
+  keeping the floor here drew air pressure as a straight line on a 220dp canvas whose own footer said
+  the range was 5 Pa, which defeats the screen. `boundsOf` already pads a constant series, so a
+  degenerate axis is not a case to handle.
+  **A timeline segment ends at its own last sample, not at the next one's start** — the two differ by a
+  sample interval, and at 0.2 Hz that is five seconds added to every duration. Rows are ordered
+  first-seen, because sorting would have them jump about as a new cell id appears mid-run.
+  **The text is kept in its own ring and deliberately not on `LiveSnapshot`.** Copying two thousand
+  strings on the Live tab's 5 Hz ticker, for a screen usually closed, is the exact tax this store exists
+  to avoid; `liveText(subject)` is pulled by the detail screen alone. The ring is 2000 lines because
+  NMEA was measured at **77 sentences a second** — the obvious few hundred would hold under four
+  seconds. It is the one place in `LiveSampleStore` that stores objects rather than flat primitives, and
+  if more history is wanted the answer is the MCAP recording, not a bigger ring.
+  Note the numeric ring still gets the sentence *length*, so the subject keeps a rate, a sample count
+  and its place in the health checks — the card just knows not to plot it. Do not have the card state a
+  line count from that ring: it is 8192 where the text ring holds 2000.
+  **NMEA shed is wildly variable run to run and is not caused by this.** Measured across three runs of
+  the same length: 123 shed with the text ring, 12 without it, then 6 with it again. It tracks GNSS
+  burst size and sky view, not collector cost — worth knowing before reading a single run as a
+  regression.
 - **The live view pulls, it never gets pushed.** `LiveSampleStore` is deliberately not a `StateFlow`:
   the publish path runs at ~217 samples/s across 8 collectors, and emitting per sample would put the
   UI's recomposition rate at the mercy of the sensors. Collectors only append to a per-subject ring;

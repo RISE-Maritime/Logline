@@ -106,6 +106,8 @@ import se.rise.logline.publish.isBatteryOptimised
 import se.rise.logline.publish.PublisherStatus
 import se.rise.logline.publish.LiveLatest
 import se.rise.logline.publish.LiveSnapshot
+import se.rise.logline.publish.TextHistory
+import se.rise.logline.publish.SampleWindow
 import se.rise.logline.ui.LiveScreen
 import se.rise.logline.ui.WINDOW_CHOICES
 import se.rise.logline.ui.TrackMap
@@ -137,6 +139,7 @@ import se.rise.logline.platform.mergeRemoteRigs
 import se.rise.logline.ui.RigListScreen
 import se.rise.logline.ui.SensorMountScreen
 import se.rise.logline.ui.SettingsScreen
+import se.rise.logline.ui.SubjectDetailScreen
 import se.rise.logline.ui.SubjectQosScreen
 import se.rise.logline.ui.theme.LoglineTheme
 import kotlinx.coroutines.Dispatchers
@@ -783,8 +786,53 @@ private fun App(
                 onSeaMarksChange = { liveSeaMarks = it },
                 basicOnly = liveBasicOnly,
                 onBasicOnlyChange = { liveBasicOnly = it },
+                onOpenSubject = { nav.navigate(Routes.subjectDetail(it.name)) },
                 load = liveLoad,
                 bottomBar = navBar,
+            )
+        }
+        composable(Routes.SUBJECT_DETAIL) { backStackEntry ->
+            val detailEntry = PublishedSubject.forName(
+                backStackEntry.arguments?.getString("entry").orEmpty()
+            )
+            if (detailEntry == null) {
+                // A route that named nothing. Popping is the honest response — a blank screen with a
+                // back arrow reads as a feature that failed rather than as a link that was wrong.
+                LaunchedEffect(Unit) { nav.popBackStack() }
+                return@composable
+            }
+            // **One subject's ring, not the whole snapshot.** `liveSnapshot()` copies every ring —
+            // about 390 000 floats — and this screen draws one trace. Pulled on its own ticker for the
+            // same reason the Live tab pulls rather than being pushed: the publish path runs at
+            // hundreds of samples a second and must never drive recomposition.
+            //
+            // The text is pulled here and nowhere else, which is the point of it not being on
+            // `LiveSnapshot`: copying two thousand strings on the Live tab's ticker, for a screen
+            // usually closed, is the tax the whole store exists to avoid.
+            val detail by produceState(
+                SampleWindow() to TextHistory(),
+                app,
+                detailEntry,
+            ) {
+                while (true) {
+                    value = app.publisher.liveWindow(detailEntry) to
+                        app.publisher.liveText(detailEntry)
+                    delay(200)
+                }
+            }
+            val detailNow by produceState(System.currentTimeMillis()) {
+                while (true) {
+                    value = System.currentTimeMillis()
+                    delay(500)
+                }
+            }
+            SubjectDetailScreen(
+                entry = detailEntry,
+                window = detail.first,
+                text = detail.second,
+                nowMillis = detailNow,
+                running = status.running,
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.SUBJECT_QOS) { backStackEntry ->

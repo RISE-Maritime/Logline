@@ -120,6 +120,8 @@ fun LiveScreen(
      */
     basicOnly: Boolean,
     onBasicOnlyChange: (Boolean) -> Unit,
+    /** Open one subject's own page. Supplied by `MainActivity`, like every other navigation lambda. */
+    onOpenSubject: (PublishedSubject) -> Unit = {},
     /** The recorder's backlog, pulled on the caller's ticker. See `SensorPublisher.recordingLoad`. */
     load: RecordingLoad = RecordingLoad(),
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
@@ -399,6 +401,7 @@ fun LiveScreen(
                             SparklineCard(
                                 entry = entry,
                                 window = window,
+                                onOpen = { onOpenSubject(entry) },
                                 // Only the camera row gets a picture, and only the newest one — the
                                 // store keeps a single frame, not a history.
                                 frame = snapshot.frame
@@ -734,6 +737,8 @@ private fun WindowControl(
 private fun SparklineCard(
     entry: PublishedSubject,
     window: SampleWindow,
+    /** Opens this subject's own page, where it gets a full canvas or a presentation that is not a plot. */
+    onOpen: () -> Unit,
     /** The newest camera frame, for the one subject that has one. Null everywhere else. */
     frame: FramePreview? = null,
 ) {
@@ -747,7 +752,10 @@ private fun SparklineCard(
     val bounds = boundsOf(plotted)
     val rate = windowRateHz(window)
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    // Tappable, with the ripple as the whole affordance: a chevron on each of thirty-nine cards would
+    // be thirty-nine pieces of furniture saying the same thing, and the Session rows already open a
+    // subject's page this way.
+    Card(modifier = Modifier.fillMaxWidth(), onClick = onOpen) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Text(label.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -783,7 +791,11 @@ private fun SparklineCard(
                 )
             }
 
-            if (window.isPlottable() && bounds != null) {
+            // A sparkline is wrong for two kinds of subject and the same function decides here as on
+            // the detail screen: `raw_nmea0183` stores each sentence's *length*, which plots as a
+            // meaningless staircase, and the state subjects store an enum or an identifier, where a
+            // line draws a slope through values that have nothing between them.
+            if (detailKind(entry) == DetailKind.Plot && window.isPlottable() && bounds != null) {
                 val axis = plotBounds(bounds)
                 Canvas(
                     modifier = Modifier
@@ -834,7 +846,19 @@ private fun SparklineCard(
                 )
             } else {
                 Text(
-                    "one sample so far",
+                    // **Three different reasons there is no line, and they must not share a caption.**
+                    // "one sample so far" was the only one until the state and text subjects stopped
+                    // being plotted, at which point a card holding eight thousand samples started
+                    // claiming to hold one. What each of these has instead is on its own page.
+                    when {
+                        // No count: the number here would be the *numeric* ring's, and the text is
+                        // kept in a shorter one of its own — the card would have said 8192 lines over
+                        // a log holding 2000. The detail screen has both and states the real figure.
+                        detailKind(entry) == DetailKind.Text -> "tap to read the sentences"
+                        detailKind(entry) == DetailKind.Timeline ->
+                            "tap for when it changed"
+                        else -> "one sample so far"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

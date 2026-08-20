@@ -42,6 +42,16 @@ object Routes {
     /** Argument is the [se.rise.logline.keelson.PublishedSubject] *enum name*, not the subject. */
     const val SUBJECT_QOS = "qos/{entry}"
 
+    /**
+     * One subject's history, at full size — reached by tapping its card on the Live tab.
+     *
+     * `plot/` rather than something under `live/`, and that is load-bearing: the two Zenoh sessions are
+     * scoped by route *prefix* ([CHECKLIST_PREFIX], [RIG_PREFIX]) and a prefix match that goes wrong
+     * fails silently — the screen opens and simply never finds anything on the bus. This collides with
+     * neither.
+     */
+    const val SUBJECT_DETAIL = "plot/{entry}"
+
     const val CHECKLISTS = "checklists"
     const val CHECKLIST = "checklist/{procedureId}"
 
@@ -80,6 +90,8 @@ object Routes {
     // is an Android call and this file stays clear of those — see the note at the top.
 
     fun subjectQos(entryName: String): String = SUBJECT_QOS.replace("{entry}", entryName)
+
+    fun subjectDetail(entryName: String): String = SUBJECT_DETAIL.replace("{entry}", entryName)
 
     fun rig(encodedEntityId: String): String = RIG.replace("{entityId}", encodedEntityId)
 

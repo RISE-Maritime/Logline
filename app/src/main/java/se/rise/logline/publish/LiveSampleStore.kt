@@ -134,6 +134,49 @@ internal class SampleRing(private val capacity: Int) {
     }
 }
 
+/** One line of a text subject, as it went on the wire. */
+data class TextSample(val timeMillis: Long, val text: String)
+
+/**
+ * As [SampleRing], but holding the text itself.
+ *
+ * Only allocated for the subjects that have any — one today — because a ring per subject would be
+ * forty-eight arrays of nulls to serve `raw_nmea0183`.
+ *
+ * Strings rather than a flat array, which is the one place this file gives up on primitives: there is
+ * no primitive form of a sentence, and the subjects that need this are few and slow enough to afford
+ * it. The cost is bounded by [capacity] and stated where that constant is set.
+ */
+internal class TextRing(private val capacity: Int) {
+
+    private val lines = arrayOfNulls<TextSample>(capacity)
+    private var count = 0
+    private var next = 0
+
+    /** Same lock and same reason as [SampleRing.append] — the writer is a collector, the reader is Main. */
+    fun append(sample: TextSample) = synchronized(this) {
+        lines[next] = sample
+        next = (next + 1) % capacity
+        if (count < capacity) count++
+    }
+
+    /** A copy, oldest first. */
+    fun snapshot(): List<TextSample> = synchronized(this) {
+        if (count == 0) return emptyList()
+        val start = ((next - count) % capacity + capacity) % capacity
+        List(count) { i -> lines[(start + i) % capacity]!! }
+    }
+
+    /** How many it can hold, so a screen can say what it is not showing rather than silently dropping. */
+    fun capacity(): Int = capacity
+
+    fun clear() = synchronized(this) {
+        count = 0
+        next = 0
+        lines.fill(null)
+    }
+}
+
 /** As [SampleRing], but for the GNSS track, which needs more than one number per point. */
 internal class TrackRing(private val capacity: Int) {
 
@@ -197,6 +240,20 @@ data class LiveLatest(
     operator fun get(subject: PublishedSubject): Float? = values[subject]
 }
 
+/**
+ * A text subject's recent lines, and the depth of the ring they came from.
+ *
+ * The capacity travels with the lines so the screen can say what it is *not* showing. A log that
+ * silently drops its head reads as a complete record of a short period rather than a window onto a
+ * longer one, which is the more misleading of the two.
+ */
+data class TextHistory(
+    val lines: List<TextSample> = emptyList(),
+    val capacity: Int = 0,
+) {
+    val isFull: Boolean get() = capacity > 0 && lines.size >= capacity
+}
+
 data class LiveSnapshot(
     val windows: Map<PublishedSubject, SampleWindow> = emptyMap(),
     val track: List<TrackPoint> = emptyList(),
@@ -221,17 +278,38 @@ data class LiveSnapshot(
 class LiveSampleStore(
     samplesPerSubject: Int = DEFAULT_CAPACITY,
     trackPoints: Int = DEFAULT_TRACK_CAPACITY,
+    textLines: Int = DEFAULT_TEXT_CAPACITY,
 ) {
     private val rings: Map<PublishedSubject, SampleRing> =
         PublishedSubject.entries.associateWith { SampleRing(samplesPerSubject) }
 
     private val track = TrackRing(trackPoints)
 
+    /**
+     * Text history, for the subjects that have any.
+     *
+     * Built from [TEXT_SUBJECTS] rather than for every entry: the map is indexed on the publish path,
+     * and a miss here is the normal case for forty-seven of the forty-eight subjects.
+     */
+    private val texts: Map<PublishedSubject, TextRing> =
+        TEXT_SUBJECTS.associateWith { TextRing(textLines) }
+
     private val frame = FrameSlot()
 
     /** Called from a collector, on the publish path. Must never throw — see `SubjectSink.guard`. */
     fun record(subject: PublishedSubject, timeMillis: Long, value: Float) {
         rings[subject]?.append(timeMillis, value)
+    }
+
+    /**
+     * As [record], and keep the line itself.
+     *
+     * Both, not either: the numeric ring still gets a value so the subject keeps a rate, a sample count
+     * and a place in the health checks like every other one. The text is what the detail screen reads.
+     */
+    fun recordText(subject: PublishedSubject, timeMillis: Long, value: Float, text: String) {
+        rings[subject]?.append(timeMillis, value)
+        texts[subject]?.append(TextSample(timeMillis, text))
     }
 
     fun recordFix(point: TrackPoint) = track.append(point)
@@ -247,6 +325,25 @@ class LiveSampleStore(
         fix = track.latest(),
     )
 
+    /**
+     * One subject's window, without copying the other forty-seven.
+     *
+     * [snapshot] moves about 390 000 floats to answer a question about one subject, which is fine at
+     * the 5 Hz the whole Live tab needs and wasteful for a screen showing a single trace.
+     */
+    fun window(subject: PublishedSubject): SampleWindow =
+        rings[subject]?.snapshot() ?: SampleWindow()
+
+    /**
+     * One subject's text history, and how much it can hold.
+     *
+     * **Deliberately not part of [snapshot].** Copying two thousand strings on the Live tab's ticker,
+     * for a screen that is usually not open, is exactly the tax this class exists to avoid — the same
+     * reasoning that keeps the whole store off a `StateFlow`.
+     */
+    fun text(subject: PublishedSubject): TextHistory =
+        texts[subject]?.let { TextHistory(it.snapshot(), it.capacity()) } ?: TextHistory()
+
     fun snapshot(): LiveSnapshot = LiveSnapshot(
         windows = rings.mapValues { (_, ring) -> ring.snapshot() },
         track = track.snapshot(),
@@ -256,6 +353,7 @@ class LiveSampleStore(
     /** A new run starts empty, matching `PublisherStatusStore.started()`. */
     fun clear() {
         rings.values.forEach { it.clear() }
+        texts.values.forEach { it.clear() }
         track.clear()
         frame.clear()
     }
@@ -269,5 +367,25 @@ class LiveSampleStore(
 
         /** An hour of track at the default 1 Hz. Fixes are cheap and a long track is the useful one. */
         const val DEFAULT_TRACK_CAPACITY = 4096
+
+        /**
+         * About 26 seconds of NMEA, and roughly 400 kB of strings.
+         *
+         * Sized against a measurement rather than a guess: a Pixel 6 emits **77 sentences a second**,
+         * so the obvious few-hundred would hold under four seconds and a log that scrolls away before
+         * it can be read is not a log. This is the one place in this file that stores objects, so it is
+         * also the one that has to justify its size — if more history is wanted the answer is the MCAP
+         * recording, not a bigger ring.
+         */
+        const val DEFAULT_TEXT_CAPACITY = 2000
+
+        /**
+         * The subjects a [TextRing] is allocated for.
+         *
+         * `raw_nmea0183` is the only one that carries text a person would read. `configuration_json` is
+         * text on the wire too, but it is a document republished unchanged on a ten-second loop, not a
+         * stream of lines — a log of it would be the same paragraph two thousand times.
+         */
+        val TEXT_SUBJECTS = setOf(PublishedSubject.RAW_NMEA0183)
     }
 }

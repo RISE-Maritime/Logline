@@ -1,6 +1,7 @@
 package se.rise.logline
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.rise.logline.config.Settings
@@ -176,5 +177,10 @@ class NavigationRoutesTest {
         // And a built path is still scoped to the session its pattern belongs to.
         assertTrue(Routes.inRigScreens(Routes.rig("ssrs18")))
         assertTrue(Routes.inRigScreens(Routes.sensorMount("ssrs18", 0)))
+        // The detail route must miss both session prefixes, or opening a plot would tear down a
+        // checklist or platform session — silently, since a broken prefix match still opens the screen.
+        assertEquals("plot/AIR_PRESSURE", Routes.subjectDetail("AIR_PRESSURE"))
+        assertFalse(Routes.inChecklists(Routes.subjectDetail("AIR_PRESSURE")))
+        assertFalse(Routes.inRigScreens(Routes.subjectDetail("AIR_PRESSURE")))
     }
 }
