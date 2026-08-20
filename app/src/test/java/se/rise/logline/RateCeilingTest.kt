@@ -112,7 +112,8 @@ class RateCeilingTest {
     fun `the location ceiling is marked as an estimate`() {
         val fix = ceilings()[PublishedSubject.LOCATION_FIX]
         assertEquals(CeilingBasis.Estimated, fix?.basis)
-        assertEquals("max ~1.0", fix?.label())
+        // "sensor", not "max": on the Session screen "max" now names the rate *mode*.
+        assertEquals("sensor ~1.0", fix?.label())
     }
 
     /** The IMU's die temperature is a real sensor, just one found by string rather than by constant. */

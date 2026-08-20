@@ -2,10 +2,12 @@ package se.rise.logline.config
 
 import se.rise.logline.calibrate.RigCalibration
 import se.rise.logline.keelson.PublishedSubject
+import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.SourceKind
 import se.rise.logline.keelson.SubjectQos
 import se.rise.logline.keelson.pubsubKey
 import se.rise.logline.sensors.SensorRate
+import se.rise.logline.sensors.slowerOf
 
 data class Settings(
     val realm: String,
@@ -198,12 +200,41 @@ data class Settings(
      */
     val qosOverrides: Map<String, SubjectQos> = emptyMap(),
     /**
-     * Requested sampling rate per subject, in Hz. A subject absent from the map uses its default.
+     * Requested **publish** rate per subject, in Hz — what goes on the bus. Absent means its default.
      *
      * A request, not a promise: Android treats the derived delay as a hint and the hardware delivers
      * what it can, which is why the UI shows the achieved rate too.
+     *
+     * This used to be the only rate and drove the sensor as well. It is now the *thinner* of the two:
+     * the sensor runs at [recordRates] and the wire is decimated down to this, because the bus is for
+     * watching a trial while the file is what analysis is run against. It keeps its `rate_*` DataStore
+     * keys so every existing setting carries over as the publish rate, unchanged.
      */
     val sensorRates: Map<String, SensorRate> = emptyMap(),
+    /**
+     * Requested **recording** rate per subject — what the sensor is asked for and what reaches the file.
+     *
+     * **Absent means [SensorRate.Max]**, not a per-subject default: the file is the complete record, so
+     * it takes everything the hardware will give unless somebody turns a subject down. That is a
+     * deliberate cost — measured on a Pixel 6, ordinary rates produce ~743 samples/s and ~72 MB/h, and
+     * the gyroscope alone at Max takes that to ~2295 samples/s and ~460 MB/h.
+     */
+    val recordRates: Map<String, SensorRate> = emptyMap(),
+    /**
+     * Record every subject at its hardware maximum, whatever [recordRates] says.
+     *
+     * A **mode layered over** the map rather than a rewrite of it, which is the whole point: flipping
+     * to full rate for a trial and back must return the tuned profile intact. Writing Max into
+     * `recordRates` would destroy the tuning it exists to preserve.
+     *
+     * **Defaults to true**, which is what makes a fresh install record everything the hardware gives.
+     * It lives here rather than as an absent-means-Max fallback inside [recordRates] so that the
+     * Session screen's *Configured* really is each subject's own rate — a fallback made that label and
+     * the megabytes-per-hour beside it disagree with what the phone actually did.
+     */
+    val recordAllMax: Boolean = true,
+    /** The same, for the wire: publish everything that is recorded, with no thinning. */
+    val publishAllMax: Boolean = false,
     /**
      * Join the shared checklist on the bus.
      *
@@ -340,9 +371,142 @@ data class Settings(
      * A subject that follows another's stream reports the *owner's* rate, since that is the one that
      * actually governs how often it publishes.
      */
-    fun rate(subject: String): SensorRate {
+    fun rate(subject: String): SensorRate = publishRate(subject)
+
+    /**
+     * What the sensor is asked for, and what reaches the file.
+     *
+     * Absent means [SensorRate.Max] — see [recordRates]. This is the rate the listener is registered
+     * at, because it is the higher of the two: registering at the publish rate would make the
+     * recording rate unachievable.
+     */
+    fun recordRate(subject: String): SensorRate {
         val owner = PublishedSubject.forSubject(subject)?.rateOwner ?: subject
-        return sensorRates[owner] ?: defaultRate(owner)
+        // For these the two rates are one thing: a poll produces exactly one sample and publishes it,
+        // and a chunk or a capture interval is not a rate a file could hold more of. Falling back to the
+        // registry default here instead would clamp a *raised* publish rate back down to it.
+        if (!recordsContinuously(owner)) {
+            return recordRates[owner] ?: sensorRates[owner] ?: defaultRate(owner)
+        }
+        // The switch wins over a tuned value without erasing it — that is what makes it a mode rather
+        // than a bulk edit, and what lets flipping back restore the profile.
+        if (recordAllMax) return SensorRate.Max
+        // **The subject's own rate, not Max.** "Configured" on the Session screen has to mean
+        // configured, or the label and the storage estimate beside it are both wrong — which they were:
+        // the chip read Configured while an absent entry still resolved to Max, so the phone recorded
+        // at ten times the figure on screen. Recording at max out of the box is preserved by
+        // [recordAllMax] defaulting to true, which is a mode rather than a hidden fallback.
+        return recordRates[owner] ?: defaultRate(owner)
+    }
+
+    /**
+     * Whether the file and the wire can run at different rates for this subject — which is the same
+     * question as whether "as fast as the hardware will give" means anything for it.
+     *
+     * Only a continuously sampling `SensorManager` sensor, and the fused location provider, produce
+     * events on their own clock — for those, [SensorRate.Max] is a real request and the honest default
+     * for a file meant to hold everything.
+     *
+     * For the rest it is meaningless or harmful, and each is excluded for its own reason. The battery
+     * and radio subjects are *polled*, so Max would mean an interval of zero and hammer the telephony
+     * and power APIs in a loop. `audio` is a chunk length and `image_compressed` / `video_compressed`
+     * are capture intervals, not sample rates. `frame_transform` and the other calibration subjects are
+     * a republish loop with no sensor to wait on. And `illuminance_lux` / `imu_temperature_celsius` are
+     * *on-change* — held on a ticker by `heldAt`, so Max there would repeat one unchanged reading ten
+     * times a second and call it data.
+     */
+    fun ratesCanDiffer(subject: String): Boolean {
+        val owner = PublishedSubject.forSubject(subject)?.rateOwner ?: subject
+        return recordsContinuously(owner)
+    }
+
+    private fun recordsContinuously(subject: String): Boolean {
+        val entry = PublishedSubject.forSubject(subject) ?: return false
+        if (entry.eventDriven) return false
+        if (entry.subject == Subjects.ILLUMINANCE_LUX ||
+            entry.subject == Subjects.IMU_TEMPERATURE_CELSIUS
+        ) {
+            return false
+        }
+        return entry.sensorType != null || entry.source == SourceKind.LOCATION
+    }
+
+    /**
+     * The fastest this subject may be published, and why.
+     *
+     * Two different limits wearing one name, which is the whole reason it is a function rather than an
+     * expression inside [publishRate].
+     *
+     * For a subject with its own listener it is the **record** rate: no sample exists to send faster
+     * than it is sampled, so this is physics rather than policy.
+     *
+     * For a subject that rides another's samples it is the owner's **publish** rate — policy, and a
+     * deliberate choice over the physical limit. The samples are there (the listener runs at the
+     * owner's *record* rate, so a derived subject could technically go faster than its owner does on
+     * the wire), but a group whose members can each exceed the one they are derived from is a group
+     * nobody can reason about from the Session screen: the owner's row is meant to be readable as the
+     * ceiling for everything under it. Raising a derived subject past the cap therefore means raising
+     * the owner first, which is what the page's link to it is for.
+     *
+     * **One hop, never recursion.** No owner has an owner and `SubjectRegistryTest` pins that, but a
+     * hop that cannot repeat is safe even if somebody later writes a cycle, where recursion would take
+     * the process out with a stack overflow.
+     */
+    fun publishCeiling(subject: String): SensorRate {
+        val owner = PublishedSubject.forSubject(subject)?.rateOwner
+            ?: return recordRate(subject)
+        return headPublishRate(owner)
+    }
+
+    /**
+     * What was *asked for*, before any clamping — which is what an editor has to show.
+     *
+     * [publishRate] answers "what will go out", and a text field showing that cannot be edited: typing
+     * 10 Hz against a 1 Hz ceiling would redraw as 1.0, and saving would then store the clamp, so the
+     * request would be destroyed by the act of looking at it. That round trip was already wrong for
+     * subjects clamped to their own record rate; it is only now that it is easy to hit.
+     *
+     * **Absent means "follow the owner" for a derived subject**, not "use my own registry default".
+     * Every derived entry does carry a default equal to its owner's, so a fresh install reads the same
+     * either way — but an install that had tuned `location_fix` down to 0.2 Hz would find speed and
+     * course jumping back to 1.0 Hz on upgrade, which is a silent change to what a phone puts on the
+     * bus. Following keeps this addition to exactly what it says: nothing moves until a derived subject
+     * is set explicitly.
+     */
+    fun requestedPublishRate(subject: String): SensorRate {
+        sensorRates[subject]?.let { return it }
+        val owner = PublishedSubject.forSubject(subject)?.rateOwner ?: return defaultRate(subject)
+        return headPublishRate(owner)
+    }
+
+    /**
+     * What goes on the bus.
+     *
+     * **Clamped rather than validated.** A publish rate faster than the ceiling is not an error anyone
+     * can see or fix — for a head subject no sample exists to send — so asking for 10 Hz where 1 Hz is
+     * possible simply publishes every sample there is.
+     *
+     * The stored value is left alone by that clamp, deliberately: an owner lowered for one trial and
+     * raised again must bring the whole group's tuning back with it. Same argument [recordAllMax] makes
+     * about being a mode layered over the maps rather than a bulk edit — and clamping on save would
+     * additionally mean walking every derived subject each time an owner moved.
+     */
+    fun publishRate(subject: String): SensorRate {
+        val ceiling = publishCeiling(subject)
+        if (publishAllMax) return ceiling
+        return slowerOf(requestedPublishRate(subject), ceiling)
+    }
+
+    /**
+     * [publishRate] for a subject that owns its own rate — the half that must not hop.
+     *
+     * Private because calling it on a derived subject would silently read that subject's own entry
+     * against its own record rate, skipping the cap entirely.
+     */
+    private fun headPublishRate(subject: String): SensorRate {
+        val record = recordRate(subject)
+        if (publishAllMax) return record
+        return slowerOf(sensorRates[subject] ?: defaultRate(subject), record)
     }
 
     /**

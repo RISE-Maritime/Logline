@@ -4,7 +4,9 @@ import se.rise.logline.config.Settings
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.record.MIN_FREE_BYTES
 import se.rise.logline.sensors.SensorRate
-import se.rise.logline.ui.BASE_MEGABYTES_PER_HOUR
+import se.rise.logline.ui.CONFIGURED_MEGABYTES_PER_HOUR
+import se.rise.logline.ui.MAX_MEGABYTES_PER_HOUR
+import se.rise.logline.ui.baseMegabytesPerHour
 import se.rise.logline.ui.formatBytes
 import se.rise.logline.ui.formatCapacity
 import se.rise.logline.ui.megabytesPerHour
@@ -29,11 +31,14 @@ class CapacityTest {
         routerEndpoints = listOf("tls/router.example.com:443"),
         locationSource = "phone",
         imuSource = "phone",
+        // Explicit rather than inherited: the shipped default records at maximum, and most of these
+        // are about the configured rates.
+        recordAllMax = false,
     )
 
     @Test
     fun `a default run costs the documented rate`() {
-        assertEquals(BASE_MEGABYTES_PER_HOUR, megabytesPerHour(settings()))
+        assertEquals(baseMegabytesPerHour(settings()), megabytesPerHour(settings()))
     }
 
     /**
@@ -47,9 +52,9 @@ class CapacityTest {
         val withCamera = megabytesPerHour(settings().copy(cameraEnabled = true))
         val withBoth = megabytesPerHour(settings().copy(audioEnabled = true, cameraEnabled = true))
 
-        assertEquals(BASE_MEGABYTES_PER_HOUR + 109, withAudio)
-        assertEquals(BASE_MEGABYTES_PER_HOUR + 158, withCamera)
-        assertEquals(withAudio + withCamera - BASE_MEGABYTES_PER_HOUR, withBoth)
+        assertEquals(baseMegabytesPerHour(settings()) + 109, withAudio)
+        assertEquals(baseMegabytesPerHour(settings()) + 158, withCamera)
+        assertEquals(withAudio + withCamera - baseMegabytesPerHour(settings()), withBoth)
     }
 
     /** A faster time-lapse costs more, and the estimate has to follow the rate that will actually run. */
@@ -118,13 +123,27 @@ class CapacityTest {
         assertEquals("unknown", formatBytes(-1))
     }
 
+    /**
+     * The two recording modes differ by an order of magnitude, which is the whole reason the Session
+     * screen states the figure rather than calling one of them "larger".
+     */
+    @Test
+    fun `recording at maximum costs an order of magnitude more`() {
+        val configured = megabytesPerHour(settings())
+        val maximum = megabytesPerHour(settings().copy(recordAllMax = true))
+
+        assertEquals(CONFIGURED_MEGABYTES_PER_HOUR, configured)
+        assertEquals(MAX_MEGABYTES_PER_HOUR, maximum)
+        assertTrue("maximum should dominate", maximum > configured * 5)
+    }
+
     /** The headline figure: an idle 64 GB phone should promise weeks, not hours. */
     @Test
     fun `a roomy phone at the default rate promises weeks`() {
         val millis = recordingCapacityMillis(64L * GB, megabytesPerHour(settings()))!!
 
-        // (64 GB − the 256 MB floor) ÷ 77 MB/h ≈ 848 h.
-        assertEquals("35 days", formatCapacity(millis))
+        // (64 GB − the 256 MB floor) ÷ 23 MB/h at the configured rates.
+        assertEquals("118 days", formatCapacity(millis))
     }
 
     /**

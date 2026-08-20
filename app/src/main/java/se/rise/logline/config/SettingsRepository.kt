@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -107,8 +108,20 @@ internal object Keys {
     fun qosReliability(subject: String) = stringPreferencesKey("qos_${subject}_reliability")
     fun qosExpress(subject: String) = stringPreferencesKey("qos_${subject}_express")
 
-    /** Requested sampling rate. Absent means "use the default for this subject". */
+    /**
+     * Requested **publish** rate. Absent means "use the default for this subject".
+     *
+     * Deliberately still `rate_*`: this was the only rate before the file and the wire were split, and
+     * keeping the key means every existing setting carries over as the publish rate rather than being
+     * silently reset — the same reason the endpoint list kept `router_endpoint` when it became a list.
+     */
     fun rateHz(subject: String) = stringPreferencesKey("rate_$subject")
+
+    /** Requested **recording** rate. Absent means `SensorRate.Max` — the file takes everything. */
+    fun recordRateHz(subject: String) = stringPreferencesKey("record_rate_$subject")
+
+    val RECORD_ALL_MAX = booleanPreferencesKey("record_all_max")
+    val PUBLISH_ALL_MAX = booleanPreferencesKey("publish_all_max")
 
     val CALIBRATION_SOURCE = stringPreferencesKey("calibration_source")
 
@@ -245,6 +258,13 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
         annotationButtons = readAnnotationButtons(prefs),
         qosOverrides = readQosOverrides(prefs),
         sensorRates = readSensorRates(prefs),
+        recordRates = readRecordRates(prefs),
+        // Absent means the shipped default, and for recording that is **maximum** — the file is what
+        // analysis is run against. Reading it as false here would quietly contradict `Settings`' own
+        // default, which is exactly what it did: a fresh install showed "Configured" on the Session
+        // screen while the data class said otherwise.
+        recordAllMax = prefs[Keys.RECORD_ALL_MAX] ?: true,
+        publishAllMax = prefs[Keys.PUBLISH_ALL_MAX] ?: false,
         // Absent means off, for the same reason audio is: a stored value is the only thing that makes
         // this phone visible to other sites.
         checklistEnabled = prefs[Keys.CHECKLIST_ENABLED]?.toBooleanStrictOrNull() ?: false,
@@ -278,6 +298,8 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.AUDIO_SAMPLE_RATE] = settings.audioSampleRateHz.toString()
     prefs[Keys.AUDIO_CHANNELS] = settings.audioChannels.toString()
     prefs[Keys.CHECKLIST_ENABLED] = settings.checklistEnabled.toString()
+    prefs[Keys.RECORD_ALL_MAX] = settings.recordAllMax
+    prefs[Keys.PUBLISH_ALL_MAX] = settings.publishAllMax
     prefs[Keys.OPERATOR_ID] = settings.operatorId
     prefs[Keys.OPERATOR_NAME] = settings.operatorName
     prefs[Keys.OPERATOR_ROLE] = settings.operatorRole
@@ -315,6 +337,12 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
             prefs.remove(Keys.rateHz(subject))
         } else {
             prefs[Keys.rateHz(subject)] = rate.serialise()
+        }
+        val recordRate = settings.recordRates[subject]
+        if (recordRate == null) {
+            prefs.remove(Keys.recordRateHz(subject))
+        } else {
+            prefs[Keys.recordRateHz(subject)] = recordRate.serialise()
         }
     }
 }
@@ -500,6 +528,13 @@ internal fun readQosOverrides(prefs: Preferences): Map<String, SubjectQos> =
 internal fun readSensorRates(prefs: Preferences): Map<String, SensorRate> =
     overridableSubjects.mapNotNull { subject ->
         val rate = parseSensorRate(prefs[Keys.rateHz(subject)]) ?: return@mapNotNull null
+        subject to rate
+    }.toMap()
+
+/** Absent stays absent, which `Settings.recordRate` reads as Max. */
+internal fun readRecordRates(prefs: Preferences): Map<String, SensorRate> =
+    overridableSubjects.mapNotNull { subject ->
+        val rate = parseSensorRate(prefs[Keys.recordRateHz(subject)]) ?: return@mapNotNull null
         subject to rate
     }.toMap()
 

@@ -388,6 +388,54 @@ class SubjectRegistryTest {
         assertTrue(settings.allKeys().none { it.contains("/calibration") })
     }
 
+    /**
+     * The link from a derived subject to the one whose rate governs it has to reach an entry, not a
+     * subject, because that is what navigation and identity are keyed on.
+     */
+    @Test
+    fun `every subject that rides another resolves to a real entry`() {
+        PublishedSubject.entries.filter { it.rateOwner != null }.forEach { entry ->
+            assertNotNull("${entry.name} names an owner that is not an entry", entry.rateOwnerEntry())
+        }
+    }
+
+    /**
+     * One hop reaches the head, which is what lets the UI show a single link rather than walk a chain.
+     *
+     * A chain would also mean `Settings.rate()` reading the wrong subject's rate, since it does the
+     * same single hop.
+     */
+    @Test
+    fun `a rate owner owns its own rate`() {
+        PublishedSubject.entries.mapNotNull { it.rateOwnerEntry() }.forEach { owner ->
+            assertNull("${owner.name} is an owner and has an owner itself", owner.rateOwner)
+        }
+    }
+
+    /**
+     * The ambiguity this exists for: **two** entries publish `location_fix`.
+     *
+     * The phone's live fix and the rig's surveyed zero point share a subject and differ in everything
+     * else, so resolving an owner by subject alone answers with whichever comes first in the enum.
+     * Matching on `SourceKind` too is what keeps the rig's zero pointed at `frame_transform` — the
+     * geometry loop it is actually published from — rather than at the phone's GNSS.
+     */
+    @Test
+    fun `two entries publish location_fix, and the owner is resolved by source`() {
+        assertEquals(
+            listOf(PublishedSubject.LOCATION_FIX, PublishedSubject.CALIBRATION_ZERO),
+            PublishedSubject.entries.filter { it.subject == Subjects.LOCATION_FIX },
+        )
+        assertEquals(
+            PublishedSubject.LOCATION_FIX,
+            PublishedSubject.SPEED_OVER_GROUND.rateOwnerEntry(),
+        )
+        assertEquals(
+            PublishedSubject.FRAME_TRANSFORM,
+            PublishedSubject.CALIBRATION_ZERO.rateOwnerEntry(),
+        )
+    }
+
     private fun settings(sensorRates: Map<String, SensorRate> = emptyMap()) = Settings(
         realm = Settings.DEFAULT_REALM,
         entityId = "pixel_6",

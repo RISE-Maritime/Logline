@@ -111,7 +111,8 @@ fun SettingsScreen(
     var checklistEntityId by remember { mutableStateOf(initial.checklistEntityId) }
     // The time-lapse interval lives on the subject's own rate row, not here — this screen only reports
     // what it costs. Clamped the same way the publisher clamps it, so the figure matches what will run.
-    val frameHz = 1_000.0 / initial.rate(Subjects.IMAGE_COMPRESSED)
+    // The record rate, for the same reason as in `Capacity.kt`: this is a figure about the file.
+    val frameHz = 1_000.0 / initial.recordRate(Subjects.IMAGE_COMPRESSED)
         .toIntervalMillis()
         .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS)
 
@@ -551,7 +552,17 @@ fun SettingsScreen(
                     }
                 }
 
-                SectionHeader("Camera")
+                SectionHeader(
+                    "Camera",
+                    onInfo = {
+                        info = "Camera" to
+                            "The resolution is a request, like every other rate here: the camera picks " +
+                            "the size it supports closest to the one asked for.\n\n" +
+                            "The time-lapse interval and the video frame rate are not set here — each is " +
+                            "that subject's own rate, on its row in the subject list on the Session " +
+                            "screen."
+                    },
+                )
                 SettingSwitch(
                     title = "Record a time-lapse",
                     description = "Takes one picture at the image_compressed rate for the whole run and " +
@@ -586,12 +597,6 @@ fun SettingsScreen(
                             )
                         }
                     }
-                    Text(
-                        "A request, like every other rate here: the camera picks the size it supports " +
-                            "closest to this one.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(false to "Rear", true to "Front").forEach { (front, name) ->
                             FilterChip(
@@ -660,7 +665,15 @@ fun SettingsScreen(
                 expanded = "Collaboration" in openSections,
                 onToggle = { openSections = toggleSection(openSections, "Collaboration") },
             ) {
-                SectionHeader("Checklists")
+                SectionHeader(
+                    "Checklists",
+                    onInfo = {
+                        info = "Checklists" to
+                            "Checklists live under their own realm and entity — not this phone's. The " +
+                            "defaults are where crowsnest already keeps them; change these only if a " +
+                            "deployment has moved the tree."
+                    },
+                )
                 SettingSwitch(
                     title = "Share checklists",
                     description = "Work a shared procedure alongside the ROC stations. Opens a second " +
@@ -697,13 +710,6 @@ fun SettingsScreen(
                         },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "Checklists live under their own realm and entity — not this phone's. The defaults " +
-                            "are where crowsnest already keeps them; change these only if a deployment has " +
-                            "moved the tree.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
@@ -753,18 +759,21 @@ fun SettingsScreen(
                 expanded = "Advanced" in openSections,
                 onToggle = { openSections = toggleSection(openSections, "Advanced") },
             ) {
-                SectionHeader("Find a router")
+                SectionHeader(
+                    "Find a router",
+                    onInfo = {
+                        info = "Find a router" to
+                            "Zenoh's default scan address is ${Settings.DEFAULT_SCOUT_ADDRESS}. " +
+                            "Deployments move it — one keelson router uses :7448 — and a scan on the " +
+                            "wrong address looks exactly like an empty network.\n\n" +
+                            "Multicast does not leave the local segment, so this never finds an " +
+                            "internet router, and a phone on mobile data finds nothing at all."
+                    },
+                )
                 OutlinedTextField(
                     value = scoutAddress,
                     onValueChange = { scoutAddress = it },
                     label = { Text("Scan multicast address") },
-                    supportingText = {
-                        Text(
-                            "Zenoh's default is ${Settings.DEFAULT_SCOUT_ADDRESS}. Deployments move it — one " +
-                                "keelson router uses :7448 — and a scan on the wrong address looks exactly " +
-                                "like an empty network."
-                        )
-                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -805,9 +814,9 @@ fun SettingsScreen(
                         }
                     }
                 }
+                // The mechanism moved to the ⓘ; this half is what happens when you tap, so it stays.
                 Text(
-                    "Multicast does not leave the local segment, so this never finds an internet router, and " +
-                        "nothing is connected to until you add it and save.",
+                    "Nothing is connected to until you add it and save.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

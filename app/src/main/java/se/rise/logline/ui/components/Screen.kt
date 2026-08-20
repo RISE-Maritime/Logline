@@ -2,6 +2,16 @@ package se.rise.logline.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
@@ -18,10 +28,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
@@ -82,9 +94,10 @@ fun ScreenScaffold(
     title: String,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
-    /** Shown before the title. The app mark on the start screen; nothing on the inner screens. */
-    titleIcon: (@Composable () -> Unit)? = null,
-    /** The trailing end of the bar — the connection state on the start screen. */
+    /**
+     * Screen-specific actions, drawn *before* the run status — which is always last, so the far right
+     * of the bar means the same thing on every screen.
+     */
     actions: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     /**
@@ -95,31 +108,31 @@ fun ScreenScaffold(
     snackbarHost: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
-        // Where the content's scroll reaches the bar. Without this the bar never moves — the scroll
-        // happens inside the content and nothing else hears about it.
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        titleIcon?.let {
-                            it()
-                            Spacer(Modifier.width(10.dp))
-                        }
-                        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                },
+            // **Pinned, not scrolled away.** It used to use `enterAlwaysScrollBehavior`, on the
+            // argument that a long list should not spend a row on a name you already know. That was
+            // true while the bar carried only a name — now it carries whether the phone is publishing
+            // and recording, which is the one thing worth being able to see at any moment, and a
+            // status that disappears on the first downward flick is no status at all.
+            CenterAlignedTopAppBar(
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                // The app mark where a pushed screen puts its back arrow: one slot, and whichever is
+                // there tells you where you are — at the top of the app, or inside something.
                 navigationIcon = {
-                    onBack?.let {
-                        IconButton(onClick = it) {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
+                    } else {
+                        Box(Modifier.padding(start = 10.dp)) { AppMark(size = APP_MARK_IN_BAR) }
                     }
                 },
-                actions = { actions() },
-                scrollBehavior = scrollBehavior,
+                actions = {
+                    actions()
+                    RunStatus()
+                },
             )
         },
         bottomBar = bottomBar,
@@ -143,7 +156,19 @@ fun FormActions(
     hint: String? = null,
 ) {
     Surface(tonalElevation = 3.dp) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                // The gesture bar, which this used to sit almost on top of — measured about 28 px of
+                // clearance on a Pixel 6, so Save and Cancel were both a mis-swipe and awkward to reach.
+                // `NavigationBar` applies this inset itself, which is why the tabbed screens looked
+                // right and every *form* screen did not.
+                //
+                // On the Column rather than the Surface, so the tonal background still runs behind the
+                // gesture area instead of leaving a bare strip under the bar.
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)
+        ) {
             hint?.let {
                 Text(
                     it,
@@ -231,6 +256,40 @@ fun SectionHeader(
     }
 }
 
+/**
+ * A title, the state that used to hide inside a button label, and somewhere to go.
+ *
+ * Shared rather than written per screen: Setup's list and the per-subject page's link to whichever
+ * subject owns its rate are the same row, and two copies of a row drift — `ConnectionChip` was written
+ * twice and the two spellings of `Idle` are how that was noticed.
+ */
+@Composable
+fun NavRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 14.dp)
+            .readAsOneItem("$title. $subtitle"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            // The title says where this goes; naming the chevron would only repeat it.
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 /** How a [StatusLine] reads, and which icon carries it. Never colour alone — the text always says it. */
 enum class StatusTone { Positive, Neutral, Warning, Error }
 
@@ -243,7 +302,9 @@ fun StatusLine(
     action: (@Composable () -> Unit)? = null,
 ) {
     val color = when (tone) {
-        StatusTone.Positive -> MaterialTheme.colorScheme.primary
+        // Green, not the app's blue: green means *fine* and blue is general information, which is the
+        // same traffic light the connection lamp uses. `primary` said "healthy" only by convention.
+        StatusTone.Positive -> signalGreen()
         StatusTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
         StatusTone.Warning -> MaterialTheme.colorScheme.tertiary
         StatusTone.Error -> MaterialTheme.colorScheme.error
@@ -318,6 +379,20 @@ fun ConfirmDialog(
  */
 fun Modifier.readAsOneItem(description: String): Modifier =
     clearAndSetSemantics { contentDescription = description }
+
+/**
+ * How large the mark is drawn in the app bar.
+ *
+ * **Bounded by the bar, not by the slot.** `CenterAlignedTopAppBar` fixes its own height at 64dp and
+ * measures the navigation icon against that, so anything up to about 48dp makes the mark bigger without
+ * moving a single pixel of the page below — verified by measuring the first card's top edge before and
+ * after, which did not move. Beyond that the bar itself starts to give, which is the one thing this is
+ * not allowed to cost. 40dp leaves about 12dp of clearance either side.
+ *
+ * Note the adaptive-icon foreground carries a 0.80 safe-zone scale inside its own canvas (see
+ * `art/svg_to_adaptive_icon.py`), so the *drawn mark* is smaller again than the figure here.
+ */
+private val APP_MARK_IN_BAR = 40.dp
 
 /**
  * The launcher icon, drawn as the launcher draws it: foreground over background, clipped round.
@@ -430,6 +505,100 @@ fun LoglineNavBar(current: String?, onSelect: (TopLevel) -> Unit) {
                 label = { Text(dest.label) },
             )
         }
+    }
+}
+
+/**
+ * What the run is doing, as the top bar shows it.
+ *
+ * Ambient rather than a parameter: every screen's bar carries it, and threading three fields through
+ * fourteen screen signatures to reach a chip in shared chrome would put the publisher's state into the
+ * argument list of the rig editor. `App()` provides it once.
+ */
+data class RunState(
+    val running: Boolean = false,
+    val connection: ConnectionState = ConnectionState.Idle,
+    val recording: Boolean = false,
+)
+
+val LocalRunState = compositionLocalOf { RunState() }
+
+/**
+ * Publishing and recording, side by side, at the far right of every bar.
+ *
+ * **Two indicators, not one word.** A single label had to choose between them by priority, so a run
+ * that was recording said `REC` and stopped saying anything about the link — which hid the more
+ * important of the two: whether the samples are reaching a router is in doubt, whether the file is
+ * being written is not.
+ *
+ * Colour follows the app's traffic light and nothing else: **green is fine, amber is a warning, red is
+ * an error, grey is off**. That is why recording is *green* rather than the conventional red — red here
+ * means something is wrong, and a healthy recording is the opposite of that. `connectionColor()` is the
+ * same function the status card's lamp uses, so the bar and the card cannot disagree.
+ *
+ * Never colour alone: each lamp carries its own word, which is what survives sunlight and a colourblind
+ * reader.
+ */
+@Composable
+private fun RunStatus() {
+    val state = LocalRunState.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.padding(end = 14.dp),
+    ) {
+        StatusLamp(
+            label = "PUB",
+            color = connectionColor(state.running, state.connection),
+            // Blinking would be wrong here: publishing is a steady condition, and a pulse should mean
+            // something is happening right now.
+            blinking = false,
+            described = when {
+                !state.running -> "Not publishing"
+                state.connection == ConnectionState.Disconnected -> "Publishing, no router"
+                state.connection == ConnectionState.Connected -> "Publishing"
+                else -> "Connecting"
+            },
+        )
+        StatusLamp(
+            label = "REC",
+            color = if (state.recording) {
+                signalGreen()
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            // The one thing that blinks, and only while a file is actually being written.
+            blinking = state.recording,
+            described = if (state.recording) "Recording" else "Not recording",
+        )
+    }
+}
+
+@Composable
+private fun StatusLamp(label: String, color: Color, blinking: Boolean, described: String) {
+    val blink by rememberInfiniteTransition(label = label).animateFloat(
+        initialValue = 1f,
+        targetValue = if (blinking) 0.25f else 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "$label-lamp",
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.readAsOneItem(described),
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .graphicsLayer { alpha = blink }
+                .clip(CircleShape)
+                .background(color)
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            modifier = Modifier.padding(start = 4.dp),
+        )
     }
 }
 

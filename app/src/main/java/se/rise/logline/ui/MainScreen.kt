@@ -2,17 +2,12 @@ package se.rise.logline.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Box
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,8 +25,11 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -66,8 +64,7 @@ import se.rise.logline.publish.TrackPoint
 import se.rise.logline.record.RecordingStatus
 import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.achievedHz
-import se.rise.logline.ui.components.AppMark
-import se.rise.logline.ui.components.ConnectionChip
+import se.rise.logline.ui.components.InfoDialog
 import se.rise.logline.ui.components.connectionColor
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
@@ -143,7 +140,11 @@ fun MainScreen(
      */
     ceilings: Map<PublishedSubject, RateCeiling> = emptyMap(),
     onStart: () -> Unit,
-    onStop: () -> Unit,
+    /** Stop the run, optionally marking it with a closing note. */
+    onStop: (String?) -> Unit,
+    /** Flip every subject to full rate, or back to the tuned profile. Restarts the run. */
+    onSetRecordAllMax: (Boolean) -> Unit,
+    onSetPublishAllMax: (Boolean) -> Unit,
     onGrantLocation: () -> Unit,
     /** The recorder's backlog, pulled on the caller's ticker — never pushed from the publish path. */
     load: RecordingLoad = RecordingLoad(),
@@ -177,11 +178,29 @@ fun MainScreen(
      * like the rest, with no list to remember to update.
      */
     var expanded by rememberSaveable { mutableStateOf(listOf<String>()) }
+    // Stop is a two-step now. It sits under the thumb in the pinned bar, next to nothing else, and it
+    // ends a run that cannot be resumed — a recording is closed and copied, and the next one starts a
+    // new file. One stray tap on a moving boat should not be able to do that.
+    var confirmStop by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmStop) {
+        StopDialog(
+            status = status,
+            recording = recording,
+            nowMillis = nowMillis,
+            onConfirm = { note ->
+                confirmStop = false
+                onStop(note)
+            },
+            onDismiss = { confirmStop = false },
+        )
+    }
 
     ScreenScaffold(
-        title = "Logline",
-        titleIcon = { AppMark() },
-        actions = { ConnectionChip(status.running, status.connection) },
+        // The tab's own name: the app mark in the bar now carries the identity, so repeating "Logline"
+        // beside it said the same thing twice. The run status is drawn by `ScreenScaffold` for every
+        // screen, so this no longer passes its own chip.
+        title = "Session",
         // Start and Stop are pinned above the navigation bar rather than sitting in the scroll. The
         // page is thirty-nine subjects long, so the one control the screen exists for was a scroll
         // away the moment anybody opened a group — and the thing you reach for at the end of a run is
@@ -194,7 +213,7 @@ fun MainScreen(
                     recording = recording.recording,
                     willRecord = settings.recordingEnabled,
                     onStart = onStart,
-                    onStop = onStop,
+                    onStop = { confirmStop = true },
                 )
                 bottomBar()
             }
@@ -241,6 +260,12 @@ fun MainScreen(
                     }
                 }
             }
+
+            RateModeCard(
+                settings = settings,
+                onSetRecordAllMax = onSetRecordAllMax,
+                onSetPublishAllMax = onSetPublishAllMax,
+            )
 
             subjectGroups().forEach { group ->
                 val summary = groupSummary(
@@ -306,7 +331,9 @@ fun MainScreen(
                                     nowMillis = nowMillis,
                                     enabled = entry !in disabledSubjects,
                                     ceiling = ceilings[entry],
-                                    requested = settings.rate(entry.subject),
+                                    requested = settings.publishRate(entry.subject),
+                                    recording = settings.recordRate(entry.subject)
+                                        .takeIf { it != settings.publishRate(entry.subject) },
                                     onOpen = { onOpenSubjectQos(entry) },
                                     onToggle = { onToggleSubject(entry, it) },
                                 )
@@ -670,17 +697,39 @@ private fun lastRecordingOf(recording: RecordingStatus, finished: Boolean): Stri
  * Parts drop out rather than being faked: no achieved rate before the second sample, no ceiling where
  * the source will not state one.
  */
-private fun rateLine(achievedHz: Double?, requested: SensorRate, ceiling: RateCeiling?): String =
+private fun rateLine(
+    achievedHz: Double?,
+    requested: SensorRate,
+    ceiling: RateCeiling?,
+    /** The recording rate, when it differs from the publish rate. Null when the two agree. */
+    recording: SensorRate? = null,
+): String =
     listOfNotNull(
         achievedHz?.let { "${formatRate(it)} Hz" },
-        when (requested) {
-            // Not the advertised maximum written out as a number — `Max` is a zero delay, i.e. "give
-            // me everything", which is why it is a word here rather than a figure.
-            SensorRate.Max -> "set max"
-            is SensorRate.Hz -> "set ${formatRate(requested.hz)}"
-        },
+        recording?.let { "rec ${rateWord(it)}" },
+        // Labelled `pub` only when there is a `rec` beside it to be told apart from; on a subject where
+        // the file and the wire agree, one unqualified figure is the honest reading.
+        if (recording != null) "pub ${rateWord(requested)}" else requestedLabel(requested),
         ceiling?.label(),
     ).joinToString(" · ")
+
+/** `50`, or `max` — the figure without its verb, for the two-rate form. */
+private fun rateWord(rate: SensorRate): String = when (rate) {
+    SensorRate.Max -> "max"
+    is SensorRate.Hz -> formatRate(rate.hz)
+}
+
+/**
+ * `set 50`, or `set max`.
+ *
+ * A word rather than a figure for [SensorRate.Max], because it is a zero delay — "give me everything"
+ * — and not the advertised maximum written out: this device advertises 415.97 Hz on the gyroscope and
+ * delivers around 442 Hz when asked for 400.
+ */
+private fun requestedLabel(requested: SensorRate): String = when (requested) {
+    SensorRate.Max -> "set max"
+    is SensorRate.Hz -> "set ${formatRate(requested.hz)}"
+}
 
 /** The card's headline, for a state rather than a figure: `Publishing`, `Ready to publish`. */
 @Composable
@@ -749,6 +798,195 @@ private fun Detail(label: String, value: String, dot: Color? = null) {
 
 
 /**
+ * The second step of stopping, and the only place a run can be given a closing note.
+ *
+ * Two jobs in one interruption rather than two. Stopping is irreversible — the recording is closed and
+ * copied to Downloads, and starting again opens a new file — so it is worth a deliberate second tap;
+ * and the moment somebody decides to stop is exactly when they know what the run was, which is the
+ * moment to ask. Splitting those into separate prompts would make the second one an obstacle.
+ *
+ * The note is a **note**, not a rename: it goes onto the bus and into the recording as a `log_message`
+ * mark, where Foxglove's Log panel can find it beside every other mark of the run. Nothing is renamed —
+ * a run can have rotated through several files by now, some already copied to Downloads.
+ *
+ * The figures are shown because they are the answer to "have I got what I came for", which is the
+ * question actually being asked at this moment.
+ */
+@Composable
+private fun StopDialog(
+    status: PublisherStatus,
+    recording: RecordingStatus,
+    nowMillis: Long,
+    onConfirm: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var note by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stop the run?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    buildString {
+                        append(formatCounted(status.totalSamplesPublished, "sample"))
+                        append(" published over ")
+                        append(elapsed(recording.startedAtEpochMillis, nowMillis))
+                        if (recording.recording) {
+                            append(", ")
+                            append(formatBytes(recording.bytesWritten))
+                            append(" recorded")
+                        }
+                        append(".")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = note,
+                    // A mark is one line in a log panel; a newline or a tab would only break the shape
+                    // of it, the same rule the annotation screen's note field follows.
+                    onValueChange = { note = it.replace('\n', ' ').replace('\t', ' ') },
+                    label = { Text("Closing note (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Marked against the run, on the bus and in the recording. The file keeps its name.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(note.trim().ifBlank { null }) },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) { Text("Stop") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep running") } },
+    )
+}
+
+/**
+ * Max rate, or the tuned profile — two switches, because the file and the wire want opposite things.
+ *
+ * The file is what analysis is run against and wants every sample the sensor gives; the bus is for
+ * watching a trial and wants as little as will still show what is happening. Recording at max while
+ * publishing a thin stream is the normal case, which is why these are two switches rather than one.
+ *
+ * **They set a rate and nothing else.** They do not switch a subject on: a source somebody deselected
+ * stays deselected, and the off-subject set is a separate decision entirely — which is why the wording
+ * here is "max rate" rather than "everything", a phrase that read as though it would start things.
+ *
+ * **And they are a mode, not a bulk edit.** Per-subject rates are untouched underneath, so flipping to
+ * max for a trial and back returns the tuned profile intact.
+ */
+/**
+ * Which rate the file and the bus run at — two choices, not two switches.
+ *
+ * These were toggles, and a toggle was the wrong control: **off** read as "recording is disabled" when
+ * it meant "use the configured rate instead of the maximum". The state being chosen is *which rate*,
+ * so a two-option selector says it and a switch cannot.
+ *
+ * The file and the bus get separate choices because they want opposite things — the file is what
+ * analysis is run against, the bus is for watching a trial — and *Recording maximum, Publishing
+ * configured* is the useful field-test position: keep everything locally without flooding the link.
+ * That is also the shipped default.
+ *
+ * Neither choice switches a subject on. A source somebody deselected stays deselected; this is only
+ * ever a rate.
+ */
+@Composable
+private fun RateModeCard(
+    settings: Settings,
+    onSetRecordAllMax: (Boolean) -> Unit,
+    onSetPublishAllMax: (Boolean) -> Unit,
+) {
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+
+    if (showHelp) {
+        InfoDialog(
+            title = "Sampling rates",
+            body = "Two independent choices, one for the file and one for the bus.\n\n" +
+                "Configured uses the rate set on each subject's own page. Maximum overrides all of " +
+                "them with as fast as the hardware will give — without erasing them, so switching back " +
+                "returns your tuned profile intact.\n\n" +
+                "Recording fills the local file, which is what analysis is run against. Publishing " +
+                "feeds the bus, which is for watching a trial as it happens; it can never be faster " +
+                "than the recording, because there is no sample to send between recordings.\n\n" +
+                "Neither turns anything on. A subject that is switched off stays off.\n\n" +
+                "Measured on this phone: recording at maximum writes about " +
+                "$MAX_MEGABYTES_PER_HOUR MB/h against roughly $CONFIGURED_MEGABYTES_PER_HOUR MB/h " +
+                "configured, and drives the battery correspondingly harder.",
+            onDismiss = { showHelp = false },
+        )
+    }
+
+    SectionHeader("Sampling rates", onInfo = { showHelp = true })
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            RateModeRow(
+                label = "Recording",
+                atMax = settings.recordAllMax,
+                onChange = onSetRecordAllMax,
+                // The consequence, not the adjective: a measured figure is worth more than "larger".
+                detail = if (settings.recordAllMax) {
+                    "Every sample the sensors give · ~$MAX_MEGABYTES_PER_HOUR MB/h"
+                } else {
+                    "Each subject's own rate · ~$CONFIGURED_MEGABYTES_PER_HOUR MB/h"
+                },
+            )
+            HorizontalDivider()
+            RateModeRow(
+                label = "Publishing",
+                atMax = settings.publishAllMax,
+                onChange = onSetPublishAllMax,
+                detail = if (settings.publishAllMax) {
+                    "Unthinned to the bus · more link and battery use"
+                } else {
+                    "Each subject's own rate, thinned from the recording"
+                },
+            )
+            Text(
+                "Changing either restarts the run and starts a new file.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** A label, the two rates it can run at, and what choosing this one costs. */
+@Composable
+private fun RateModeRow(
+    label: String,
+    atMax: Boolean,
+    onChange: (Boolean) -> Unit,
+    detail: String,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        FilterChip(
+            selected = !atMax,
+            onClick = { onChange(false) },
+            label = { Text("Configured") },
+        )
+        Spacer(Modifier.width(6.dp))
+        FilterChip(
+            selected = atMax,
+            onClick = { onChange(true) },
+            label = { Text("Maximum") },
+        )
+    }
+    Text(
+        detail,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
  * What to do next, and nothing else.
  *
  * This used to be six full-width buttons that made the start screen a menu as much as a dashboard.
@@ -801,35 +1039,53 @@ private fun Actions(
                     Text(if (willRecord) "START Publish & REC" else "START Publish")
                 }
             } else {
-                // Just Stop. Live view and Mark event used to sit here as well, duplicated out of the
-                // navigation bar on the theory that a passing moment should not need looking for — but
-                // the bar is on screen at all times and carries both, so the copies bought nothing and
-                // cost the one control a tab cannot offer its prominence.
+                // Just Stop. Three things have been removed from beside it, all for one reason.
                 //
-                // REC sits *here* rather than beside the connection chip in the app bar, because that
-                // bar uses `enterAlwaysScrollBehavior` and leaves the screen on the first downward
-                // scroll — and thirty-nine subject rows is a page people scroll. This surface is
-                // pinned, so the answer to "is it still recording" cannot be scrolled away.
+                // Live view and Mark event were duplicated out of the navigation bar on the theory
+                // that a passing moment should not need looking for — but the bar is on screen at all
+                // times and carries both, so the copies bought nothing and cost the one control a tab
+                // cannot offer its prominence.
+                //
+                // A blinking `REC` lamp sat here too, and for a while it had to: the app bar used
+                // `enterAlwaysScrollBehavior` and left the screen on the first downward scroll, which
+                // on a page of thirty-nine subject rows meant the answer to "is it still recording"
+                // could be scrolled away. The bar is pinned now and carries `PUB` and `REC` on every
+                // screen, so this said the same thing a second time, three centimetres lower.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (recording) RecordingLamp()
-                    OutlinedButton(
+                    // **Filled, not outlined**, and it is the one place in the app where a large block
+                    // of red is right. The colour rule here is that red means something is wrong — but
+                    // that rule is about *readouts*, where a lamp has to be trusted at a glance. This is
+                    // an action, and it is the destructive half of a pair: Start is a filled primary
+                    // button, so an outlined Stop read as the lesser of the two when it is the one that
+                    // ends a run and closes the file.
+                    //
+                    // `error` over `onError` rather than a hand-picked pair, because those two tokens
+                    // are *defined* as a legible combination in both themes — on this phone that is a
+                    // light red field with near-black-red text on it, which is what was asked for, and
+                    // in a light theme it flips to a strong red field with white text rather than
+                    // becoming two dark reds nobody can read.
+                    Button(
                         onClick = onStop,
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
                         ),
                     ) {
                         // A filled square, drawn rather than imported: `material-icons-core` has no
                         // stop glyph, and pulling in `material-icons-extended` for one shape would add
                         // tens of megabytes of vectors to the APK.
+                        //
+                        // Takes the button's content colour rather than naming one, so the glyph and
+                        // the word beside it cannot end up different reds.
                         Box(
                             Modifier
                                 .size(ButtonDefaults.IconSize * 0.6f)
                                 .clip(RoundedCornerShape(2.dp))
-                                .background(MaterialTheme.colorScheme.error)
+                                .background(LocalContentColor.current)
                         )
                         Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                         Text("Stop")
@@ -837,46 +1093,6 @@ private fun Actions(
                 }
             }
         }
-    }
-}
-
-/**
- * The camera convention: a red lamp that blinks while something is being written.
- *
- * A steady dot reads as a status light and a blinking one reads as *now*, which is the distinction
- * worth drawing — the status card already carries the elapsed time and the file size for anyone who
- * wants the detail. The text is there as well because colour alone never carries a state in this app.
- *
- * The blink is applied in a `graphicsLayer` block on purpose. Reading the animated value inside that
- * lambda defers it to the draw phase, so the lamp re-draws each frame without recomposing anything —
- * the same instinct that keeps the publish path off the UI thread applies to an animation that runs
- * for the whole of a run.
- */
-@Composable
-private fun RecordingLamp() {
-    val blink by rememberInfiniteTransition(label = "recording").animateFloat(
-        initialValue = 1f,
-        targetValue = 0.2f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "recording-lamp",
-    )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.readAsOneItem("Recording"),
-    ) {
-        Box(
-            Modifier
-                .size(10.dp)
-                .graphicsLayer { alpha = blink }
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.error)
-        )
-        Text(
-            "REC",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(start = 6.dp),
-        )
     }
 }
 
@@ -949,8 +1165,15 @@ private fun SubjectRow(
     enabled: Boolean,
     /** The fastest this source can produce, and where that number came from. See `rateCeilings()`. */
     ceiling: RateCeiling?,
-    /** What it was *asked* for — `Settings.rate()`, which already resolves a `rateOwner`. */
+    /** What the *wire* was asked for — `Settings.publishRate()`, which resolves a `rateOwner`. */
     requested: SensorRate,
+    /**
+     * What the *file* was asked for, when it differs.
+     *
+     * Null when the two agree, so an untuned subject still reads as one rate rather than repeating
+     * itself — the row only mentions two when there are two.
+     */
+    recording: SensorRate? = null,
     onOpen: () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
@@ -962,26 +1185,34 @@ private fun SubjectRow(
     // A switched-off subject shows no reading at all. The live store still holds whatever it last
     // published, and a number sitting next to the word "Off" reads as data still arriving.
     val reading = if (health == SubjectHealth.Off) null else readingOf(entry, value, fix)
+    // What this source was asked for, on every row whatever state it is in — including the ones that
+    // are not producing, which is when somebody is deciding what to ask for. Null only for an
+    // event-driven subject, which has no rate to state.
+    val setLabel = if (entry.eventDriven) null else requestedLabel(requested)
+    fun withSet(text: String) = setLabel?.let { "$text · $it" } ?: text
+
     val detail = when (health) {
-        SubjectHealth.Unavailable -> "Not on this device"
+        SubjectHealth.Unavailable -> withSet("Not on this device")
         // The switch is in this row, so the old "turn it on in Settings" is no longer where to go —
         // except for the two that need a restart to take effect, which is worth saying up front.
         SubjectHealth.Off ->
-            if (entry in START_TIME_SUBJECTS) "Off — switching it on restarts the run" else "Off"
-        SubjectHealth.Failed -> "Failed — ${status.failure}"
+            withSet(if (entry in START_TIME_SUBJECTS) "Off — switching it on restarts the run" else "Off")
+        SubjectHealth.Failed -> withSet("Failed — ${status.failure}")
         // Both of these have no achieved rate to state, so the ceiling stands in — which is the one
         // moment it is worth reading, since deciding what to ask a source for happens before a run and
         // not during one. Once there is a sample count from the last run, that is the better fact and
         // the line is long enough without both.
-        SubjectHealth.Waiting -> "Waiting · ${rateLine(null, requested, ceiling)}"
+        SubjectHealth.Waiting -> "Waiting · ${rateLine(null, requested, ceiling, recording)}"
         SubjectHealth.Idle ->
             if (status.samplesPublished == 0L) {
-                rateLine(null, requested, ceiling).replaceFirstChar { it.uppercase() }
+                rateLine(null, requested, ceiling, recording).replaceFirstChar { it.uppercase() }
             } else {
-                "${formatCounted(status.samplesPublished, "sample")} last run"
+                // `formatCount` rather than `formatCounted`: dropping the word "samples" is what keeps
+                // the commonest of these lines on one row once the rate is appended.
+                withSet("${formatCount(status.samplesPublished)} last run")
             }
         SubjectHealth.Stalled ->
-            "Stalled — last sample ${formatAge(status.lastPublishEpochMillis, nowMillis)}"
+            withSet("Stalled — last sample ${formatAge(status.lastPublishEpochMillis, nowMillis)}")
         // An event-driven subject counts marks, it does not have a rate. Deriving one from five
         // button presses over a two-hour run produces "0,0007 Hz", which reads as a sampling rate
         // that has nearly stopped rather than as a person having marked five things.
@@ -1005,7 +1236,7 @@ private fun SubjectRow(
             // the achieved rate alone rather than an invented ceiling.
             // Before the first two samples there is no achieved rate to divide out, so the line is
             // the other two numbers — more use than "Publishing" was on a 0.1 Hz subject.
-            rateLine(hz, requested, ceiling).replaceFirstChar { it.uppercase() }
+            rateLine(hz, requested, ceiling, recording).replaceFirstChar { it.uppercase() }
                 .ifBlank { "Publishing" }
         }
     }

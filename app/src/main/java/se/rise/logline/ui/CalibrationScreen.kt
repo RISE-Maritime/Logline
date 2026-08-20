@@ -138,6 +138,7 @@ fun CalibrationScreen(
     // The one form screen that had no guard on it: a system-back with a half-surveyed rig in the
     // draft discarded it silently. Same `leave()` shape as `SettingsScreen`, and it matters more here
     // — twenty seconds of standing still at a point is not something to lose to a stray gesture.
+    var info by remember { mutableStateOf<Pair<String, String>?>(null) }
     val leave = { if (dirty) confirmDiscard = true else onCancel() }
     BackHandler(enabled = true) { leave() }
 
@@ -285,10 +286,21 @@ fun CalibrationScreen(
                     SectionHeader(
                         "Zero point",
                         trailing = if (calibration.zero?.hasPosition == true) "set" else null,
+                        onInfo = {
+                            info = "Zero point" to
+                                "Every sensor offset is measured from here, so this is the rig's " +
+                                "origin rather than a position report.\n\n" +
+                                "A rig measured entirely with a tape needs no position at all — the " +
+                                "offsets are what matter, and a captured zero only lets you place " +
+                                "sensors by walking to them.\n\n" +
+                                "Averaging reduces scatter, not bias: multipath holds still for " +
+                                "minutes, so an offset smaller than the fix accuracy is noise."
+                        },
                     )
+                    // The instruction stays — it is the only thing saying where to stand. The
+                    // reasoning behind it is now one tap away.
                     Text(
-                        "Stand at the rig's reference point and capture. Every sensor offset is measured from " +
-                            "here. A rig measured entirely with a tape needs no position at all.",
+                        "Stand at the rig's reference point and capture.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -333,6 +345,16 @@ fun CalibrationScreen(
                             Text("Type")
                         }
                     }
+                    // Said rather than left to a greyed button: a baseline is measured *from* the zero
+                    // point, so without one there is nothing to measure from. This gap predates the
+                    // move above and hiding the surrounding prose would only have deepened it.
+                    if (calibration.zero == null) {
+                        Text(
+                            "Baseline needs a zero point first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 3 -> {
                     SectionHeader("Sensors", trailing = "${calibration.sensors.size}")
@@ -351,7 +373,20 @@ fun CalibrationScreen(
                     }
                 }
                 else -> {
-                    SectionHeader("On the bus")
+                    SectionHeader(
+                        "On the bus",
+                        onInfo = {
+                            info = "On the bus" to
+                                "Every ten seconds while a run is going: one frame_transform per " +
+                                "sensor, the whole document on configuration_json, and — once a " +
+                                "position has been captured — the zero point itself on location_fix, " +
+                                "stamped with the time it was surveyed rather than the time it was " +
+                                "sent.\n\n" +
+                                "All of a rig's transforms share one key, with the sensor named " +
+                                "inside the message, which is why they are republished on a loop " +
+                                "rather than once."
+                        },
+                    )
                     StatusLine(
                         text = if (publishing && calibration.isPublishable) {
                             "Publishing"
@@ -363,9 +398,9 @@ fun CalibrationScreen(
                         } else {
                             StatusTone.Neutral
                         },
-                        detail = "$transformKey\nEvery ten seconds: one frame_transform per sensor, the whole " +
-                            "document on configuration_json, and — once a position has been captured — the " +
-                            "zero point itself on location_fix, stamped with the time it was surveyed.",
+                        // The key stays: somebody writing a subscriber has to be able to spell it.
+                        // What travels on it, and how often, is behind the ⓘ.
+                        detail = transformKey,
                     )
                     OutlinedButton(
                         onClick = onExport,
@@ -389,6 +424,9 @@ fun CalibrationScreen(
         }
     }
 
+    info?.let { (title, body) ->
+        InfoDialog(title = title, body = body, onDismiss = { info = null })
+    }
     if (showFrameHelp) {
         InfoDialog(
             title = "The rig frame",

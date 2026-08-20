@@ -87,7 +87,7 @@ class PublisherService : Service() {
         // resume the run rather than sitting there doing nothing.
         when (intent?.action ?: ACTION_START) {
             ACTION_STOP -> {
-                stopPublishing()
+                stopPublishing(intent?.getStringExtra(EXTRA_CLOSING_NOTE))
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -167,10 +167,10 @@ class PublisherService : Service() {
         return forBootStart(settings)
     }
 
-    private fun stopPublishing() {
+    private fun stopPublishing(closingNote: String? = null) {
         if (!running) return
         running = false
-        app.publisher.stop()
+        app.publisher.stop(closingNote)
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
@@ -360,6 +360,9 @@ class PublisherService : Service() {
         const val ACTION_START = "se.rise.logline.action.START"
         const val ACTION_STOP = "se.rise.logline.action.STOP"
 
+        /** The line to mark a run with as it ends, set by the Stop dialog. */
+        private const val EXTRA_CLOSING_NOTE = "se.rise.logline.extra.CLOSING_NOTE"
+
         /** Set only by [BootReceiver]; see [forThisStart] for what it changes. */
         private const val EXTRA_FROM_BOOT = "se.rise.logline.extra.FROM_BOOT"
 
@@ -370,8 +373,15 @@ class PublisherService : Service() {
             ContextCompat.startForegroundService(context, intent)
         }
 
-        fun stop(context: Context) {
-            val intent = Intent(context, PublisherService::class.java).setAction(ACTION_STOP)
+        /**
+         * @param closingNote marked against the run before it ends, or null. Carried through the
+         *   intent rather than published by the caller, because the publisher is the only place that
+         *   can put it out *before* it cancels the collectors — see `SensorPublisher.stopInternal`.
+         */
+        fun stop(context: Context, closingNote: String? = null) {
+            val intent = Intent(context, PublisherService::class.java)
+                .setAction(ACTION_STOP)
+                .putExtra(EXTRA_CLOSING_NOTE, closingNote)
             context.startService(intent)
         }
     }

@@ -214,5 +214,9 @@ internal fun formatBitrate(bps: Float): String = when {
 fun formatPosition(latitude: Double, longitude: Double): String {
     val ns = if (latitude >= 0) "N" else "S"
     val ew = if (longitude >= 0) "E" else "W"
-    return "%.4f°%s %.4f°%s".fmt(abs(latitude), ns, abs(longitude), ew)
+    // A middot between the halves: `57.4359°N 12.0328°E` runs them together, and the only thing
+    // dividing them is a space that also appears inside each half. The hemisphere letter stays tight
+    // against its figure — spacing that off as well reads no better and costs two characters, which is
+    // the difference between the Session screen's Position row fitting on one line and wrapping.
+    return "%.4f°%s · %.4f°%s".fmt(abs(latitude), ns, abs(longitude), ew)
 }

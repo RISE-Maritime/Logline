@@ -71,6 +71,12 @@ class SettingsProfileTest {
             Subjects.LOCATION_FIX to SensorRate.Hz(0.2),
             Subjects.LINEAR_ACCELERATION_MPSS to SensorRate.Max,
         ),
+        recordRates = mapOf(
+            Subjects.AIR_PRESSURE_PA to SensorRate.Hz(5.0),
+            Subjects.ANGULAR_VELOCITY_RADPS to SensorRate.Max,
+        ),
+        recordAllMax = true,
+        publishAllMax = true,
         checklistEnabled = true,
         operatorId = "3f2b0c7e-0000-4000-8000-000000000001",
         operatorName = "Ted",
@@ -125,6 +131,12 @@ class SettingsProfileTest {
         assertEquals(original.videoKeyframeSeconds, out.videoKeyframeSeconds)
         assertEquals(original.disabledSubjects, out.disabledSubjects)
         assertEquals(original.sensorRates, out.sensorRates)
+        // The recording half of the rate split, and the two full-rate modes. A profile that carried the
+        // publish rates and silently dropped these would restore a phone that looked configured and
+        // recorded the wrong thing.
+        assertEquals(original.recordRates, out.recordRates)
+        assertEquals(original.recordAllMax, out.recordAllMax)
+        assertEquals(original.publishAllMax, out.publishAllMax)
         assertEquals(original.qosOverrides, out.qosOverrides)
         assertEquals(original.annotationButtons, out.annotationButtons)
         assertEquals(original.checklistEnabled, out.checklistEnabled)

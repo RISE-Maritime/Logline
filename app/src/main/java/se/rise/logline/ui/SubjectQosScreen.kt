@@ -50,9 +50,12 @@ import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.parseRateHz
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.FormActions
+import se.rise.logline.ui.components.InfoDialog
+import se.rise.logline.ui.components.NavRow
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
+import se.rise.logline.sensors.slowerOf
 import se.rise.logline.ui.components.StatusTone
 
 /**
@@ -71,12 +74,58 @@ fun SubjectQosScreen(
     sourceId: String? = null,
     current: SubjectQos,
     isOverridden: Boolean,
+    /**
+     * What the *bus* was **asked for**, unclamped — `Settings.requestedPublishRate`.
+     *
+     * Not `publishRate`, which is the clamped result: a field bound to that cannot be typed into,
+     * because 10 Hz against a 1 Hz ceiling redraws as 1.0 and saving then stores the clamp, so opening
+     * the screen would destroy the request.
+     */
     rate: SensorRate,
+    /**
+     * The fastest this subject may go on the wire, and what will be published if [rate] exceeds it.
+     *
+     * For a subject with its own listener that is its record rate; for one riding another's samples it
+     * is the owner's publish rate. See `Settings.publishCeiling`.
+     */
+    publishCeiling: SensorRate,
+    /**
+     * Whether a publish rate is stored for this subject at all.
+     *
+     * Only meaningful for a subject that rides another: absent means it follows the owner, which is a
+     * state the screen offers as a choice rather than leaving as a hidden fallback.
+     */
+    rateIsOverridden: Boolean = false,
+    /** What the *file* is asked for. Equal to [rate] on subjects where the two cannot differ. */
+    recordRate: SensorRate,
+    /**
+     * Whether this subject can record and publish at different rates at all.
+     *
+     * False for a polled subject, a chunk length, a capture interval and an on-change sensor — see
+     * `Settings.ratesCanDiffer`. Those get one control, because two would imply a choice that does not
+     * exist.
+     */
+    ratesCanDiffer: Boolean,
     capabilities: SensorCapabilities,
     /** The fastest this source can go and where that number came from. See `rateCeilings()`. */
     ceiling: RateCeiling?,
+    /**
+     * The human name of the subject whose rate governs this one, where one does — `Position`, not
+     * `location_fix`. Resolved by the caller with `rateOwnerEntry()`, which matches on `SourceKind`
+     * as well as the subject because `location_fix` is published by two entries.
+     */
+    rateOwnerLabel: String? = null,
+    /** Opens that subject's own page, so an inherited rate is one tap from where it is set. */
+    onOpenRateOwner: (() -> Unit)? = null,
     achievedHz: Double?,
-    onSave: (SubjectQos, SensorRate) -> Unit,
+    /**
+     * Quality of service, the publish rate, and the record rate.
+     *
+     * A **null** publish rate means "store nothing" — the subject follows the one it rides. That is
+     * distinct from any rate it could carry, the same way an absent annotation-button list means
+     * "never configured" rather than "empty".
+     */
+    onSave: (SubjectQos, SensorRate?, SensorRate) -> Unit,
     onResetToPolicy: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -87,28 +136,134 @@ fun SubjectQosScreen(
     var express by remember { mutableStateOf(current.express) }
     // Open when there is already an override, so an existing one is never hidden behind a tap.
     var showQos by remember { mutableStateOf(isOverridden) }
+    var showRateHelp by remember { mutableStateOf(false) }
+    var showFrameHelp by remember { mutableStateOf(false) }
+    // Derived here rather than at the section below, because the dialog above needs it too.
+    val frame = PublishedSubject.forSubject(subject)?.let(::frameOf) ?: SensorFrame.None
 
     val edited = SubjectQos(priority, congestion, reliability, express)
     var useMaxRate by remember { mutableStateOf(rate is SensorRate.Max) }
     var rateText by remember {
         mutableStateOf(formatHz((rate as? SensorRate.Hz)?.hz ?: capabilities.maxRateHz ?: 50.0))
     }
+    var useMaxRecord by remember { mutableStateOf(recordRate is SensorRate.Max) }
+    var recordText by remember {
+        mutableStateOf(formatHz((recordRate as? SensorRate.Hz)?.hz ?: capabilities.maxRateHz ?: 50.0))
+    }
     val parsedRate = parseRateHz(rateText)
-    val editedRate: SensorRate? = if (useMaxRate) SensorRate.Max else parsedRate?.let { SensorRate.Hz(it) }
+    val parsedRecord = parseRateHz(recordText)
+    // **Never null, so Save is never disabled.** A field that will not parse falls back to what is
+    // already stored and says so on the field itself — the alternative was a greyed-out Save with the
+    // reason a scroll away, which reads as the screen being broken rather than as one field being wrong.
+    val editedRate: SensorRate =
+        if (useMaxRate) SensorRate.Max else parsedRate?.let { SensorRate.Hz(it) } ?: rate
+    val editedRecord: SensorRate = when {
+        !ratesCanDiffer -> editedRate
+        useMaxRecord -> SensorRate.Max
+        else -> parsedRecord?.let { SensorRate.Hz(it) } ?: recordRate
+    }
     val rateOwner = PublishedSubject.forSubject(subject)?.rateOwner
+    // A derived subject with nothing stored follows the one it rides. Held as its own state rather
+    // than inferred from the rate, because "0.2 Hz because I asked for it" and "0.2 Hz because that is
+    // what Position is doing" are different settings that happen to read the same number.
+    var followOwner by remember { mutableStateOf(rateOwner != null && !rateIsOverridden) }
+    // Null is what `onSave` stores as "follow", and what makes the two states distinguishable.
+    val savedRate: SensorRate? = if (followOwner) null else editedRate
+    // What will actually go out, so the page can say when the number above it will not be honoured.
+    val effectiveRate = slowerOf(editedRate, publishCeiling)
+    val limited = !followOwner && effectiveRate != editedRate
 
-    val dirty = edited != current || (editedRate != null && editedRate != rate)
+    val dirty = edited != current ||
+        (!followOwner && editedRate != rate) ||
+        followOwner != (rateOwner != null && !rateIsOverridden) ||
+        editedRecord != recordRate
     var confirmDiscard by remember { mutableStateOf(false) }
-    val leave = { if (dirty) confirmDiscard = true else onCancel() }
+    // Where the discard was heading. Back leaves the screen; the rate-owner link goes to another
+    // subject's page — both throw away the same unsaved edits, so both ask the same question rather
+    // than one of them quietly taking the changes with it and losing them on the way.
+    var afterDiscard by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val leaveTo: (() -> Unit) -> Unit = { destination ->
+        if (dirty) {
+            afterDiscard = destination
+            confirmDiscard = true
+        } else {
+            destination()
+        }
+    }
+    val leave = { leaveTo(onCancel) }
     BackHandler(enabled = true) { leave() }
 
+    if (showFrameHelp) {
+        InfoDialog(
+            title = "What the numbers are measured against",
+            body = when (frame) {
+                SensorFrame.WorldEnu ->
+                    "This is the rotation from the phone's own axes to the world frame — x east, " +
+                        "y north, z up. The axes it rotates from are the ones drawn below."
+                SensorFrame.DeviceAngle ->
+                    "An angle about one of the phone's own axes — pitch about +X, roll about +Y, yaw " +
+                        "about +Z — not the vessel's. What it means for the boat is the rig " +
+                        "calibration's frame transform."
+                SensorFrame.Bearing ->
+                    "Degrees clockwise from ${if (subject == Subjects.HEADING_TRUE_NORTH_DEG) "true" else "magnetic"} " +
+                        "north, of the phone's +Y axis — the top edge, marked below. It is where the " +
+                        "phone points, not where it is going; ${Subjects.COURSE_OVER_GROUND_DEG} is " +
+                        "the latter, and on the water the two differ."
+                else -> null
+            },
+            // The card itself, not a copy of it — the same one the live view shows.
+            content = { AxisReferenceCard(compact = true) },
+            onDismiss = { showFrameHelp = false },
+        )
+    }
+    if (showRateHelp) {
+        InfoDialog(
+            title = "Sampling rate",
+            body = buildString {
+                append(
+                    "Four numbers, answering four different questions. Reading one as an answer to " +
+                        "another is the commonest confusion on this screen.\n\n"
+                )
+                append(
+                    "Hardware is what the sensor advertises. It is not a hard cap: Android runs a " +
+                        "shared sensor at the fastest rate any app asked for and delivers every sample " +
+                        "to all of them, so another app on the phone can push this above the figure " +
+                        "shown — and does.\n\n"
+                )
+                append(
+                    "Recording is what the sensor is asked for and what reaches the file. The file is " +
+                        "what analysis is run against, so it decides what exists at all.\n\n"
+                )
+                append(
+                    "Publishing is what goes on the bus, which can only ever be a thinner copy of the " +
+                        "recording — the bus is for watching a trial, not for analysing it. Asking to " +
+                        "publish faster than you record changes nothing: there is no sample to send.\n\n"
+                )
+                append(
+                    "Actual is measured over the run and averaged. A request is never a promise — the " +
+                        "platform delivers what it can.\n\n"
+                )
+                append(
+                    "Maximum is a zero delay rather than the advertised figure written out, which is " +
+                        "why it can beat the number above it."
+                )
+                ceilingNote(ceiling)?.let { append("\n\n").append(it) }
+            },
+            onDismiss = { showRateHelp = false },
+        )
+    }
     if (confirmDiscard) {
         ConfirmDialog(
             title = "Discard changes?",
             body = "The rate and quality of service you changed here have not been saved.",
             confirmLabel = "Discard",
-            onConfirm = { confirmDiscard = false; onCancel() },
-            onDismiss = { confirmDiscard = false },
+            onConfirm = {
+                confirmDiscard = false
+                val destination = afterDiscard ?: onCancel
+                afterDiscard = null
+                destination()
+            },
+            onDismiss = { confirmDiscard = false; afterDiscard = null },
         )
     }
 
@@ -121,10 +276,19 @@ fun SubjectQosScreen(
         onBack = leave,
         bottomBar = {
             FormActions(
-                onSave = { editedRate?.let { onSave(edited, it) } },
+                onSave = { onSave(edited, savedRate, editedRecord) },
                 onCancel = leave,
-                saveEnabled = editedRate != null,
-                hint = if (editedRate == null) "Enter a rate greater than 0 Hz to save." else null,
+                // Always. A rate that will not parse keeps its stored value rather than blocking every
+                // other setting on the screen behind it.
+                saveEnabled = true,
+                hint = when {
+                    !useMaxRate && parsedRate == null ->
+                        "The publish rate is not a number — saving keeps its current value."
+                    ratesCanDiffer && !useMaxRecord && parsedRecord == null ->
+                        "The record rate is not a number — saving keeps its current value."
+                    dirty -> "Saving restarts the run, which starts a new recording file."
+                    else -> null
+                },
             )
         },
     ) { padding ->
@@ -164,44 +328,26 @@ fun SubjectQosScreen(
             }
 
             // Only for the subjects that have a direction at all — on a scalar it would be noise.
-            val frame = PublishedSubject.forSubject(subject)?.let(::frameOf) ?: SensorFrame.None
+            // The frame this subject's numbers are measured in — a header and an ⓘ, where it used to
+            // be a header, a paragraph and a diagram inline. `LiveScreen` already puts this same card
+            // behind an ⓘ; this is the other half of that.
             if (frame != SensorFrame.None) {
-                SectionHeader("What the numbers are measured against")
-                when (frame) {
-                    SensorFrame.WorldEnu -> Text(
-                        "This is the rotation from the phone's own axes to the world frame — x east, " +
-                            "y north, z up. The axes it rotates *from* are these:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    SensorFrame.DeviceAngle -> Text(
-                        "An angle about one of the phone's own axes — pitch about +X, roll about +Y, " +
-                            "yaw about +Z — not the vessel's. What it means for the boat is the rig " +
-                            "calibration's frame transform.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    SensorFrame.Bearing -> Text(
-                        "Degrees clockwise from ${if (subject == Subjects.HEADING_TRUE_NORTH_DEG) "true" else "magnetic"} " +
-                            "north, of the phone's +Y axis — the top edge, marked below. It is where the " +
-                            "phone points, not where it is going; ${Subjects.COURSE_OVER_GROUND_DEG} is " +
-                            "the latter, and on the water the two differ.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    else -> Unit
-                }
-                AxisReferenceCard(compact = true)
+                SectionHeader(
+                    "What the numbers are measured against",
+                    trailing = frameSummary(frame),
+                    onInfo = { showFrameHelp = true },
+                )
             }
 
             // An event-driven subject has no stream to sample — `log_message` is published when a
-            // person presses a button — so the whole section is dropped rather than shown with a dial
-            // that would do nothing. The QoS controls above still apply: how it travels is a real
-            // question for it, how often it is produced is not.
+            // person presses a button — so it gets the three-number card and no dial. A control there
+            // would silently do nothing; saying it has no rate is the part that used to be missing,
+            // since dropping the section entirely left the one source that states nothing at all. The
+            // QoS controls above still apply: how it travels is a real question for it, how often it
+            // is produced is not.
             val eventDriven = PublishedSubject.forSubject(subject)?.eventDriven == true
-            if (!eventDriven) {
-                SectionHeader("Sampling rate")
+            run {
+                SectionHeader("Sampling rate", onInfo = { showRateHelp = true })
 
                 // The three numbers, before any control that changes one of them. They answer three
                 // different questions — what the source could give, what this phone asked for, what is
@@ -217,22 +363,59 @@ fun SubjectQosScreen(
                             value = ceiling?.let { c ->
                                 c.hz?.let { "${formatHz(it)} Hz" } ?: "reports on change"
                             } ?: "not stated",
-                            note = ceilingNote(ceiling),
+                            // No note: what "advertised" means, and that it can be exceeded, is the
+                            // kind of thing you read once — it lives behind the ⓘ now.
+                            note = null,
                         )
                         RateFact(
-                            label = "Setting",
-                            value = when (rate) {
-                                SensorRate.Max -> "maximum"
-                                is SensorRate.Hz -> "${formatHz(rate.hz)} Hz"
+                            label = "Recording",
+                            value = when {
+                                eventDriven -> "not applicable"
+                                recordRate is SensorRate.Max -> "maximum"
+                                else -> "${formatHz((recordRate as SensorRate.Hz).hz)} Hz"
                             },
-                            note = rateOwner?.let { "Inherited from $it" }
-                                ?: "A request, not a promise — the platform delivers what it can",
+                            // Only what this particular subject's state makes true. "What the sensor
+                            // is asked for" is the same sentence on every subject, every time — that is
+                            // documentation, and it belongs behind the ⓘ.
+                            note = rateOwnerLabel?.let { "Inherited from $it" },
+                        )
+                        RateFact(
+                            label = "Publishing",
+                            // **The effective rate, not the typed one.** This row is the answer to
+                            // "what is going out", so on a subject held down by the one it rides it has
+                            // to show the ceiling — the request is in the field below, where it can be
+                            // edited, and the warning beside it explains the gap.
+                            value = when {
+                                eventDriven -> "on each mark"
+                                rateOwner != null && followOwner -> rateLabel(publishCeiling)
+                                else -> rateLabel(effectiveRate)
+                            },
+                            // Kept only where the two rates *differ from each other*, because that is
+                            // the one thing the pair of figures does not make obvious on its own.
+                            note = when {
+                                rateOwnerLabel == null ->
+                                    if (ratesCanDiffer && editedRecord != editedRate) {
+                                        "Thinned from the recording"
+                                    } else {
+                                        null
+                                    }
+                                followOwner -> "Following $rateOwnerLabel"
+                                limited -> "Limited by $rateOwnerLabel"
+                                else -> "Thinned from $rateOwnerLabel"
+                            },
                         )
                         RateFact(
                             label = "Actual",
-                            value = achievedHz?.let { "${formatHz(it)} Hz" } ?: "not publishing",
-                            note = achievedHz?.let { "Averaged over the run" }
-                                ?: "Start a run to measure it",
+                            value = achievedHz?.let { "${formatHz(it)} Hz" }
+                                ?: if (eventDriven) "nothing marked" else "not publishing",
+                            // Only when there is no figure: a blank needs explaining, a number does not.
+                            note = if (achievedHz != null) {
+                                null
+                            } else if (eventDriven) {
+                                "Marks are counted, not timed"
+                            } else {
+                                "Start a run to measure it"
+                            },
                         )
                     }
                 }
@@ -240,53 +423,88 @@ fun SubjectQosScreen(
                 // Some subjects ride another subject's sample stream — speed and course come off the same
                 // Location callback as location_fix, and the battery scalars off one poll. Showing them a
                 // rate control would be showing a control that silently does nothing, so say where it lives.
-                if (rateOwner != null) {
-                    Text(
-                        "Published from the same reading as $rateOwner, so it shares that subject's rate. " +
-                            "Change it there.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (eventDriven) {
+                    // No control at all, and nothing more to say than the card already says.
+                } else if (rateOwner != null) {
+                    val ownerName = rateOwnerLabel ?: rateOwner
+                    // **A publish rate of its own, capped by the one it rides.** These subjects used to
+                    // get no control at all — the card below was the whole section — which pinned a
+                    // declination that moves over a day's sailing to whatever the fix was publishing
+                    // at. There is nothing to set on the *record* side, though: one listener serves the
+                    // whole group, so that stays inherited and is stated as a fact above.
+                    RateControl(
+                        // "Maximum" would be a lie here. The ceiling is another subject's configured
+                        // rate, not the hardware's, so the off-state is named after what it does.
+                        title = "Follow $ownerName",
+                        detail = "Publish every sample $ownerName does.",
+                        fieldLabel = "Publish rate (Hz)",
+                        useMax = followOwner,
+                        onUseMaxChange = { followOwner = it },
+                        text = rateText,
+                        onTextChange = { rateText = it },
+                        parsed = parsedRate,
                     )
+                    // State, not documentation, so it stays on the page: it is the only thing saying
+                    // why the number just typed will not be what goes out. Shown only while it binds.
+                    if (limited) {
+                        StatusLine(
+                            text = "Limited to ${rateLabel(effectiveRate)} by $ownerName",
+                            tone = StatusTone.Warning,
+                            detail = "A subject cannot be published faster than the one it is " +
+                                "derived from. Raise $ownerName first.",
+                        )
+                    }
+                    Card(Modifier.fillMaxWidth()) {
+                        NavRow(
+                            title = "Rate is set on $ownerName",
+                            subtitle = "Published from the same samples as $rateOwner",
+                            // Through the same guard a back gesture uses: this leaves the screen just
+                            // as finally, and unsaved QoS edits would go with it.
+                            onClick = { onOpenRateOwner?.let { leaveTo(it) } },
+                        )
+                    }
                 } else {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("Maximum", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Ask for everything the hardware will give, with no requested rate at all.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // The file first, because it decides what exists to publish at all.
+                    if (ratesCanDiffer) {
+                        RateControl(
+                            title = "Record at maximum",
+                            detail = "Everything the hardware gives, into the file.",
+                            fieldLabel = "Record rate (Hz)",
+                            useMax = useMaxRecord,
+                            onUseMaxChange = { useMaxRecord = it },
+                            text = recordText,
+                            onTextChange = { recordText = it },
+                            parsed = parsedRecord,
+                        )
+                    }
+                    RateControl(
+                        title = if (ratesCanDiffer) "Publish at maximum" else "Maximum",
+                        detail = if (ratesCanDiffer) {
+                            "Every recorded sample, unthinned, onto the bus."
+                        } else {
+                            "Everything the hardware gives."
+                        },
+                        fieldLabel = if (ratesCanDiffer) "Publish rate (Hz)" else "Requested rate (Hz)",
+                        useMax = useMaxRate,
+                        onUseMaxChange = { useMaxRate = it },
+                        text = rateText,
+                        onTextChange = { rateText = it },
+                        parsed = parsedRate,
+                    )
+                    // Said where the choice is made rather than left to be discovered from the plots.
+                    if (ratesCanDiffer && !useMaxRate && parsedRate != null) {
+                        val recordHz = if (useMaxRecord) capabilities.maxRateHz else parsedRecord
+                        if (recordHz != null && parsedRate > recordHz) {
+                            StatusLine(
+                                text = "Faster than the recording",
+                                tone = StatusTone.Warning,
+                                detail = "There is no sample to send between recordings, so this " +
+                                    "publishes at ${formatHz(recordHz)} Hz.",
                             )
                         }
-                        Switch(checked = useMaxRate, onCheckedChange = { useMaxRate = it })
-                    }
-
-                    if (!useMaxRate) {
-                        OutlinedTextField(
-                            value = rateText,
-                            onValueChange = { rateText = it },
-                            label = { Text("Requested rate (Hz)") },
-                            singleLine = true,
-                            isError = parsedRate == null,
-                            supportingText = if (parsedRate == null) {
-                                { Text("Enter a rate greater than 0 Hz.") }
-                            } else {
-                                null
-                            },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                     }
                     // What the card above does not say: that `Maximum` is a zero delay rather than the
                     // advertised figure, and that the two differ in practice.
-                    if (useMaxRate && capabilities.maxRateHz != null) {
-                        Text(
-                            "A zero delay, not ${formatHz(capabilities.maxRateHz)} Hz written out — this " +
-                                "sensor may deliver more than it advertises, and does: asking for 400 Hz " +
-                                "on this device yields around 442 Hz.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                     capabilities.name?.let {
                         Text(
                             "$it${capabilities.vendor?.let { v -> " · $v" } ?: ""}",
@@ -463,6 +681,77 @@ private fun formatHz(hz: Double): String =
     if (hz == hz.toLong().toDouble()) hz.toLong().toString() else "%.2f".fmt(hz).trimEnd('0').trimEnd('.')
 
 /** One of the three rate numbers, with the sentence that says what kind of number it is. */
+/**
+ * One rate: a maximum switch, and a figure when it is off.
+ *
+ * Shared by the record and publish controls so the two cannot drift into looking like different kinds
+ * of setting — they are the same question asked about the file and about the bus.
+ *
+ * The field keeps its text when it will not parse rather than being reverted under the cursor; what
+ * that costs is stated on the field and again on the Save hint, because the value is silently left
+ * alone rather than rejected.
+ */
+/** A word for the frame, so the collapsed header still says which one this subject uses. */
+private fun frameSummary(frame: SensorFrame): String = when (frame) {
+    SensorFrame.WorldEnu -> "world frame"
+    SensorFrame.DeviceAngle -> "phone axes"
+    SensorFrame.Bearing -> "from north"
+    else -> ""
+}
+
+@Composable
+private fun RateControl(
+    title: String,
+    detail: String,
+    fieldLabel: String,
+    useMax: Boolean,
+    onUseMaxChange: (Boolean) -> Unit,
+    text: String,
+    onTextChange: (String) -> Unit,
+    parsed: Double?,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = useMax, onCheckedChange = onUseMaxChange)
+    }
+    // **Always drawn, disabled while the switch is on**, rather than appearing only when it is off.
+    // Hidden, it made a rate look unsettable: the record switch defaults to on, so its field was never
+    // there to be found, and the only visible number on the screen was the publish one — which read as
+    // "recording can only be maximum". A greyed field says the setting exists and is being overridden.
+    OutlinedTextField(
+        value = text,
+        onValueChange = onTextChange,
+        enabled = !useMax,
+        label = { Text(fieldLabel) },
+        singleLine = true,
+        isError = !useMax && parsed == null,
+        supportingText = when {
+            useMax -> {
+                { Text("Ignored while the switch above is on.") }
+            }
+            parsed == null -> {
+                { Text("Enter a rate greater than 0 Hz — saving keeps the current value.") }
+            }
+            else -> null
+        },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/** A rate as the page says it — "maximum" or "1.0 Hz". One spelling, used everywhere on this screen. */
+private fun rateLabel(rate: SensorRate): String = when (rate) {
+    SensorRate.Max -> "maximum"
+    is SensorRate.Hz -> "${formatHz(rate.hz)} Hz"
+}
+
 @Composable
 private fun RateFact(label: String, value: String, note: String?) {
     Row(Modifier.fillMaxWidth()) {

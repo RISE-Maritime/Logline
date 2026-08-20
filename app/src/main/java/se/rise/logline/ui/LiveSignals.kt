@@ -5,6 +5,7 @@ import se.rise.logline.keelson.SourceKind
 import se.rise.logline.keelson.RadioSources
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.publish.SampleWindow
+import se.rise.logline.sensors.FixKind
 import kotlin.math.roundToInt
 
 /**
@@ -100,6 +101,57 @@ fun gnssQuality(accuracyMetres: Float?): FixQuality = when {
     accuracyMetres == null -> FixQuality.Unknown
     accuracyMetres <= 5f -> FixQuality.Good
     accuracyMetres <= 15f -> FixQuality.Fair
+    else -> FixQuality.Poor
+}
+
+/**
+ * The receiver's own verdict on itself, as a tone rather than a word.
+ *
+ * Mapped through [FixKind] rather than off the formatted string, so this and `formatLiveValue`'s
+ * wording read the same enum and cannot drift into disagreeing about what `2` means.
+ *
+ * `NoFix` is an error rather than a warning **even though a position is usually still on the bus**: the
+ * fix this app publishes is the fused one, which Android will derive from wifi and cell with the GNSS
+ * engine solving nothing, and a run whose track is being interpolated from cell towers is exactly the
+ * thing somebody needs to notice.
+ */
+fun fixKindQuality(value: Float?): FixQuality =
+    when (value?.let { FixKind.entries.getOrNull(it.toInt()) }) {
+        FixKind.ThreeD -> FixQuality.Good
+        FixKind.TwoD -> FixQuality.Fair
+        FixKind.NoFix -> FixQuality.Poor
+        null -> FixQuality.Unknown
+    }
+
+/**
+ * What a cellular SINR figure means to somebody deciding whether the live stream is worth watching.
+ *
+ * Signal-to-interference-plus-noise, in dB, and the thresholds are the ones the 3GPP world uses for
+ * both LTE and NR: above ~13 dB the link carries its highest modulation, 0-13 dB works but is where
+ * throughput starts falling away, and below zero the noise is louder than the signal.
+ *
+ * A judgement rather than a measurement, which is why it is here beside [gnssQuality] rather than
+ * inline in the row that paints it — the row shows the **number**, and this only decides its colour.
+ */
+fun cellularQuality(sinrDb: Float?): FixQuality = when {
+    sinrDb == null -> FixQuality.Unknown
+    sinrDb >= 13f -> FixQuality.Good
+    sinrDb >= 0f -> FixQuality.Fair
+    else -> FixQuality.Poor
+}
+
+/**
+ * Whether the battery will see the run out.
+ *
+ * Twenty percent is where Android itself starts warning, and ten is where a phone recording video and
+ * holding a GNSS fix has minutes rather than tens of minutes. Deliberately coarse: the honest answer to
+ * "how long have I got" is the drain-rate estimate on the Session card, not a percentage, and this only
+ * decides whether the figure is worth looking at.
+ */
+fun batteryQuality(percent: Float?): FixQuality = when {
+    percent == null -> FixQuality.Unknown
+    percent > 20f -> FixQuality.Good
+    percent >= 10f -> FixQuality.Fair
     else -> FixQuality.Poor
 }
 

@@ -9,6 +9,7 @@ import android.util.Size
 import android.util.Log
 import androidx.core.content.ContextCompat
 import se.rise.logline.config.AnnotationSeverity
+import se.rise.logline.config.NOTE_CATEGORY
 import se.rise.logline.config.SYSTEM_CATEGORY
 import se.rise.logline.calibrate.RigCalibration
 import se.rise.logline.calibrate.normaliseSignedDegrees
@@ -205,6 +206,16 @@ class SensorPublisher(private val appContext: Context) {
      */
     private val outbox = OutboxBuffer()
     private var backfillEnabled = true
+
+    /**
+     * How far apart this run's publishes must be, per subject, in nanoseconds.
+     *
+     * Present only for subjects whose publish rate is genuinely slower than their record rate —
+     * everything else publishes every sample and needs no decimator at all. Computed once in [start]
+     * from the run's settings, the same shape [backfillEnabled] follows, so the hot path reads a map
+     * rather than recomputing a rate per sample.
+     */
+    private var publishIntervalsNanos: Map<PublishedSubject, Long> = emptyMap()
     private var livelinessTokens: List<LivelinessToken> = emptyList()
 
     /**
@@ -310,6 +321,7 @@ class SensorPublisher(private val appContext: Context) {
                 outbox.clear()
                 annotations.clear()
                 backfillEnabled = settings.backfillEnabled
+                publishIntervalsNanos = publishIntervals(settings)
                 // Before any collector is supervised, so a subject that starts switched off never
                 // registers its listener in the first place.
                 setOffSubjects(settings.offSubjects())
@@ -385,32 +397,32 @@ class SensorPublisher(private val appContext: Context) {
                     }
                 }
                 supervised("accel", setOf(PublishedSubject.LINEAR_ACCEL)) {
-                    runAccel(opened, publishers.of(PublishedSubject.LINEAR_ACCEL), settings.imuSource, settings.rate(Subjects.LINEAR_ACCELERATION_MPSS))
+                    runAccel(opened, publishers.of(PublishedSubject.LINEAR_ACCEL), settings.imuSource, settings.recordRate(Subjects.LINEAR_ACCELERATION_MPSS))
                 }
                 supervised("gyro", setOf(PublishedSubject.ANGULAR_VEL)) {
-                    runGyro(opened, publishers.of(PublishedSubject.ANGULAR_VEL), settings.imuSource, settings.rate(Subjects.ANGULAR_VELOCITY_RADPS))
+                    runGyro(opened, publishers.of(PublishedSubject.ANGULAR_VEL), settings.imuSource, settings.recordRate(Subjects.ANGULAR_VELOCITY_RADPS))
                 }
                 supervised("orientation", ORIENTATION_SUBJECTS) {
-                    runOrientation(opened, publishers, settings.imuSource, settings.rate(Subjects.ORIENTATION_QUATERNION))
+                    runOrientation(opened, publishers, settings.imuSource, settings.recordRate(Subjects.ORIENTATION_QUATERNION))
                 }
                 supervised("imuTemperature", IMU_TEMPERATURE_SUBJECTS) {
                     runImuTemperature(opened, publishers.of(PublishedSubject.IMU_TEMPERATURE),
-                        settings.rate(Subjects.IMU_TEMPERATURE_CELSIUS))
+                        settings.recordRate(Subjects.IMU_TEMPERATURE_CELSIUS))
                 }
                 supervised("attitude", ATTITUDE_SUBJECTS) {
-                    runAttitude(opened, publishers, settings.imuSource, settings.rate(Subjects.ROLL_DEG))
+                    runAttitude(opened, publishers, settings.imuSource, settings.recordRate(Subjects.ROLL_DEG))
                 }
                 supervised("attitudeRates", ATTITUDE_RATE_SUBJECTS) {
-                    runAttitudeRates(opened, publishers, settings.rate(Subjects.ROLL_RATE_DEGPS))
+                    runAttitudeRates(opened, publishers, settings.recordRate(Subjects.ROLL_RATE_DEGPS))
                 }
                 supervised("magnetometer", setOf(PublishedSubject.MAGNETIC_FIELD)) {
-                    runMagnetometer(opened, publishers.of(PublishedSubject.MAGNETIC_FIELD), settings.imuSource, settings.rate(Subjects.MAGNETIC_FIELD_GAUSS))
+                    runMagnetometer(opened, publishers.of(PublishedSubject.MAGNETIC_FIELD), settings.imuSource, settings.recordRate(Subjects.MAGNETIC_FIELD_GAUSS))
                 }
                 supervised("pressure", setOf(PublishedSubject.AIR_PRESSURE)) {
-                    runPressure(opened, publishers.of(PublishedSubject.AIR_PRESSURE), settings.rate(Subjects.AIR_PRESSURE_PA))
+                    runPressure(opened, publishers.of(PublishedSubject.AIR_PRESSURE), settings.recordRate(Subjects.AIR_PRESSURE_PA))
                 }
                 supervised("illuminance", setOf(PublishedSubject.ILLUMINANCE)) {
-                    runIlluminance(opened, publishers.of(PublishedSubject.ILLUMINANCE), settings.rate(Subjects.ILLUMINANCE_LUX))
+                    runIlluminance(opened, publishers.of(PublishedSubject.ILLUMINANCE), settings.recordRate(Subjects.ILLUMINANCE_LUX))
                 }
                 // Audio and the camera stay behind their start-time flags as well as the switch: both
                 // decide a foreground-service type and a runtime permission at `startForeground`, which
@@ -428,10 +440,10 @@ class SensorPublisher(private val appContext: Context) {
                     }
                 }
                 supervised("battery", BATTERY_SUBJECTS) {
-                    runBattery(opened, publishers, settings.rate(Subjects.BATTERY_STATE_OF_CHARGE_PCT))
+                    runBattery(opened, publishers, settings.recordRate(Subjects.BATTERY_STATE_OF_CHARGE_PCT))
                 }
                 supervised("radio", RADIO_SUBJECTS) {
-                    runRadio(opened, publishers, settings.rate(Subjects.RADIO_RSRP_DBM))
+                    runRadio(opened, publishers, settings.recordRate(Subjects.RADIO_RSRP_DBM))
                 }
                 supervised("calibration", CALIBRATION_SUBJECTS) {
                     runCalibration(opened, rigs, settings)
@@ -444,8 +456,12 @@ class SensorPublisher(private val appContext: Context) {
         }
     }
 
-    fun stop() {
-        stopInternal()
+    /**
+     * @param closingNote a line to mark the run with before it ends, or null. See [stopInternal] for
+     *   why the publisher does this rather than the caller marking and then stopping.
+     */
+    fun stop(closingNote: String? = null) {
+        stopInternal(closingNote)
     }
 
     /**
@@ -456,9 +472,11 @@ class SensorPublisher(private val appContext: Context) {
      * a Pixel 6 it returns in about a millisecond, connected or not — but it is still an unbounded
      * I/O call, and the main thread is not the place for it.
      */
-    private fun stopInternal() {
+    private fun stopInternal(closingNote: String? = null) {
         val runScope = scope
         val openSession = session
+        // Captured before `publishers` is emptied below, for the closing note.
+        val logPublisher = publishers[PublishedSubject.LOG_MESSAGE]
         val tokens = livelinessTokens
         // Null all three before anything slow happens, so a following start() cannot see a
         // half-torn-down run and a second stop() cannot close the same session twice.
@@ -481,6 +499,35 @@ class SensorPublisher(private val appContext: Context) {
         }
 
         closeScope.launch {
+            // **The closing note goes out here, before anything is torn down, and that ordering is the
+            // whole reason the publisher takes it rather than the caller marking and then stopping.**
+            // `mark()` launches on the run scope, and the very next thing below cancels that scope —
+            // so a note marked from the UI would race the teardown and usually lose. Publishing it on
+            // `closeScope` while the collectors are still alive cannot: the recorder is stopped further
+            // down, after the cancel, so this reaches the file as well as the bus.
+            if (!closingNote.isNullOrBlank() && openSession != null && logPublisher != null &&
+                PublishedSubject.LOG_MESSAGE !in offSubjects.value
+            ) {
+                val at = java.time.Instant.now()
+                val payload = FoxgloveLog.newBuilder()
+                    .setTimestamp(protoTimestamp(at))
+                    .setLevel(AnnotationSeverity.Info.toLogLevel())
+                    .setMessage(closingNote.trim())
+                    .setName(NOTE_CATEGORY)
+                    .build()
+                val sink = SubjectSink(PublishedSubject.LOG_MESSAGE, openSession)
+                val result = sink.emit(logPublisher, payload.toByteArray())
+                if (result?.isSuccess == true) {
+                    annotations.add(
+                        Annotation(
+                            atEpochMillis = at.toEpochMilli(),
+                            message = closingNote.trim(),
+                            severity = AnnotationSeverity.Info,
+                            category = NOTE_CATEGORY,
+                        )
+                    )
+                }
+            }
             val startedAt = SystemClock.uptimeMillis()
             // Cancellation is asynchronous. Joining is what guarantees no publish is still in flight
             // inside JNI when the session is closed underneath it. Safe from here — joining the run
@@ -525,6 +572,29 @@ class SensorPublisher(private val appContext: Context) {
      * not that GNSS is flowing. Failing to declare is not fatal — liveliness is discovery, not the data
      * path, and a logging run should survive losing it.
      */
+    /**
+     * Which subjects need thinning on the wire, and by how much.
+     *
+     * Absent means "publish everything", which is the answer whenever the two rates agree — so a run
+     * with no tuning does no per-sample work at all.
+     *
+     * Three subjects are never thinned, and not out of caution. `video_compressed` carries H.264, where
+     * dropped frames do not decode; `audio`'s rate is a *chunk length*, so dropping one leaves a hole in
+     * the sound rather than a thinner stream; and `log_message` is a person pressing a button.
+     */
+    private fun publishIntervals(settings: Settings): Map<PublishedSubject, Long> =
+        PublishedSubject.entries.mapNotNull { entry ->
+            if (entry.eventDriven) return@mapNotNull null
+            if (entry == PublishedSubject.VIDEO_COMPRESSED || entry == PublishedSubject.AUDIO) {
+                return@mapNotNull null
+            }
+            val publish = settings.publishRate(entry.subject)
+            val record = settings.recordRate(entry.subject)
+            if (publish == record) return@mapNotNull null
+            val hz = (publish as? SensorRate.Hz)?.hz ?: return@mapNotNull null
+            entry to (1_000_000_000.0 / hz).toLong()
+        }.toMap()
+
     private fun declareLiveliness(session: KeelsonSession, settings: Settings) {
         // Every source this run actually publishes under, taken from the registry rather than listed by
         // hand — otherwise the radio links would publish on keys no liveliness token covers, and a
@@ -810,7 +880,7 @@ class SensorPublisher(private val appContext: Context) {
             return
         }
         val frameId = settings.locationSource
-        val rate = settings.rate(Subjects.LOCATION_FIX)
+        val rate = settings.recordRate(Subjects.LOCATION_FIX)
         val publisher = publishers.of(PublishedSubject.LOCATION_FIX)
         val speedPub = publishers.of(PublishedSubject.SPEED_OVER_GROUND)
         val coursePub = publishers.of(PublishedSubject.COURSE_OVER_GROUND)
@@ -1429,7 +1499,7 @@ class SensorPublisher(private val appContext: Context) {
             Log.w(TAG, "RECORD_AUDIO not granted; skipping audio publisher")
             return
         }
-        val chunkMillis = settings.rate(Subjects.AUDIO).toIntervalMillis()
+        val chunkMillis = settings.recordRate(Subjects.AUDIO).toIntervalMillis()
             // A "maximum rate" audio stream is meaningless — it would be one chunk per sample. The
             // floor keeps a mis-set rate from turning into a message storm.
             .coerceIn(MIN_AUDIO_CHUNK_MILLIS, MAX_AUDIO_CHUNK_MILLIS)
@@ -1502,7 +1572,7 @@ class SensorPublisher(private val appContext: Context) {
             // `SensorRate.Max` is meaningless for a camera — it would ask for frames as fast as the
             // shutter will go, which is video at a hundred times the data rate. That is what
             // `video_compressed` is for.
-            intervalMillis = settings.rate(Subjects.IMAGE_COMPRESSED).toIntervalMillis()
+            intervalMillis = settings.recordRate(Subjects.IMAGE_COMPRESSED).toIntervalMillis()
                 .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS),
             size = Size(settings.cameraWidth, settings.cameraHeight),
             quality = Settings.CAMERA_JPEG_QUALITY,
@@ -1510,7 +1580,7 @@ class SensorPublisher(private val appContext: Context) {
         val video = if (!wantVideo) null else VideoConfig(
             size = Size(settings.videoWidth, settings.videoHeight),
             bitrateKbps = settings.videoBitrateKbps,
-            frameRate = settings.rate(Subjects.VIDEO_COMPRESSED).toIntervalMillis()
+            frameRate = settings.recordRate(Subjects.VIDEO_COMPRESSED).toIntervalMillis()
                 .let { if (it > 0) (1000L / it).toInt() else DEFAULT_VIDEO_FRAME_RATE }
                 .coerceIn(1, MAX_VIDEO_FRAME_RATE),
             keyframeSeconds = settings.videoKeyframeSeconds,
@@ -1849,7 +1919,7 @@ class SensorPublisher(private val appContext: Context) {
 
         // A rate control set to Max would otherwise mean an interval of zero, and this loop has no
         // sensor to wait on — it would republish every rig as fast as the CPU allows.
-        val intervalMillis = settings.rate(Subjects.FRAME_TRANSFORM).toIntervalMillis()
+        val intervalMillis = settings.recordRate(Subjects.FRAME_TRANSFORM).toIntervalMillis()
             .coerceAtLeast(MIN_CALIBRATION_INTERVAL_MILLIS)
 
         // The plotted value for `configuration_json` is the whole library's sensor count, not each
@@ -1976,18 +2046,36 @@ class SensorPublisher(private val appContext: Context) {
         private val keyOverride: String? = null,
     ) {
 
+        /**
+         * Thins the wire to the publish rate, or null when this subject publishes every sample.
+         *
+         * Derived rather than passed in: there are thirty-eight sinks constructed across this class and
+         * threading one more argument through all of them would be thirty-eight chances to forget.
+         * `lazy` because a sink is built per collector, not per sample.
+         */
+        private val decimator: PublishDecimator? by lazy {
+            publishIntervalsNanos[subject]?.let { PublishDecimator(it) }
+        }
+
         private var logged = false
 
         /**
-         * Publish one payload — or, when the subject is switched off, do nothing at all.
+         * Take one payload — or, when the subject is switched off, do nothing at all.
          *
          * **The switch is enforced here and nowhere else.** Wire, MCAP file, replay outbox, live view
          * and sample counter all hang off this one call, so they cannot end up disagreeing about
          * whether a sample happened: an "off" subject writes no channel to the file, buffers nothing
          * for replay, plots nothing and counts nothing.
          *
-         * Returns null when the subject is off, so a caller with more to do on a real publish —
-         * the fix that feeds the map, the frame that feeds the thumbnail — can tell the two apart.
+         * **The file and the wire now run at different rates**, and this is where they part. Every
+         * sample is recorded; only those the [decimator] lets through are published. The order matters
+         * — `wrap` used to be evaluated as the argument to `publish`, which made recording depend on
+         * the publish *cadence* as well as its outcome.
+         *
+         * Returns null **only** when the subject is off. A decimated sample returns success, because it
+         * did happen: callers use null to skip work that belongs to a real sample — the fix that feeds
+         * the map, the frame that feeds the thumbnail — and those must still run for a sample that was
+         * recorded but not sent.
          */
         fun emit(
             publisher: AdvancedPublisher,
@@ -1995,7 +2083,11 @@ class SensorPublisher(private val appContext: Context) {
             value: Float? = null,
         ): Result<Unit>? {
             if (subject in offSubjects.value) return null
-            val result = session.publish(publisher, wrap(payload))
+            // Always: this is the file's copy, and the file is what analysis is run against.
+            val enveloped = wrap(payload)
+            if (decimator?.due(System.nanoTime()) == false) return Result.success(Unit)
+            buffer(payload)
+            val result = session.publish(publisher, enveloped)
             if (value != null) record(result, value) else record(result)
             return result
         }
@@ -2037,10 +2129,25 @@ class SensorPublisher(private val appContext: Context) {
             // `bufferedForReplay` is false for the camera, and that exclusion is deliberate — see the
             // registry. Replay is paced by message count, so a handful of 150 kB frames is a burst the
             // egress queue would shed silently, taking live navigation data with it.
+            return enclose(payload, now)
+        }
+
+        /**
+         * Hold a sample for replay — **on the publish side of the decimator**, deliberately.
+         *
+         * It used to be buffered in `wrap`, i.e. at the recording rate. Once the two rates differ that
+         * would have a replay after an outage push samples onto the bus faster than the live stream
+         * ever ran, which is the one thing `replay()`'s pacing exists to prevent.
+         *
+         * `bufferedForReplay` is false for the camera, and that exclusion is deliberate — see the
+         * registry. Replay is paced by message count, so a handful of 150 kB frames is a burst the
+         * egress queue would shed silently, taking live navigation data with it.
+         */
+        private fun buffer(payload: ByteArray) {
             if (backfillEnabled && subject.bufferedForReplay) {
+                val now = java.time.Instant.now()
                 outbox.add(OutboxEntry(subject, payload, now.epochSecond * 1_000_000_000L + now.nano))
             }
-            return enclose(payload, now)
         }
 
         fun record(result: Result<Unit>) {

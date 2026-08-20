@@ -2,6 +2,12 @@ package se.rise.logline.ui
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
+import se.rise.logline.keelson.SourceKind
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.graphics.Color
@@ -78,15 +84,6 @@ val WINDOW_CHOICES = listOf(30 to "30 s", 120 to "2 min", 600 to "10 min")
 /** Tall enough to navigate by, against the 240dp it started at. */
 private val MAP_HEIGHT = 400.dp
 
-/**
- * Effectively the screen: the readouts are hidden while the chart is expanded.
- *
- * 560 rather than the 640 it was, because the navigation bar now takes ~80dp from the bottom of every
- * top-level screen. The bar deliberately stays visible while the chart is expanded — a control that
- * disappears is how somebody ends up stranded on a full-screen map — so the height gives that space
- * back instead, leaving the *visible* chart the size it has always been.
- */
-private val MAP_HEIGHT_EXPANDED = 560.dp
 
 @Composable
 fun LiveScreen(
@@ -201,7 +198,6 @@ fun LiveScreen(
         title = "Live view",
         onBack = onBack,
         actions = {
-            LiveChip(running, recording.recording)
             IconButton(onClick = { showAbout = true }) {
                 Icon(Icons.Default.Info, contentDescription = "About the live view")
             }
@@ -211,6 +207,33 @@ fun LiveScreen(
         // Not hoisted like the other live-view preferences: expanding the chart is something you do
         // for a minute while looking at it, not a setting you carry between screens.
         var mapExpanded by rememberSaveable { mutableStateOf(false) }
+        // Expanded, the chart takes the screen and the readouts go with it — reading a chart and
+        // reading numbers are two different jobs and neither wants half a screen.
+        //
+        // **No height and no scroll here, which is the point.** This used to be a second constant,
+        // hand-tuned to 560dp so that the navigation bar's ~80dp came off the 640 it wanted — a number
+        // measured on one phone and wrong on any device whose bars differ. `padding` is the scaffold's
+        // own measurement of the space between its bars, so filling it is correct everywhere by
+        // construction. The bar stays on screen deliberately: a control that disappears is how somebody
+        // ends up stranded on a full-screen map.
+        if (mapExpanded) {
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                mapView(Modifier.fillMaxSize())
+                MapToolbar(
+                    followFix = followFix,
+                    onFollowFixChange = onFollowFixChange,
+                    layer = layer,
+                    onLayerChange = onLayerChange,
+                    seaMarks = seaMarks,
+                    onSeaMarksChange = onSeaMarksChange,
+                    expanded = mapExpanded,
+                    onExpandedChange = { mapExpanded = it },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                )
+            }
+            return@ScreenScaffold
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -223,32 +246,50 @@ fun LiveScreen(
             // Expanded, the chart takes the screen and the readouts go with it — which is the point:
             // reading a chart and reading numbers are two different jobs and neither wants half a
             // screen. Collapsed it is still much taller than the 240dp it started at.
-            val mapHeight = if (mapExpanded) MAP_HEIGHT_EXPANDED else MAP_HEIGHT
-            Box(Modifier.fillMaxWidth().height(mapHeight)) {
+            // The chart and what it is showing, in one frame.
+            //
+            // The position used to sit on the page below a chart that ran edge to edge, so the eye went
+            // straight from tiles to body text with nothing marking where one ended. Inside a rounded
+            // surface, with the coordinates attached under a hairline, the two read as one instrument —
+            // which is what they are.
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+              Column {
+                Box(Modifier.fillMaxWidth().height(MAP_HEIGHT)) {
                 mapView(Modifier.fillMaxSize())
-                Column(
+                MapToolbar(
+                    followFix = followFix,
+                    onFollowFixChange = onFollowFixChange,
+                    layer = layer,
+                    onLayerChange = onLayerChange,
+                    seaMarks = seaMarks,
+                    onSeaMarksChange = onSeaMarksChange,
+                    expanded = mapExpanded,
+                    onExpandedChange = { mapExpanded = it },
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FollowControl(
-                        followFix = followFix,
-                        onFollowFixChange = onFollowFixChange,
-                    )
-                    LayerControl(
-                        layer = layer,
-                        onLayerChange = onLayerChange,
-                        seaMarks = seaMarks,
-                        onSeaMarksChange = onSeaMarksChange,
-                    )
-                    MapChip(
-                        text = if (mapExpanded) "Shrink" else "Expand",
-                        onClick = { mapExpanded = !mapExpanded },
-                    )
+                )
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                FixLine(
+                    fix = fix,
+                    nowMillis = nowMillis,
+                    // The app's one definition of "this subject has stopped", rather than a threshold
+                    // invented here — a second one would eventually disagree with the GNSS heading a
+                    // few rows further down, which is the same rule reading the same status.
+                    stale = running && subjectHealth(
+                        status = status[PublishedSubject.LOCATION_FIX],
+                        running = true,
+                        nowMillis = nowMillis,
+                        available = PublishedSubject.LOCATION_FIX !in unavailableSubjects,
+                        enabled = PublishedSubject.LOCATION_FIX !in disabledSubjects,
+                    ) == SubjectHealth.Stalled,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+              }
             }
-            if (mapExpanded) return@Column
-            FixLine(fix)
             DashboardReadings(
                 speedKnots = latest(PublishedSubject.SPEED_OVER_GROUND),
                 courseDegrees = latest(PublishedSubject.COURSE_OVER_GROUND),
@@ -260,11 +301,18 @@ fun LiveScreen(
                 // Through the same formatter the row uses, so the word here and the word there cannot drift.
                 fixQuality = latest(PublishedSubject.FIX_QUALITY)
                     ?.let { formatLiveValue(PublishedSubject.FIX_QUALITY, it) },
+                // And the colour off the same enum, for the same reason.
+                fixQualityTone = fixKindQuality(latest(PublishedSubject.FIX_QUALITY)),
                 sinrDb = latest(PublishedSubject.CELLULAR_SINR),
                 batteryPercent = latest(PublishedSubject.BATTERY_STATE_OF_CHARGE),
             )
             HealthChips(
-                chips = subjectGroups().map { group ->
+                // Not the same list as the plot sections below, deliberately. A rig's calibration is
+                // surveyed once and republished on a ten-second loop; it is configuration the phone is
+                // announcing rather than telemetry it is measuring, and a health chip for it sits in
+                // the one row that is meant to answer "is this run going well". The group keeps its
+                // section further down, so a republish loop that has stopped is still visible.
+                chips = subjectGroups().filter { it.source != SourceKind.CALIBRATION }.map { group ->
                     HealthChip(
                         name = chipName(group.title),
                         healthy = !groupSummary(
@@ -364,57 +412,93 @@ fun LiveScreen(
     }
 }
 
-/** ● LIVE while publishing, ● REC beside it while recording. */
-@Composable
-private fun LiveChip(running: Boolean, recording: Boolean) {
-    val text = when {
-        running && recording -> "LIVE · REC"
-        running -> "LIVE"
-        else -> "IDLE"
-    }
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.readAsOneItem(if (running) "Publishing $text" else "Not publishing"),
-    )
-}
 
-/** The map's own control, so the three-line explanation can live in the ⓘ instead. */
+/**
+ * The chart's three controls, in one translucent column at its top-right corner.
+ *
+ * They were three separate `FilterChip`s in three separate surfaces — `Follow`, the layer name and
+ * `Expand` — which between them took a strip of the chart about as wide as the position readout below
+ * it and read as three competing buttons rather than as the chart's furniture. Icons in one container
+ * take roughly a third of that, and the chart is what the screen is for.
+ *
+ * **Follow is a toggle, so its fill is its state and no word is needed.** The app's rule that colour
+ * never carries a state alone is about *readouts* — a lamp saying whether a router is on the other end
+ * has to be legible in sunlight to a colourblind reader. A control is different: it is pressed, it
+ * responds, and the standard selected fill is what every toggle in the app already uses. The word
+ * survives where it is actually needed, in the button's content description.
+ *
+ * One composable rather than two so the inline chart and the full-screen one cannot drift apart; the
+ * only difference between them is which way the fullscreen glyph points.
+ */
 @Composable
-private fun FollowControl(
+private fun MapToolbar(
     followFix: Boolean,
     onFollowFixChange: (Boolean) -> Unit,
+    layer: MapLayer,
+    onLayerChange: (MapLayer) -> Unit,
+    seaMarks: Boolean,
+    onSeaMarksChange: (Boolean) -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-        shape = MaterialTheme.shapes.small,
+        shape = RoundedCornerShape(20.dp),
         modifier = modifier,
     ) {
-        FilterChip(
-            selected = followFix,
-            onClick = { onFollowFixChange(!followFix) },
-            label = { Text(if (followFix) "◎ Following" else "◎ Follow") },
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(vertical = 2.dp),
+        ) {
+            MapIconButton(
+                icon = IconMyLocation,
+                description = if (followFix) "Following the fix, tap to stop" else "Follow the fix",
+                onClick = { onFollowFixChange(!followFix) },
+                active = followFix,
+            )
+            LayerControl(
+                layer = layer,
+                onLayerChange = onLayerChange,
+                seaMarks = seaMarks,
+                onSeaMarksChange = onSeaMarksChange,
+            )
+            MapIconButton(
+                icon = if (expanded) IconFullscreenExit else IconFullscreen,
+                description = if (expanded) "Shrink the chart" else "Expand the chart",
+                onClick = { onExpandedChange(!expanded) },
+            )
+        }
     }
 }
 
 /**
- * A tappable chip on the chart, in the same translucent surface the follow control uses.
+ * One button in the chart's toolbar.
  *
- * Its own composable because there are three of them now and they have to look like one family — a
- * stack of differently-shaped buttons over a map reads as clutter rather than as controls.
+ * 40dp rather than the icon's own 24: the visual weight is what this pass is reducing, and a tap target
+ * shrunk to match is a control that gets missed on a moving boat.
  */
 @Composable
-private fun MapChip(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-        shape = MaterialTheme.shapes.small,
-        modifier = modifier,
+private fun MapIconButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    /** A toggle that is currently on, drawn with the app's selected fill. */
+    active: Boolean = false,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(40.dp),
+        colors = if (active) {
+            IconButtonDefaults.iconButtonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        } else {
+            IconButtonDefaults.iconButtonColors()
+        },
     ) {
-        FilterChip(selected = false, onClick = onClick, label = { Text(text) })
+        Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -434,7 +518,14 @@ private fun LayerControl(
 ) {
     var open by remember { mutableStateOf(false) }
     Box(modifier) {
-        MapChip(text = layer.label, onClick = { open = true })
+        // The label went with the chip, and nothing was lost with it: the menu below names every layer
+        // and ticks the one in use, so the active layer is one tap away rather than printed across the
+        // chart it is already describing.
+        MapIconButton(
+            icon = IconLayers,
+            description = "Map layer, currently ${layer.label}",
+            onClick = { open = true },
+        )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             MapLayer.entries.forEach { option ->
                 DropdownMenuItem(

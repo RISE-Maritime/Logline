@@ -77,9 +77,20 @@ so. **A master switch never moves those two**: nobody tapping "Device" expects t
 camera to come on with the barometer, so they keep their own row switch and their own deliberate tap.
 Switch settings persist across runs and restarts.
 
-Some subjects come off a single reading and therefore share one rate: speed and course are read from
-the same `Location` object as `location_fix`, the battery scalars from one poll, and the radio subjects
-from another. Their settings screen says so rather than offering a rate control that would do nothing.
+Some subjects come off a single reading and therefore share one *recording* rate: speed and course are
+read from the same `Location` object as `location_fix`, the battery scalars from one poll, and the radio
+subjects from another. There is one listener behind each group, so there is nothing per-subject to ask
+the sensor for, and their settings screen says so.
+
+On the **wire** they are independent. Each of those subjects has its own publish rate, which is pure
+decimation of samples that have already arrived — so a declination that moves over a day's sailing can
+go out once every twenty seconds while the fix beside it stays at 1 Hz. The limit is that a subject
+cannot be published faster than the one it is derived from: its page offers *Follow Position* or a rate
+of its own, and says which one is binding. Raising it past the cap means raising the owner first, which
+is one tap from the same page. Note the consequence for anyone consuming the bus — a group can now be
+internally inconsistent, with speed arriving every second and course every five, off the same fix. The
+recording is unaffected either way; that is what the file is for.
+
 Those groupings are also what a switch releases: switching off one of the four subjects that ride the
 GNSS fix leaves the other three publishing and the receiver on.
 
@@ -531,8 +542,16 @@ zero samples. Nothing here needs a permission beyond the location one already re
 magnetometer, barometer and battery need none.
 
 Rates are per-subject and configurable — see below. They are *requests*: Android treats the derived
-delay as a hint, so what arrives depends on the hardware, and the app shows the achieved rate next to
-each subject.
+delay as a hint, so what arrives depends on the hardware. Every subject row therefore carries all
+three numbers — `1.0 Hz · set 1.0 · max ~1.0`, meaning achieved, requested and the fastest the source
+can go — and a tap opens the subject's own page, which spells them out as **Hardware**, **Setting**
+and **Actual** with a line on each saying what kind of number it is. A ceiling can be the sensor's own
+advertised figure, a floor this app holds a poll loop to, or (for GNSS, which answers no such query)
+an estimate, printed with a `~`.
+
+Many subjects have no rate of their own: speed and course come off the same `Location` callback as the
+fix, and the battery scalars off one poll. Their page says `Inherited from Position` and offers a
+`Rate is set on Position ›` row that opens the subject that owns it.
 
 Subject names and payload types follow `messages/subjects.yaml` in the Keelson repo. They are not
 free-form — a subject only means something if a consumer agrees on its type.
@@ -1135,10 +1154,11 @@ The unwrapped-payload part is not a detail: the replayer re-wraps with
 `keelson.enclose(payload=message.data, enclosed_at=message.publish_time)`, so a file containing whole
 envelopes would replay as doubly-wrapped messages that decode to nothing.
 
-Two deliberate differences from the Python recorder, neither of which affects readability: files are
-**uncompressed and unchunked** (they carry a summary with statistics, which is what readers actually
-need to avoid a full scan), and schemas are deduplicated **per protobuf type** rather than per subject,
-so 28 subjects produce 8 schema records rather than 28.
+Messages are buffered into **zstd-compressed chunks**, as the Python recorder does; schemas, channels
+and the summary stay outside them, so a reader gets the statistics without decompressing anything. Two
+differences from the Python recorder remain, neither affecting readability: no chunk *index* is written,
+so a reader scans rather than seeks, and schemas are deduplicated **per protobuf type** rather than per
+subject, so 28 subjects produce 8 schema records rather than 28.
 
 ### Replaying one
 
@@ -1148,15 +1168,25 @@ under the same identity — it would republish onto the keys it is reading. Use 
 
 ### Size, rotation and interruption
 
-Roughly **77 MB per hour** uncompressed at default rates, rolling to a new file at 512 MB (about six
-and a half hours). Recording stops rather than filling the disk if free space drops below 256 MB.
+Roughly **241 MB per hour** at the defaults, rolling to a new file at 512 MB. Two changes moved that
+figure in opposite directions and it is worth knowing both: recording now defaults to each sensor's
+*maximum* rate, which took an uncompressed run to about 720 MB/h, and zstd then won roughly three
+quarters of that back. Measured on a Pixel 6: 153 s wrote 10.2 MB holding 14.2 MB of payload — stored
+smaller than the data it contains, where before compression the same payload cost 2.2× its own size in
+framing. Recording stops rather than filling the disk if free space drops below 256 MB.
 
 Files are written to app-private storage first and moved to Downloads when closed, so a crash cannot
 lose one to a half-finished MediaStore entry. **A recording interrupted by a kill is repaired on the
 next start**: the app trims it to the last complete record and appends a footer, because a file without
 one has all its messages present and none of them reachable — readers seek to the footer first. The
-repaired file has no statistics, so readers scan it; the messages are intact. Verified by killing the
-app mid-run: 4709 messages across all 25 channels came back.
+repaired file has no statistics, so readers scan it; the messages are intact.
+
+Compression costs something here, and it is bounded deliberately. A killed process loses whatever is
+still buffered in the open chunk, where before it lost only a partial message — so chunks are flushed
+at 256 kB **or after two seconds, whichever comes first**. The time bound is the important half: it
+makes the worst case a property of the clock rather than of how fast the sensors happen to be running.
+Verified by killing the app 25 s into a run: **87 193 messages covering 24.7 s came back**, so under a
+second was lost with the in-flight chunk.
 
 If the queue to the writer ever overflows, the main screen shows a **DROPPED** count. It is never
 hidden — a recording with an unreported hole is worse than one that admits to it.

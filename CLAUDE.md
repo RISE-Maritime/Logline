@@ -150,6 +150,22 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `dev`:** `0.6.0-pre.5` was cut from a feature branch and ships `illuminance_lux` and the four
   `checklist_*` subjects that `dev` does not have, so a release can be *ahead* of `dev` rather than
   behind it. `git tag --sort=-creatordate | head -1` names the one to read.
+- **Rate ownership resolves by (subject, `SourceKind`), never by subject alone.**
+  `PublishedSubject.rateOwnerEntry()` is the one way to get from a derived subject to the one whose
+  rate governs it, and it matches the source kind as well as the subject because a subject string does
+  not identify an entry: **`location_fix` is published by two of them** — the phone's live fix and the
+  rig's surveyed zero point — so `forSubject()` answers with whichever sits earlier in the enum. That
+  is the right one today, which is exactly why `SubjectRegistryTest` pins it; reordering the entries
+  would silently point the rig's zero at the phone's GNSS. The UI needs an *entry* rather than a
+  subject anyway, since `Routes.subjectQos()` is keyed on the entry name. One hop always reaches the
+  head — no owner has an owner — and that too is pinned, because `Settings.rate()` does the same
+  single hop and a chain would quietly read the wrong subject's rate.
+- **Every row states a requested rate, in every state.** `Off · set 1.0`, `Not on this device · set
+  5.0`, `32 343 last run · set 1.0` — because the states where a subject is *not* producing are
+  exactly the ones somebody is reading while deciding what to ask for. The only exception is
+  `log_message`, which is event-driven and has no rate to state; its page says so in words
+  (`Setting — not applicable`) rather than dropping the section, which used to leave the one source
+  that said nothing at all.
 - **A rate is three numbers, and a row that shows one of them lies by omission.** Every subject row
   reads `55.3 Hz · set 50 · max 200` — achieved, requested, ceiling — and the per-subject page spells
   the same three out as **Hardware / Setting / Actual** with a sentence each on what kind of number it
@@ -176,6 +192,80 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   outrun the callback it is published from. `RateCeilingTest` exercises every branch with the two
   platform lookups stubbed, which is the only way any of it gets checked without owning the phone that
   would contradict it.
+- **The rate mode is a two-option selector, not a switch, and that is a correctness point.** A toggle's
+  *off* reads as "recording is disabled" when it means "use the configured rate instead of the
+  maximum" — the state being chosen is *which rate*, which a `Configured | Maximum` pair says and a
+  switch cannot. The section is **Sampling rates**, not "Max rate", because that named one option
+  rather than the purpose.
+  **`recordAllMax` defaults to true, and an absent `recordRates` entry means the subject's own default
+  — not Max.** Those two facts have to move together. When absent-means-Max was the fallback instead,
+  the chip read *Configured* while the phone recorded at ten times the megabytes-per-hour printed
+  beside it. Note the persistence default has to agree as well: `readSettings` reading
+  `RECORD_ALL_MAX ?: false` silently contradicted the data class and shipped a fresh install showing
+  the wrong chip.
+  Each row states the **consequence** rather than an adjective — `~241 MB/h` at maximum against
+  `~23 MB/h` configured, both measured — which is why `Capacity.kt` carries two constants and
+  `baseMegabytesPerHour()` picks between them. "Much larger files" is not a number anyone can plan with.
+- **Every subject has its own publish rate, and a derived one is capped by the subject it rides.**
+  About half the registry carries a `rateOwner`, and those subjects used to have no rate of their own at
+  all — all three of `recordRate`, `publishRate` and `ratesCanDiffer` opened with
+  `rateOwner ?: subject` and read the owner's entry throughout, so a declination that moves over a day's
+  sailing was pinned to whatever the fix published at. `recordRate` still does that and must: one
+  listener serves the whole group, so there is nothing per-subject to ask the sensor for. Publishing is
+  pure decimation, and `SubjectSink` already held one `PublishDecimator` per registry entry, so nothing
+  on the publish path changed — only the resolution in `Settings`.
+  It is now three functions rather than one expression, because three different questions were tangled
+  in it. **`publishCeiling()`** is the cap: a subject's own record rate where it has a listener (physics
+  — no sample exists to send faster), and the **owner's publish rate** where it rides one. That second
+  is *policy* and was chosen over the physical limit, which would be the owner's record rate: the
+  samples are genuinely there, but a group whose members can each outrun the one they derive from is a
+  group nobody can read off the Session screen. Raising past the cap means raising the owner first,
+  which is what the page's link to it is for. **`requestedPublishRate()`** is the raw stored value, and
+  **`publishRate()`** is `slowerOf` the two.
+  Three things are load-bearing. **Absent means "follow the owner"**, not "use my own registry default":
+  every derived entry does carry a default equal to its owner's, so a fresh install cannot tell the
+  difference — but an install that had tuned `location_fix` down would find speed and course silently
+  jumping back on upgrade. **The clamp happens on read, never on save**, so an owner lowered for one
+  trial and raised again brings the whole group's tuning back — the same argument `recordAllMax` makes
+  about being a mode over the maps, and clamping on save would additionally mean walking every derived
+  subject each time an owner moved. And **the editor binds to `requestedPublishRate`, not
+  `publishRate`**: a field showing the clamped value cannot be typed into, since 5 Hz against a 1 Hz
+  ceiling redraws as 1.0 and saving then stores the clamp — opening the screen would destroy the
+  request. That round trip was already wrong for subjects clamped to their own record rate.
+  On the page the off-state is **"Follow *owner*", not "Maximum"** — the ceiling is another subject's
+  configured rate, not the hardware's — and it stores **null**, which `MainActivity` turns into a key
+  *removal*. Writing the owner's current rate instead would freeze the subject at today's number rather
+  than leaving it following. A record rate is likewise not written for a derived subject: `recordRate`
+  reads the owner's entry, so a key there is one nothing ever reads back.
+  Measured on a Pixel 6: with `location_fix` at 1 Hz and `course_over_ground_deg` set to 0.2, the row
+  reads `0.2 Hz · rec 1.0 · pub 0.2` while position, speed and declination stay at 1.0 — one `Location`
+  callback, four different wire rates.
+- **Two rates per subject: `recordRate()` fills the file, `publishRate()` feeds the bus.** The file is
+  what analysis is run against and defaults to `SensorRate.Max`; the wire is for watching a trial and
+  keeps the per-subject rate that used to be the only one — `sensorRates` still uses its `rate_*`
+  DataStore keys precisely so existing settings carry over as the *publish* rate. The sensor is
+  registered at the **record** rate, because it is the higher and the publish side can only thin what
+  arrives. `rate()` is retained as an alias for `publishRate()`.
+  **`Max` is only offered where something samples on its own clock** — `recordsContinuously()` in
+  `Settings`. A poll at "max" would spin against the telephony and power APIs; `audio`'s rate is a
+  chunk length and the camera's a capture interval; `illuminance_lux` and `imu_temperature_celsius` are
+  on-change and held on a ticker, so Max there would repeat one unchanged reading ten times a second
+  and call it data. For those, record and publish are the same number and the row shows one rate.
+  **Publish is clamped to record, never validated against it**: no sample exists to send faster than it
+  is sampled, and it is not a combination anybody can see is impossible.
+  `recordAllMax` / `publishAllMax` are a **mode layered over the maps, never a bulk edit** — flipping to
+  full rate for a trial and back has to return the tuned profile intact.
+  Measured on a Pixel 6, read back out of the `.mcap`: `air_pressure_pa` records at 25 Hz and publishes
+  at 1 Hz; `angular_velocity_radps` records at 442 Hz against an advertised 416.
+- **The decimator lives in `SubjectSink.emit()`, with everything else that gates a sample.** `wrap()`
+  is called first and always — that is the file's copy — and only then is the publish considered. It
+  used to be evaluated as the *argument* to `publish`, which made recording depend on the publish
+  cadence as well as its outcome. Two consequences worth keeping: a decimated sample returns
+  `Result.success` rather than null, because null means *the subject is off* and callers use it to skip
+  work a real sample still needs (the fix that feeds the map, the frame that feeds the thumbnail); and
+  the **outbox moved to the publish side**, since buffering at the record rate would have a replay push
+  samples onto the bus faster than the live stream ever ran. Decimating per sink is also what keeps the
+  shared listeners right — eight subjects ride one `Location` callback.
 - **`PublishedSubject.featured` is what the live view shows under "Basic".** Eight subjects — the fix,
   speed, course, true heading, horizontal accuracy, fix quality, air pressure and charge. It defaults
   to false, so a new subject appears under **All** and nowhere else, and `SubjectRegistryTest`
@@ -192,11 +282,123 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   A raw payload on the bus is a bug; consumers unwrap the envelope first.
 - **Sensors are `callbackFlow`.** Register the Android listener inside, unregister in `awaitClose`.
   That pairing is what keeps sensors from leaking when publishing stops.
+- **Explanation lives behind ⓘ; only four kinds of text stay on the page.** `SectionHeader(title,
+  onInfo = …)` opens an `InfoDialog`, and where a screen has no section header the icon goes in
+  `ScreenScaffold(actions = …)`. The rule, applied to every string so the next person can extend it:
+  **documentation** — how or why something works, the same on every run — moves; **consequence**
+  (restarts the run, cannot be undone, publishes your name to other stations, costs disk or battery),
+  **state** (a count, an error, why a list is empty, *why a control is disabled*) and **instruction**
+  (the only thing telling you what to do at this step) all stay. One-line descriptions that label a
+  control stay too, including every `SettingSwitch(description = …)`: a switch reduced to a bare title
+  is not compact, it is unreadable.
+  The trap is the mixed sentence — the audio codec rationale sits with its MB/hour figure, the entity-id
+  helper doubles as an error slot — so those split rather than move wholesale. And hiding a control's
+  *only* label is the failure this can cause: the calibration screen's forward-axis paragraph stays
+  precisely because it is the only thing distinguishing `Baseline`, `Compass` and `Type`. Two controls
+  had to *gain* a line during the pass for the same reason — the disabled Baseline button now says a
+  zero point is needed, and the Severity dropdown gained supporting text.
+  Do not add an ⓘ where nothing was moved: an icon on every heading trains people to ignore all of them.
 - **Compose screens take data and lambdas**, never a repository or a `Context`. There are no
   exceptions left — `MainScreen` takes a `PublisherStatus`, and anything needing a `Context`
   (`sensorCapabilities()`, the file picker, the osmdroid `MapView`) is resolved in `App()` in
   `MainActivity` and handed down. `LiveScreen` takes its map as a `@Composable (Modifier) -> Unit`
   for exactly this reason.
+- **The top bar is pinned, centred, and carries the run status on every screen.** Logo or back arrow
+  left, view name centred, status right — and the status is the reason the bar no longer scrolls away.
+  It used to use `enterAlwaysScrollBehavior` on the argument that a long list should not spend a row on
+  a name you already know, which was right while the bar carried only a name. Now it answers "is this
+  phone publishing, and is it recording", which is worth seeing at any moment, and a status that leaves
+  on the first downward flick is not one.
+  **The status is a `CompositionLocal`, not a parameter** — `LocalRunState`, provided once in `App()`.
+  The bar is shared chrome, and threading the publisher's connection state through fourteen screen
+  signatures to reach it would put a run's state into the argument list of the rig editor. It replaced
+  two separate chips that had already drifted (`ConnectionChip` said `Idle`, `LiveChip` said `IDLE`),
+  which is the other thing one shared implementation buys.
+  **Two lamps, `PUB` and `REC`, not one word.** A single label had to pick between them by priority, so
+  a recording run said `REC` and stopped saying anything about the link — hiding the more important of
+  the two, since whether samples reach a router is in doubt and whether the file is being written is
+  not. Only `REC` blinks, and only while a file is actually being written.
+  It is also the *only* place either is stated. A second blinking `REC` lamp used to sit beside the Stop
+  button, and had to while the bar still used `enterAlwaysScrollBehavior` and left the screen on the
+  first downward flick — on a page of thirty-nine subject rows that could scroll the answer to "is it
+  still recording" away. Pinning the bar made the copy redundant, and a fact stated twice on one screen
+  teaches the eye to trust neither.
+- **Colour is a traffic light and means one thing everywhere: green fine, amber warning, red error,
+  blue general information, grey off.** That is why `StatusTone.Positive` is `signalGreen()` rather than
+  the app's `primary` blue — blue is information, not approval — and why **recording is green rather
+  than the conventional red**: red here means something is wrong, and a healthy recording is the
+  opposite of that. `connectionColor()` is the one function that decides the link's colour, so the top
+  bar and the status card cannot drift apart. Colour never carries a state alone: every lamp has its
+  word beside it, which is what survives sunlight and a colourblind reader.
+  **The Stop button is the one large block of red in the app, and it is an exception on purpose.** The
+  traffic light governs *readouts* — a lamp has to be trusted at a glance. Stop is an action, and the
+  destructive half of a pair: Start is a filled primary button, so an outlined Stop read as the lesser
+  of the two when it is the one that ends a run and closes the file. It uses `error` over `onError`
+  rather than a hand-picked pair, because those two tokens are *defined* as a legible combination in
+  both themes — 7.7:1 on this phone's dark theme (a light red field with near-black-red text) and 6.5:1
+  in light, where it flips to a strong red field with white text instead of becoming two dark reds
+  nobody can read. The stop glyph takes `LocalContentColor` rather than naming a colour, so it and the
+  word cannot end up different reds.
+- **The live view is an instrument, not a control panel, and the hierarchy is deliberate**: chart →
+  the three navigation values → data quality → the sensor groups. Four decisions hold it together and
+  each has a failure it exists to prevent.
+  **Everything drawn on the chart carries a white halo**, and that is what makes it work on more than
+  one base layer. The course vector, the heading vector and the track are all drawn twice — a wider
+  white stroke, then the coloured line on top — because a dark blue course line is perfectly legible on
+  the standard map's pale tiles and nearly gone on Esri's imagery, which is dark green forest and darker
+  water for most of a Swedish coastline. There is no single colour that works on both: imagery covers
+  snow and asphalt too, and an imported offline archive could be anything. With a halo the contrast comes
+  from the drawing rather than from the background, so it holds on any tile — and on pale tiles it simply
+  disappears, where the colour already had contrast. `positionEdge` had always done this for the dot; the
+  vectors and the track now do it too. Two details are load-bearing: **both halos are drawn before either
+  line**, since the two vectors share an origin and always overlap near the dot — halo-then-line twice
+  paints the heading's white stroke across the course line and leaves a notch at exactly the point the
+  eye starts reading from; and the track needs a **second `Polyline`** underneath rather than a paint
+  list, because osmdroid gives an overlay one outline paint.
+  **The chart's controls are icons in one hugging container**, not chips. Three `FilterChip`s in three
+  translucent surfaces took a strip about as wide as the position readout. Note the container must size
+  to the *icons*: a "Following" pill inside it made the whole toolbar as wide as the pill, with two
+  small icons rattling around a dark panel — worse than what it replaced. The word went entirely and the
+  follow icon carries its own selected fill, which is right for a *control*: the rule that colour never
+  carries a state alone is about readouts, where a lamp has to survive sunlight and a colourblind
+  reader. A toggle is pressed and responds, and the word survives in its content description. The four
+  glyphs are
+  hand-declared `ImageVector`s in `ui/MapIcons.kt` on the standard 24x24 grid: only `material-icons-core`
+  is on the classpath and it has none of `MyLocation`/`Layers`/`Fullscreen`.
+  **A position and its accuracy are attached to the chart, inside the same rounded surface**, because
+  the eye otherwise went from tiles straight into body text with nothing marking the boundary. And
+  `FixLine` has *three* states: a stale fix says `Last known position · 12 s ago` in words above the
+  same numbers, since `±11 m` beside a coordinate reads as current whatever its age. Staleness comes
+  from `subjectHealth(...) == Stalled` — the app's one rate-aware definition — never a threshold
+  invented at the call site, which would eventually disagree with the GNSS heading three rows below it
+  reading the same status.
+  **`No fix` in the vitals row is not the same fact**, and the two must never be merged: that is
+  `location_fix_quality` saying the receiver is not solving, which it does while a perfectly current
+  *fused* position derived from wifi and cell keeps arriving. A position can be fresh and unsolved, or
+  solved and old.
+  **`SOG` / `COG` / `HDG T`, and bearings are zero-padded through `formatBearing()`.** Three readings
+  centred in three columns will shove each other about as a course steps 9 → 10 → 100, and a readout
+  that twitches while the phone turns reads as unreliable whatever the numbers say. The degree sign goes
+  *in the figure*, at the figure's own size — set at `labelMedium` on the baseline of a 32sp number it is
+  a few pixels across, sits exactly where a full stop sits, and `000°` reads as `000.`. Every other unit
+  is a word and is correctly quieter than its number. The captions are abbreviations and the
+  `readAsOneItem` descriptions are not, so nothing is lost to a screen reader.
+  **Colour is spent only on the abnormal.** `VitalsLine` is a labelled value each rather than one
+  run-on `No fix · 0 sats · SINR 13 dB · 100 %` string, and the healthy tone is `onSurface`, not green —
+  six green statements of the obvious compete with the one reading that matters. Same reason the health
+  chips lost their dot when healthy: six coloured dots along the bottom read as a legend for a chart
+  that is not there. `gnssQuality`/`cellularQuality`/`batteryQuality`/`fixKindQuality` in
+  `ui/LiveSignals.kt` decide the tones and are pinned; the satellite count is deliberately never
+  coloured, because a fused fix indoors solves with none and the GNSS verdict beside it already says so.
+  Figures stay figures — `13 dB`, not "Good" — for the same reason `~241 MB/h` beat "much larger files".
+  **The chip row is no longer the plot list.** `Rig calibration` is filtered out of it: geometry surveyed
+  once and republished on a ten-second loop is configuration the phone is announcing, not telemetry it is
+  measuring. The group keeps its plot section, so a stalled republish loop is still visible somewhere.
+  **Attribution is a condition of use, not a design element.** `CopyrightOverlay` defaults to 12dp black
+  (`paint.setTextSize(dm.density * 12)`; `setTextSize` takes dp), which competed with the readouts and
+  was near-invisible on dark imagery besides. It is set to 9dp and coloured per layer — near-black on map
+  tiles, white on satellite — both at ~70% alpha. The *text* needs no wiring: `draw()` re-reads the notice
+  from the current tile source every frame. The colour does, from the `update` lambda.
 - **Five screens are tabs; everything else is pushed.** `TopLevel` in `ui/components/Screen.kt` names
   them — Session, Live, Events, Files, Setup — and they are the only destinations that carry
   `LoglineNavBar`. Files is the recordings list, promoted out of Setup because the saved files are what
@@ -821,6 +1023,25 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   Zenoh key, because the replayer republishes it verbatim. `connectors/mcap/bin/keelson2mcap.py` is the
   reference — read it rather than the connector README, which says "records envelopes" and means the
   opposite.
+- **The recording is zstd-chunked, and the flush interval is a recovery decision rather than a
+  compression one.** It used to be unchunked and uncompressed — the least dense form the spec allows —
+  and the cost was measured, not guessed: a 38.4 MB capture held 17.4 MB of payload across 668 039
+  messages, so **55% of the file was framing**. Thirty-one fixed bytes per message against a ~26 byte
+  average payload, most of it structurally redundant (an eight-byte length whose top five bytes are
+  always zero, two absolute epoch timestamps differing only in their low bytes, a dense sequence
+  counter, `frame_id` re-serialised at the sample rate, and float32 readings widened into
+  `foxglove.Vector3`'s doubles so ~11 bytes per IMU message are guaranteed-zero mantissa). Measured
+  after: 241 MB/h against 720, and a file that stores *less* than the payload it contains.
+  zstd because **MCAP standardises only zstd and lz4** — `java.util.zip.Deflater` would produce files
+  Foxglove and `mcap-python` refuse. Level 3, because this runs on the drain coroutine, the one thing
+  that must not fall behind.
+  **Chunks flush at 256 kB or after two seconds, whichever comes first, and the time bound is the point.**
+  A killed process loses the open chunk, where before it lost a single partial message; without a time
+  bound that loss would scale with the sample rate rather than the clock. Verified on a Pixel 6 by
+  killing the app 25 s in: 87 193 messages covering 24.7 s came back. `McapRecovery` needed no change —
+  a Chunk is a length-prefixed record, so a truncated one is already its incomplete-record branch — and
+  `readMcapSummary` needed none either, because MCAP keeps summary records *outside* chunks.
+  No ChunkIndex is written, so readers scan rather than seek. That is legal and was true before as well.
 - **A Message's `data` is not length-prefixed; a Schema's is.** Getting that wrong produces a file that
   parses perfectly and whose every payload fails to decode, which is a genuinely nasty failure mode —
   it was the first bug in `McapWriter` and `McapWriterTest` now pins it. Validate format changes by
@@ -853,6 +1074,21 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   The token is not decoration: the stop now lands on a coroutine, so a Stop immediately followed by a
   Start could otherwise close the *new* run's file — the same shape as the single-channel bug that
   once made the second run in a process record nothing.
+- **Nothing that copies a file may run on the drain coroutine.** `publishOrphans()` learned this first
+  — inline before the drain, a 212 MB orphan blocked the loop for the length of a copy and cost 20 000
+  samples in the first half-minute of a run, with the file still showing zero messages. The **rotation**
+  publish was the same call at the same place and was fixed later: `drain()` now hands `publish()` to
+  the run's scope and opens the next session immediately. Measured with `DEFAULT_MAX_BYTES` temporarily
+  at 3 MB on a Pixel 6 at 812 samples/s, the queue peaked at **65 inline against 28 off the drain** —
+  nothing dropped at that size, but the depth is the mechanism and it scales with the file. Two traps.
+  **Read `session.path` before the launch**, because `session` is reassigned on the next line and a
+  lambda capturing the variable publishes whichever file it names by the time it runs — the new one,
+  still being written. And **the final publish in the `finally` deliberately stays inline**: `stop()`
+  joins the drain and *then* cancels the scope, so a final publish handed to that scope would be racing
+  the cancellation that follows its own join. There is nothing left to stall there anyway — the queue is
+  closed and empty by then. `DRAIN_GRACE_MILLIS` therefore no longer has to cover a copy at all;
+  `cancelAndJoin` waits for one, untimed, and `publish` is blocking I/O that cancellation cannot
+  interrupt part-way, so a truncated file in Downloads is not a risk.
 - **Closing a `Channel` does not lose what is buffered in it, even under cancellation.** Worth knowing
   because the obvious diagnosis of the above was that `stop()` cancelled the drain too eagerly — it
   did cancel it, and that turned out to cost nothing: `receive()` only checks for cancellation when it

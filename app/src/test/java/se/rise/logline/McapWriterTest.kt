@@ -4,6 +4,7 @@ import se.rise.logline.record.McapRecovery
 import se.rise.logline.record.McapWriter
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -17,6 +18,78 @@ import java.io.File
  * something that cannot be recorded again.
  */
 class McapWriterTest {
+
+    /** One message as a reader recovers it. */
+    private data class ReadMessage(
+        val channelId: Int,
+        val sequence: Int,
+        val logTime: Long,
+        val publishTime: Long,
+        val data: ByteArray,
+    )
+
+    /**
+     * Walk a written file and return its messages, decompressing chunks on the way.
+     *
+     * There is no MCAP library for the JVM — which is why `McapWriter` is hand-written — so the only
+     * way to assert the file is *readable* rather than merely well-sized is to read it here. This
+     * replaced a set of byte-exact assertions: those pinned the framing to the byte and still could not
+     * have caught the bug they were written for, where every payload decoded to garbage.
+     */
+    private fun readMessages(bytes: ByteArray): List<ReadMessage> {
+        val out = mutableListOf<ReadMessage>()
+
+        fun u16(b: ByteArray, o: Int) = (b[o].toInt() and 0xFF) or ((b[o + 1].toInt() and 0xFF) shl 8)
+        fun u32(b: ByteArray, o: Int): Long {
+            var v = 0L
+            for (i in 0 until 4) v = v or ((b[o + i].toLong() and 0xFF) shl (8 * i))
+            return v
+        }
+        fun u64(b: ByteArray, o: Int): Long {
+            var v = 0L
+            for (i in 0 until 8) v = v or ((b[o + i].toLong() and 0xFF) shl (8 * i))
+            return v
+        }
+
+        fun walk(b: ByteArray, from: Int, to: Int) {
+            var o = from
+            while (o + 9 <= to) {
+                val op = b[o].toInt() and 0xFF
+                val len = u64(b, o + 1)
+                val body = o + 9
+                if (body + len > to) break // truncated tail
+                when (op) {
+                    McapWriter.OP_MESSAGE -> out += ReadMessage(
+                        channelId = u16(b, body),
+                        sequence = u32(b, body + 2).toInt(),
+                        logTime = u64(b, body + 6),
+                        publishTime = u64(b, body + 14),
+                        // The remainder of the record, with no length of its own.
+                        data = b.copyOfRange(body + 22, (body + len).toInt()),
+                    )
+                    McapWriter.OP_CHUNK -> {
+                        var p = body + 8 + 8 // start/end time
+                        val uncompressed = u64(b, p); p += 8
+                        p += 4 // uncompressed CRC
+                        val nameLen = u32(b, p).toInt(); p += 4
+                        val name = String(b, p, nameLen, Charsets.UTF_8); p += nameLen
+                        val compressedLen = u64(b, p).toInt(); p += 8
+                        assertEquals("zstd", name)
+                        val raw = com.github.luben.zstd.Zstd.decompress(
+                            b.copyOfRange(p, p + compressedLen),
+                            uncompressed.toInt(),
+                        )
+                        walk(raw, 0, raw.size)
+                    }
+                }
+                o = (body + len).toInt()
+            }
+        }
+
+        walk(bytes, McapWriter.MAGIC.size, bytes.size)
+        return out
+    }
+
 
     private fun write(block: McapWriter.() -> Unit): ByteArray {
         val out = ByteArrayOutputStream()
@@ -95,18 +168,43 @@ class McapWriterTest {
         assertTrue(String(out.toByteArray(), Charsets.ISO_8859_1).contains(topic))
     }
 
+    /**
+     * `bytesWritten` drives rotation, so it must track the file — but only once chunks have flushed.
+     *
+     * It no longer equals the file size *mid-run*: a message contributes nothing until its chunk is
+     * compressed and emitted. That is what makes the 512 MB cap approximate, and the assertion here is
+     * deliberately about `finish()`, where the two must agree exactly.
+     */
     @Test
-    fun `bytes written grows and drives rotation`() {
+    fun `bytes written matches the finished file`() {
         val out = ByteArrayOutputStream()
         val writer = McapWriter(out)
         writer.start()
-        val before = writer.bytesWritten
         val schema = writer.addSchema("keelson.TimestampedFloat", "protobuf", ByteArray(0))
         val channel = writer.addChannel("t", schema, "protobuf")
         repeat(100) { writer.writeMessage(channel, it, it.toLong(), it.toLong(), ByteArray(64)) }
+        writer.finish()
 
-        assertTrue("should have grown", writer.bytesWritten > before + 100 * 64)
         assertEquals(writer.bytesWritten, out.toByteArray().size.toLong())
+    }
+
+    /** Compression is the point of chunking: repetitive framing should collapse. */
+    @Test
+    fun `a run of similar messages compresses`() {
+        val out = ByteArrayOutputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("keelson.TimestampedFloat", "protobuf", ByteArray(0))
+        val channel = writer.addChannel("t", schema, "protobuf")
+        val payload = ByteArray(64) { it.toByte() }
+        repeat(2_000) { writer.writeMessage(channel, it, it.toLong(), it.toLong(), payload) }
+        writer.finish()
+
+        val raw = 2_000L * (31 + payload.size)
+        assertTrue(
+            "expected the framing to compress; got ${out.size()} against $raw raw",
+            out.size() < raw / 2,
+        )
     }
 
     /** Two schemas with the same name are two records; dedup is the caller's job, not the writer's. */
@@ -142,16 +240,85 @@ class McapWriterTest {
         writer.start()
         val schema = writer.addSchema("s", "protobuf", ByteArray(0))
         val channel = writer.addChannel("t", schema, "protobuf")
-        val before = writer.bytesWritten
         writer.writeMessage(channel, 1, 10L, 11L, payload)
-        val recordBytes = writer.bytesWritten - before
+        writer.finish()
 
-        // opcode(1) + length(8) + channel(2) + sequence(4) + logTime(8) + publishTime(8) = 31
-        assertEquals(
+        // Read back rather than counted: four extra bytes on the front is exactly what the original bug
+        // produced, and a file with them parses perfectly — only the payloads are wrong.
+        val read = readMessages(out.toByteArray())
+        assertEquals(1, read.size)
+        assertArrayEquals(
             "an extra 4 bytes here means data was length-prefixed",
-            (31 + payload.size).toLong(),
-            recordBytes,
+            payload,
+            read[0].data,
         )
+        assertEquals(channel, read[0].channelId)
+        assertEquals(10L, read[0].logTime)
+        assertEquals(11L, read[0].publishTime)
+    }
+
+    /** Every message survives a compressed round trip, in order, with its channel and times intact. */
+    @Test
+    fun `messages survive a compressed round trip`() {
+        val out = ByteArrayOutputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("s", "protobuf", ByteArray(0))
+        val a = writer.addChannel("t0", schema, "protobuf")
+        val b = writer.addChannel("t1", schema, "protobuf")
+        val payloads = (0 until 500).map { i -> ByteArray(1 + i % 40) { (i + it).toByte() } }
+        payloads.forEachIndexed { i, p ->
+            writer.writeMessage(if (i % 2 == 0) a else b, i, 1_000L + i, 2_000L + i, p)
+        }
+        writer.finish()
+
+        val read = readMessages(out.toByteArray())
+        assertEquals(payloads.size, read.size)
+        read.forEachIndexed { i, m ->
+            assertArrayEquals("payload $i", payloads[i], m.data)
+            assertEquals(if (i % 2 == 0) a else b, m.channelId)
+            assertEquals(1_000L + i, m.logTime)
+            assertEquals(2_000L + i, m.publishTime)
+        }
+    }
+
+    /**
+     * A kill mid-chunk loses that chunk and **nothing before it**.
+     *
+     * This is the cost of compressing: recovery used to lose a single partial message, because messages
+     * went straight to the file. Now whatever is still buffered goes with the process. `finalise` needs
+     * no special case for it — a Chunk is a length-prefixed record like any other, so a truncated one is
+     * already the incomplete-record branch — but the *size* of the loss is a design decision, and this
+     * pins that the earlier chunks come back rather than the whole file being lost.
+     */
+    @Test
+    fun `a kill mid-chunk keeps the chunks already flushed`() {
+        val out = ByteArrayOutputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("s", "protobuf", ByteArray(0))
+        val channel = writer.addChannel("t", schema, "protobuf")
+        // Enough to force several flushes at the 256 kB target.
+        val payload = ByteArray(512) { it.toByte() }
+        repeat(3_000) { writer.writeMessage(channel, it, 1_000L + it, 2_000L + it, payload) }
+        // No finish(): the process died. Whatever is still buffered was never written.
+        val survived = readMessages(out.toByteArray()).size
+
+        assertTrue("earlier chunks should have reached the file", survived > 0)
+        assertTrue("the in-flight chunk cannot survive", survived < 3_000)
+
+        val file = File.createTempFile("logline-kill", ".mcap")
+        file.writeBytes(out.toByteArray())
+        assertNotNull("a killed file needs rescuing", McapRecovery.finalise(file))
+
+        // Everything that was flushed is still readable after the rescue, in order.
+        val rescued = readMessages(file.readBytes())
+        assertEquals(survived, rescued.size)
+        rescued.forEachIndexed { i, m ->
+            assertArrayEquals(payload, m.data)
+            assertEquals(1_000L + i, m.logTime)
+        }
+        file.delete()
     }
 
     /**

@@ -1,6 +1,7 @@
 package se.rise.logline.record
 
 import java.io.ByteArrayOutputStream
+import com.github.luben.zstd.Zstd
 import java.io.OutputStream
 
 /**
@@ -10,11 +11,20 @@ import java.io.OutputStream
  * Swift and TypeScript, and `dev.foxglove` does not exist on Maven Central. The write path is small
  * though: MCAP is a sequence of little-endian, length-prefixed records.
  *
- * This produces an **unchunked, uncompressed** file with a summary section. Both are legal
- * ([spec](https://mcap.dev/spec)), and the thing that actually matters for a reader's load time is the
- * `Statistics` record — keelson's replayer falls back to scanning the whole file only when statistics
- * are *missing*, not when chunks are. Chunking and compression can be added later without changing the
- * public shape of this class.
+ * Messages are buffered into **zstd-compressed Chunk records**; schemas, channels and the whole summary
+ * section stay outside them, which is what keeps the summary readable without decompressing anything.
+ *
+ * It used to write neither chunks nor compression — the least dense form the spec allows — and the cost
+ * was measured rather than guessed: a 38.4 MB capture held 17.4 MB of payload across 668 039 messages,
+ * so **55% of the file was framing**. Thirty-one fixed bytes per message, against a ~26 byte average
+ * payload: an eight-byte length whose top five bytes are always zero, two absolute epoch timestamps
+ * differing only in their low bytes, a dense sequence counter. Close to a worst case stored raw and
+ * close to a best case for an entropy coder — the same file compresses about 3×.
+ *
+ * zstd rather than lz4 because MCAP standardises only those two and zstd measured the better ratio;
+ * Java's built-in `Deflater` is not a legal MCAP compression and would produce files Foxglove and
+ * `mcap-python` refuse. Keelson's own `keelson2mcap.py` writes zstd chunks by default, so this brings
+ * the app *towards* the reference rather than away from it.
  *
  * Deliberately free of Android types so the format can be tested on the JVM, where the assertions can
  * be about bytes rather than about what a screenshot looks like.
@@ -23,6 +33,14 @@ class McapWriter(private val sink: OutputStream) {
 
     private var bytes = 0L
     private var messages = 0L
+
+    /** Messages accumulate here until the chunk is flushed. Schemas and channels never do. */
+    private val chunk = Buffer()
+    private var chunkMessages = 0
+    private var chunkStartNanos = 0L
+    private var chunkEarliest = Long.MAX_VALUE
+    private var chunkLatest = Long.MIN_VALUE
+    private var chunks = 0L
     private var nextSchemaId = 1
     private var nextChannelId = 0
     private val schemas = mutableListOf<SchemaRecord>()
@@ -75,8 +93,17 @@ class McapWriter(private val sink: OutputStream) {
      *   run backwards across channels.
      * @param publishTime the producer's own timestamp — for Keelson, the envelope's `enclosed_at`.
      */
-    fun writeMessage(channelId: Int, sequence: Int, logTime: Long, publishTime: Long, data: ByteArray) {
-        writeRecord(OP_MESSAGE) {
+    fun writeMessage(
+        channelId: Int,
+        sequence: Int,
+        logTime: Long,
+        publishTime: Long,
+        data: ByteArray,
+        /** Wall clock, for the time-based flush. Injectable so a test does not have to sleep. */
+        nowNanos: Long = System.nanoTime(),
+    ) {
+        if (chunkMessages == 0) chunkStartNanos = nowNanos
+        recordInto(chunk, OP_MESSAGE) {
             putUInt16(channelId)
             putUInt32(sequence.toLong())
             putUInt64(logTime)
@@ -85,6 +112,17 @@ class McapWriter(private val sink: OutputStream) {
             // its own — unlike a Schema's data, which is a length-prefixed bytes field. Prefixing here
             // produces a file that parses cleanly and whose payloads all fail to decode.
             putRaw(data)
+        }
+        chunkMessages++
+        if (logTime < chunkEarliest) chunkEarliest = logTime
+        if (logTime > chunkLatest) chunkLatest = logTime
+        // Size **or** time, whichever comes first. The time bound is the one that matters: a killed
+        // process loses whatever is still buffered, and without it the worst case would depend on how
+        // fast the sensors happen to be running rather than on the clock.
+        if (chunk.size >= CHUNK_TARGET_BYTES ||
+            nowNanos - chunkStartNanos >= CHUNK_MAX_AGE_NANOS
+        ) {
+            flushChunk()
         }
         messages++
         messageCounts[channelId] = (messageCounts[channelId] ?: 0L) + 1L
@@ -101,6 +139,9 @@ class McapWriter(private val sink: OutputStream) {
     fun finish() {
         if (finished) return
         finished = true
+
+        // Before DataEnd: anything still buffered belongs in the data section.
+        flushChunk()
 
         writeRecord(OP_DATA_END) { putUInt32(0) } // 0 = CRC not computed
 
@@ -126,6 +167,35 @@ class McapWriter(private val sink: OutputStream) {
         sink.flush()
     }
 
+    /**
+     * Compress and emit what has accumulated, if anything.
+     *
+     * A Chunk carries the *uncompressed* size so a reader can size its buffer, and the compressed bytes
+     * as a length-prefixed field. `message_start_time`/`message_end_time` are the chunk's own range, not
+     * the file's — a reader uses them to skip a chunk without decompressing it.
+     */
+    private fun flushChunk() {
+        if (chunkMessages == 0) return
+        val raw = chunk.toByteArray()
+        val compressed = Zstd.compress(raw, ZSTD_LEVEL)
+        writeRecord(OP_CHUNK) {
+            putUInt64(if (chunkEarliest == Long.MAX_VALUE) 0L else chunkEarliest)
+            putUInt64(if (chunkLatest == Long.MIN_VALUE) 0L else chunkLatest)
+            putUInt64(raw.size.toLong())
+            putUInt32(0) // uncompressed CRC, 0 = not computed
+            putString(COMPRESSION_ZSTD)
+            // The records themselves: length-prefixed, so a truncated file leaves a chunk a reader can
+            // recognise as incomplete rather than one it tries to decompress.
+            putUInt64(compressed.size.toLong())
+            putRaw(compressed)
+        }
+        chunks++
+        chunk.reset()
+        chunkMessages = 0
+        chunkEarliest = Long.MAX_VALUE
+        chunkLatest = Long.MIN_VALUE
+    }
+
     private fun writeSchema(record: SchemaRecord) = writeRecord(OP_SCHEMA) {
         putUInt16(record.id)
         putString(record.name)
@@ -147,7 +217,7 @@ class McapWriter(private val sink: OutputStream) {
         putUInt32(channels.size.toLong())
         putUInt32(0) // attachment count
         putUInt32(0) // metadata count
-        putUInt32(0) // chunk count — unchunked file
+        putUInt32(chunks)
         putUInt64(if (messages == 0L) 0L else earliest)
         putUInt64(if (messages == 0L) 0L else latest)
         // channelMessageCounts: a map of channel_id -> count, length-prefixed in bytes.
@@ -174,6 +244,16 @@ class McapWriter(private val sink: OutputStream) {
         head.putUInt64(payload.size.toLong())
         write(head.toByteArray())
         write(payload)
+    }
+
+    /** The same framing, into a buffer rather than the sink — a chunk holds whole records. */
+    private inline fun recordInto(target: Buffer, opcode: Int, body: Buffer.() -> Unit) {
+        val buffer = Buffer()
+        buffer.body()
+        val payload = buffer.toByteArray()
+        target.putUInt8(opcode)
+        target.putUInt64(payload.size.toLong())
+        target.putRaw(payload)
     }
 
     private fun write(data: ByteArray) {
@@ -221,6 +301,10 @@ class McapWriter(private val sink: OutputStream) {
         }
 
         fun toByteArray(): ByteArray = out.toByteArray()
+
+        val size: Int get() = out.size()
+
+        fun reset() = out.reset()
     }
 
     companion object {
@@ -234,11 +318,36 @@ class McapWriter(private val sink: OutputStream) {
         const val OP_SCHEMA = 0x03
         const val OP_CHANNEL = 0x04
         const val OP_MESSAGE = 0x05
+        const val OP_CHUNK = 0x06
         const val OP_DATA_END = 0x0F
         const val OP_STATISTICS = 0x0B
         const val OP_SUMMARY_OFFSET = 0x0E
 
         /** What keelson's tooling expects on every channel and protobuf schema. */
         const val ENCODING_PROTOBUF = "protobuf"
+
+        /** One of MCAP's two well-known compressions. The other is lz4; `Deflater` is not legal here. */
+        const val COMPRESSION_ZSTD = "zstd"
+
+        /**
+         * Level 3, zstd's own default.
+         *
+         * This runs on the recorder's drain coroutine — the one thing in the app that must not fall
+         * behind — so the trade is deliberately towards speed. Most of what is being squeezed is
+         * repetitive framing, which even a low level flattens.
+         */
+        const val ZSTD_LEVEL = 3
+
+        /**
+         * Flush at a quarter of a megabyte, or after two seconds, whichever lands first.
+         *
+         * Small against the Python reference's 1 MB, and on purpose: a killed process loses whatever is
+         * still buffered. Recovery used to lose a single partial message, and the time bound is what
+         * keeps the new worst case a property of the clock rather than of the sample rate — at max rates
+         * a megabyte is seconds of everything, at idle it could be minutes.
+         */
+        const val CHUNK_TARGET_BYTES = 256 * 1024
+
+        const val CHUNK_MAX_AGE_NANOS = 2_000_000_000L
     }
 }

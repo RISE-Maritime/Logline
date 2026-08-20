@@ -103,10 +103,16 @@ fun TrackMap(
     headingDegrees: Float? = null,
 ) {
     val polyline = remember { Polyline() }
+    // Drawn under the track for the same reason the vectors have one — see `FixOverlay.halo`. A second
+    // Polyline rather than a paint list, because osmdroid gives an overlay one outline paint.
+    val trackHalo = remember { Polyline() }
     // Held across recompositions: a TilesOverlay owns a tile provider and its threads, so rebuilding
     // one every time the switch is read would leak them.
     val seaMarkOverlay = remember { mutableStateOf<TilesOverlay?>(null) }
     val fixOverlay = remember { FixOverlay() }
+    // Held so its colour can follow the base layer — see `attributionColour`. The overlay re-reads the
+    // notice *text* from the current tile source on every draw, so only the paint needs wiring.
+    val copyright = remember { mutableStateOf<CopyrightOverlay?>(null) }
     // Whether the map has ever been positioned. The first fix must `setCenter` — `animateTo` on a view
     // that has not been laid out yet is silently a no-op, which looks exactly like "tiles are broken".
     val centred = remember { mutableStateOf(false) }
@@ -123,11 +129,25 @@ fun TrackMap(
                 // Attribution is a condition of both OSM's and Esri's terms, and osmdroid does *not*
                 // draw it on its own — `CopyrightOverlay` has to be added, which this map never did.
                 // It reads whatever the current source's notice is, so it follows the layer.
-                overlays.add(CopyrightOverlay(context))
+                //
+                // Set to 9dp against the library's default of 12 (`paint.setTextSize(dm.density * 12)`
+                // in its constructor; `setTextSize` takes dp). Both licences require the notice to be
+                // *legible*, not prominent, and at 12dp black it was competing with the readouts under
+                // the chart. This is the treatment every mobile map SDK uses.
+                overlays.add(
+                    CopyrightOverlay(context).also {
+                        it.setTextSize(ATTRIBUTION_TEXT_DP)
+                        copyright.value = it
+                    }
+                )
                 setMultiTouchControls(true)
                 controller.setZoom(16.0)
+                trackHalo.outlinePaint.color = Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
+                trackHalo.outlinePaint.strokeWidth = TRACK_PX + TRACK_HALO_PX
                 polyline.outlinePaint.color = Color.rgb(0x3F, 0x6F, 0xD8)
-                polyline.outlinePaint.strokeWidth = 6f
+                polyline.outlinePaint.strokeWidth = TRACK_PX
+                // Halo first: it is the under-stroke, and osmdroid draws overlays in the order added.
+                overlays.add(trackHalo)
                 overlays.add(polyline)
                 // After the polyline, so the marker and vectors draw on top of the track.
                 overlays.add(fixOverlay)
@@ -143,6 +163,9 @@ fun TrackMap(
             if (map.tileProvider.tileSource != sourceFor(layer)) {
                 map.setTileSource(sourceFor(layer))
             }
+            // Dark on map tiles, light on imagery. The library paints it black whatever is underneath,
+            // and black on a night-time satellite tile is not attribution, it is a smudge.
+            copyright.value?.setTextColor(attributionColour(layer))
             map.setUseDataConnection(!offlineOnly)
             val marks = seaMarkOverlay.value ?: TilesOverlay(
                 MapTileProviderBasic(map.context, TileSourceFactory.OPEN_SEAMAP),
@@ -162,7 +185,11 @@ fun TrackMap(
                 map.overlays.remove(marks)
                 map.invalidate()
             }
-            polyline.setPoints(track.map { GeoPoint(it.latitude, it.longitude) })
+            // Built once and handed to both: two `map` passes over a track that runs to thousands of
+            // points, every time anything on this screen recomposes, is not free.
+            val points = track.map { GeoPoint(it.latitude, it.longitude) }
+            trackHalo.setPoints(points)
+            polyline.setPoints(points)
             fixOverlay.fix = track.lastOrNull()
             fixOverlay.headingDegrees = headingDegrees
             track.lastOrNull()?.let { fix ->
@@ -253,14 +280,36 @@ private class FixOverlay : Overlay() {
     private val coursePaint = Paint().apply {
         color = Color.rgb(0x2A, 0x53, 0xAE)
         style = Paint.Style.STROKE
-        strokeWidth = 5f
+        strokeWidth = COURSE_PX
         strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
     }
     private val headingPaint = Paint().apply {
         color = Color.rgb(0xC8, 0x7A, 0x1E)
         style = Paint.Style.STROKE
-        strokeWidth = 4f
+        strokeWidth = HEADING_PX
+        strokeCap = Paint.Cap.ROUND
+        isAntiAlias = true
+    }
+
+    /**
+     * The white under-stroke that makes both vectors readable on any base layer.
+     *
+     * A dark blue course line over the standard map's pale tiles is perfectly legible and over Esri's
+     * imagery it is nearly gone — the satellite layer is dark green forest and darker water for most of
+     * a Swedish coastline, and the one thing this app draws that somebody navigates by was the hardest
+     * thing on it to see. Rather than pick a colour that works on both (there isn't one — imagery
+     * covers snow and asphalt too), each line is drawn twice: a wider white stroke first, the coloured
+     * one on top. Contrast then comes from the halo rather than from the background, so it holds on any
+     * tile and on an imported offline archive nobody has seen yet.
+     *
+     * This is the same trick `positionEdge` has always used on the dot, and what every chartplotter
+     * does with a course-up vector. One paint serves both lines because only the width differs, and
+     * that is set per call.
+     */
+    private val halo = Paint().apply {
+        color = Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
+        style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
     }
@@ -288,8 +337,19 @@ private class FixOverlay : Overlay() {
             }
         }
 
-        current.bearingDegrees?.let { canvas.drawVector(x, y, it, VECTOR_PX, coursePaint) }
-        headingDegrees?.let { canvas.drawVector(x, y, it, VECTOR_PX * 0.75f, headingPaint) }
+        // **Both halos before either line.** The two vectors share an origin, so they always overlap
+        // near the dot — drawing halo-then-line twice would have the heading's white stroke painted
+        // across the course line it was meant to sit under, leaving a notch in it at exactly the point
+        // the eye starts reading from.
+        val course = current.bearingDegrees
+        val headingLength = VECTOR_PX * 0.75f
+        halo.strokeWidth = COURSE_PX + HALO_PX
+        course?.let { canvas.drawVector(x, y, it, VECTOR_PX, halo) }
+        halo.strokeWidth = HEADING_PX + HALO_PX
+        headingDegrees?.let { canvas.drawVector(x, y, it, headingLength, halo) }
+
+        course?.let { canvas.drawVector(x, y, it, VECTOR_PX, coursePaint) }
+        headingDegrees?.let { canvas.drawVector(x, y, it, headingLength, headingPaint) }
 
         canvas.drawCircle(x, y, DOT_PX, positionPaint)
         canvas.drawCircle(x, y, DOT_PX, positionEdge)
@@ -310,5 +370,28 @@ private class FixOverlay : Overlay() {
     private companion object {
         const val DOT_PX = 9f
         const val VECTOR_PX = 46f
+        const val COURSE_PX = 6f
+        const val HEADING_PX = 5f
+
+        /** Added to a line's own width, so the halo shows as ~2px either side of it. */
+        const val HALO_PX = 4f
     }
+}
+
+private const val TRACK_PX = 6f
+private const val TRACK_HALO_PX = 4f
+
+/** Small enough to retreat, large enough to read. See the note at the overlay's construction. */
+private const val ATTRIBUTION_TEXT_DP = 9
+
+/**
+ * The notice's ink, per base layer.
+ *
+ * Both are held back to about 70% opacity — present, checkable, and not competing with the position
+ * readout. Satellite imagery is dark far more often than it is light (water, shadow, night passes), so
+ * it takes white; the standard map's tiles are pale everywhere and take near-black.
+ */
+private fun attributionColour(layer: MapLayer): Int = when (layer) {
+    MapLayer.Satellite -> Color.argb(0xB3, 0xFF, 0xFF, 0xFF)
+    MapLayer.Standard -> Color.argb(0xB3, 0x00, 0x00, 0x00)
 }

@@ -35,11 +35,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.NavHostController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import se.rise.logline.ui.components.LoglineNavBar
+import androidx.compose.runtime.CompositionLocalProvider
+import se.rise.logline.ui.components.LocalRunState
+import se.rise.logline.ui.components.RunState
 import se.rise.logline.ui.components.TopLevel
 import se.rise.logline.ui.SetupScreen
 import se.rise.logline.ui.RecordingLoad
 import se.rise.logline.ui.Routes
 import se.rise.logline.ui.rateCeilings
+import se.rise.logline.ui.labelOf
 import se.rise.logline.ui.rigSummaryOf
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -607,6 +611,16 @@ private fun App(
         LoglineNavBar(current = currentRoute) { dest -> goToTab(nav, dest) }
     }
 
+    // Provided once, for every screen's top bar. Ambient rather than threaded: the bar is shared
+    // chrome, and passing the publisher's state through fourteen screen signatures to reach it would
+    // put a run's connection state into the argument list of the rig editor.
+    CompositionLocalProvider(
+        LocalRunState provides RunState(
+            running = status.running,
+            connection = status.connection,
+            recording = recording.recording,
+        )
+    ) {
     NavHost(navController = nav, startDestination = Routes.MAIN, modifier = modifier) {
         composable(Routes.MAIN) {
             // Pulled on a ticker like the live view, and for the same reason — but only the newest
@@ -649,7 +663,15 @@ private fun App(
                 ceilings = ceilings,
                 load = load,
                 onStart = startPublishing,
-                onStop = { PublisherService.stop(context) },
+                onStop = { note -> PublisherService.stop(context, note) },
+                // Through saveSettings, like the rig switches and unlike the per-subject ones: these
+                // change what the sensors are registered at, so the run has to be redeclared.
+                onSetRecordAllMax = { on ->
+                    scope.launch { saveSettings(app, current.copy(recordAllMax = on)) }
+                },
+                onSetPublishAllMax = { on ->
+                    scope.launch { saveSettings(app, current.copy(publishAllMax = on)) }
+                },
                 onGrantLocation = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
                 // Routed by registry entry, not subject: `radio_rssi_dbm` is published under two
                 // source ids, so the subject name no longer identifies a single card.
@@ -769,17 +791,31 @@ private fun App(
                 sourceId = registryEntry?.fixedSourceId,
                 current = qosForSubject(subject, current.qosOverrides),
                 isOverridden = current.qosOverrides.containsKey(subject),
-                rate = current.rate(subject),
+                // The **request**, not the clamped result: a field bound to `publishRate` cannot be
+                // typed into, since a rate above the ceiling would redraw as the ceiling and saving
+                // would then store it — the act of opening the screen would destroy the request.
+                rate = current.requestedPublishRate(subject),
+                publishCeiling = current.publishCeiling(subject),
+                rateIsOverridden = current.sensorRates.containsKey(subject),
+                recordRate = current.recordRate(subject),
+                ratesCanDiffer = current.ratesCanDiffer(subject),
                 capabilities = remember(subject) { sensorCapabilities(context, subject) },
                 // From the same map the subject rows read, so the two cannot state different maxima
                 // for one source.
                 ceiling = registryEntry?.let { ceilings[it] },
+                // Resolved to an *entry*, not a subject: the route is keyed on the entry name, and
+                // `location_fix` is published by two of them. `rateOwnerEntry()` matches on the source
+                // kind as well, so the rig's zero point points at its own geometry loop.
+                rateOwnerLabel = registryEntry?.rateOwnerEntry()?.let { labelOf(it).name },
+                onOpenRateOwner = registryEntry?.rateOwnerEntry()?.let { owner ->
+                    { nav.navigate(Routes.subjectQos(owner.name)) }
+                },
                 achievedHz = achievedHz(
                     samples = subjectStatus.samplesPublished,
                     firstEpochMillis = subjectStatus.firstPublishEpochMillis,
                     lastEpochMillis = subjectStatus.lastPublishEpochMillis,
                 ),
-                onSave = { qos, rate ->
+                onSave = { qos, rate, recordRate ->
                     scope.launch {
                         saveSettings(
                             app,
@@ -788,10 +824,31 @@ private fun App(
                                 // An event-driven subject has no rate — its screen shows no rate
                                 // control — so storing one would persist a preference nothing reads
                                 // and that the UI could never show back.
-                                sensorRates = if (registryEntry?.eventDriven == true) {
-                                    current.sensorRates
+                                //
+                                // A **null** rate is the other way to store nothing, and it means
+                                // something different: a subject that rides another and has been left
+                                // following it. Removing the key rather than writing the owner's
+                                // current rate is what keeps it following when the owner changes.
+                                sensorRates = when {
+                                    registryEntry?.eventDriven == true -> current.sensorRates
+                                    rate == null -> current.sensorRates - subject
+                                    else -> current.sensorRates + (subject to rate)
+                                },
+                                // Stored even when it equals the publish rate: the two are separate
+                                // settings, and leaving this absent would have it silently follow a
+                                // later change to the other one.
+                                //
+                                // Not for a subject that rides another, though. `Settings.recordRate`
+                                // reads the *owner's* entry for those, so a key written here would be
+                                // one nothing ever reads back — junk in the preferences file that
+                                // looks like a setting.
+                                recordRates = if (
+                                    registryEntry?.eventDriven == true ||
+                                    registryEntry?.rateOwner != null
+                                ) {
+                                    current.recordRates
                                 } else {
-                                    current.sensorRates + (subject to rate)
+                                    current.recordRates + (subject to recordRate)
                                 },
                             ),
                         )
@@ -1412,6 +1469,7 @@ private fun App(
                 onCancel = { nav.popBackStack() },
             )
         }
+    }
     }
 }
 

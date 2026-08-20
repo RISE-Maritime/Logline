@@ -7,6 +7,10 @@ import se.rise.logline.ui.cardinal
 import se.rise.logline.ui.envelope
 import se.rise.logline.ui.featuredValue
 import se.rise.logline.ui.gnssQuality
+import se.rise.logline.ui.cellularQuality
+import se.rise.logline.ui.batteryQuality
+import se.rise.logline.ui.fixKindQuality
+import se.rise.logline.sensors.FixKind
 import se.rise.logline.ui.isCircularDegrees
 import se.rise.logline.ui.subjectGroups
 import se.rise.logline.ui.unwrapAngles
@@ -190,6 +194,49 @@ class LiveSignalsTest {
         assertEquals(FixQuality.Fair, gnssQuality(9f))
         assertEquals(FixQuality.Poor, gnssQuality(40f))
         assertEquals(FixQuality.Unknown, gnssQuality(null))
+    }
+
+    /**
+     * The three vitals thresholds, which exist only to decide a colour — so the thing worth pinning is
+     * that the *normal* case is never coloured. A row that shouts on a healthy run is a row nobody
+     * reads by the second day of a trial.
+     */
+    @Test
+    fun `cellular quality follows the modulation thresholds`() {
+        assertEquals(FixQuality.Good, cellularQuality(25f))
+        assertEquals(FixQuality.Good, cellularQuality(13f))
+        assertEquals(FixQuality.Fair, cellularQuality(5f))
+        assertEquals(FixQuality.Fair, cellularQuality(0f))
+        // Below zero the noise is louder than the signal — a real reading, not a sentinel.
+        assertEquals(FixQuality.Poor, cellularQuality(-5f))
+        assertEquals(FixQuality.Unknown, cellularQuality(null))
+    }
+
+    @Test
+    fun `battery quality warns before it is too late to act`() {
+        assertEquals(FixQuality.Good, batteryQuality(100f))
+        assertEquals(FixQuality.Good, batteryQuality(21f))
+        // Twenty is where Android itself starts warning, so it is a warning here too.
+        assertEquals(FixQuality.Fair, batteryQuality(20f))
+        assertEquals(FixQuality.Fair, batteryQuality(10f))
+        assertEquals(FixQuality.Poor, batteryQuality(9f))
+        assertEquals(FixQuality.Unknown, batteryQuality(null))
+    }
+
+    /**
+     * `No fix` is an *error* even though a position is usually still on the bus beside it — the fused
+     * provider will happily derive one from wifi and cell with the GNSS engine solving nothing, and a
+     * track being interpolated from cell towers is the thing an operator most needs to notice.
+     */
+    @Test
+    fun `the fix kind colours itself off the same enum the word comes from`() {
+        assertEquals(FixQuality.Good, fixKindQuality(FixKind.ThreeD.ordinal.toFloat()))
+        assertEquals(FixQuality.Fair, fixKindQuality(FixKind.TwoD.ordinal.toFloat()))
+        assertEquals(FixQuality.Poor, fixKindQuality(FixKind.NoFix.ordinal.toFloat()))
+        assertEquals(FixQuality.Unknown, fixKindQuality(null))
+        // A value the enum does not cover is unknown, not "no fix" — an out-of-range ordinal means the
+        // wire said something this build does not understand, which is not the same as a stated fault.
+        assertEquals(FixQuality.Unknown, fixKindQuality(99f))
     }
 
     /** Every group should say something useful when folded, or the badge is just a chevron. */

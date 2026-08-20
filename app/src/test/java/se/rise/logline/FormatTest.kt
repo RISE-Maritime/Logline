@@ -1,5 +1,6 @@
 package se.rise.logline
 
+import se.rise.logline.ui.formatBearing
 import se.rise.logline.ui.formatCount
 import se.rise.logline.ui.formatCounted
 import se.rise.logline.ui.duration
@@ -159,5 +160,29 @@ class FormatTest {
 
     companion object {
         private const val NARROW_SPACE = ' '
+    }
+
+    /**
+     * Three digits, always. Three readings sit side by side on the live dashboard, each centred on its
+     * own column, so a course stepping 9 → 10 → 100 would shove its neighbours about as it went — and a
+     * readout that twitches while the phone turns reads as unreliable whatever the numbers say.
+     */
+    @Test
+    fun `a bearing is always three digits`() {
+        assertEquals("000", formatBearing(0f))
+        assertEquals("047", formatBearing(47.4f))
+        assertEquals("315", formatBearing(315f))
+        assertEquals("009", formatBearing(9f))
+    }
+
+    @Test
+    fun `a bearing wraps rather than reading 360`() {
+        // 360 is a bearing nobody writes, and a platform is free to hand one back.
+        assertEquals("000", formatBearing(360f))
+        // And the rounding has to happen before the wrap, or 359.7 comes out as "360".
+        assertEquals("000", formatBearing(359.7f))
+        assertEquals("359", formatBearing(359.4f))
+        assertEquals("270", formatBearing(-90f))
+        assertEquals("090", formatBearing(450f))
     }
 }

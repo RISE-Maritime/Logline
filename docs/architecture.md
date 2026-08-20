@@ -421,6 +421,23 @@ amber, because it is what `StatusTone.Warning` paints and a cool tertiary sat cl
 that a warning read as just another blue label. Passing `dynamicColor = true` hands the scheme back to
 the wallpaper.
 
+**Stopping is two steps, and the closing note is published by the publisher rather than the caller.**
+Stop sits alone under the thumb in the pinned bar and ends something that cannot be resumed — the
+recording is closed and copied, and starting again opens a new file — so it opens a dialog carrying the
+run's figures and an optional note. One interruption rather than two: the moment somebody decides to
+stop is exactly when they know what the run was.
+
+The note is a *note*, not a rename. It goes out as a `log_message` mark, so it lands on the bus and in
+the recording beside every other mark of the run; nothing is renamed, because a long run may have
+rotated through several files and copied some of them to Downloads already.
+
+**`SensorPublisher.stop()` takes the note and publishes it itself, and that is not a convenience.**
+`mark()` launches on the run scope, and stopping cancels that scope — a note marked from the UI and
+then followed by a stop would race the teardown and usually lose. `stopInternal` publishes it on
+`closeScope` *before* cancelling the collectors, and since the recorder is stopped after that cancel,
+the note reaches the file as well as the wire. Same ordering discipline as the recorder-after-collectors
+rule beside it. Verified: the typed line appears in the saved `.mcap`.
+
 **Start and Stop carry a glyph, and REC is a lamp rather than a line of text.** The stop square is
 *drawn* — a `Box` with a rounded clip — because `material-icons-core` has no stop glyph and
 `material-icons-extended` is tens of megabytes of vectors to buy one shape. The recording lamp sits in

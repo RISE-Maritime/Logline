@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import se.rise.logline.ui.components.NavRow
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.readAsOneItem
@@ -64,13 +65,13 @@ fun SetupScreen(
             SectionHeader("This phone")
             Card(Modifier.fillMaxWidth()) {
                 Column {
-                    SetupRow(
+                    NavRow(
                         title = "Settings",
                         subtitle = identity,
                         onClick = onOpenSettings,
                     )
                     HorizontalDivider(Modifier.padding(horizontal = 12.dp))
-                    SetupRow(
+                    NavRow(
                         title = "Rigs",
                         subtitle = rigSummary ?: "No rigs described yet",
                         onClick = onOpenRigs,
@@ -82,7 +83,7 @@ fun SetupScreen(
             // this app produces, and reaching them through a configuration screen said otherwise.
             SectionHeader("Data")
             Card(Modifier.fillMaxWidth()) {
-                SetupRow(
+                NavRow(
                     title = "Annotation buttons",
                     subtitle = "What the Events screen offers with one tap",
                     onClick = onOpenAnnotationButtons,
@@ -92,7 +93,7 @@ fun SetupScreen(
             if (checklistsEnabled) {
                 SectionHeader("Collaboration")
                 Card(Modifier.fillMaxWidth()) {
-                    SetupRow(
+                    NavRow(
                         title = "Checklists",
                         subtitle = "Worked through with other stations, before a run",
                         onClick = onOpenChecklists,
@@ -103,29 +104,3 @@ fun SetupScreen(
     }
 }
 
-/** A title, the state that used to hide inside a button label, and somewhere to go. */
-@Composable
-private fun SetupRow(title: String, subtitle: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 14.dp)
-            .readAsOneItem("$title. $subtitle"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Icon(
-            Icons.Default.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}

@@ -6,14 +6,23 @@ import se.rise.logline.record.MIN_FREE_BYTES
 import se.rise.logline.sensors.toIntervalMillis
 
 /**
- * What every subject except audio and the camera costs per hour, measured at the default rates.
+ * What every subject except audio and the camera costs per hour, at each of the two recording rates.
  *
- * The figure the README quotes, and until now spelled into three separate sentences of prose. It is
- * deliberately the *whole* set: a run with half the subjects switched off writes less than this, so
- * the capacity below reads short rather than long — which is the direction an estimate about running
- * out of room should err in.
+ * Deliberately the *whole* set: a run with half the subjects switched off writes less, so the capacity
+ * reads short rather than long — the direction an estimate about running out of room should err in.
+ *
+ * Two figures rather than one because recording now has two modes and they differ by an order of
+ * magnitude, which is precisely what the Session screen needs to be able to say out loud. Both are
+ * measured on a Pixel 6 with zstd chunks: 153 s at maximum wrote 10.2 MB, and the configured rates
+ * were measured over a comparable run. Before compression the same maximum-rate run cost ~720 MB/h.
  */
-internal const val BASE_MEGABYTES_PER_HOUR = 77
+internal const val MAX_MEGABYTES_PER_HOUR = 241
+
+internal const val CONFIGURED_MEGABYTES_PER_HOUR = 23
+
+/** What the *current* settings cost, which is what the capacity estimate divides by. */
+internal fun baseMegabytesPerHour(settings: Settings): Int =
+    if (settings.recordAllMax) MAX_MEGABYTES_PER_HOUR else CONFIGURED_MEGABYTES_PER_HOUR
 
 /** The publisher's own bounds, mirrored so a quoted data rate is the one that will actually run. */
 internal const val MIN_FRAME_INTERVAL_MILLIS = 500L
@@ -27,10 +36,12 @@ internal const val MAX_FRAME_INTERVAL_MILLIS = 600_000L
  * the settings that most need the warning.
  */
 internal fun megabytesPerHour(settings: Settings): Int {
-    val frameHz = 1_000.0 / settings.rate(Subjects.IMAGE_COMPRESSED)
+    // The **record** rate: this predicts how fast the file fills, and the file is written at the rate
+    // the sensor is sampled at, not the thinner rate the bus is given.
+    val frameHz = 1_000.0 / settings.recordRate(Subjects.IMAGE_COMPRESSED)
         .toIntervalMillis()
         .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS)
-    return BASE_MEGABYTES_PER_HOUR +
+    return baseMegabytesPerHour(settings) +
         (if (settings.audioEnabled) audioMegabytesPerHour(settings.audioSampleRateHz, settings.audioChannels) else 0) +
         (if (settings.cameraEnabled) cameraMegabytesPerHour(settings.cameraWidth, settings.cameraHeight, frameHz) else 0) +
         (if (settings.videoEnabled) videoMegabytesPerHour(settings.videoBitrateKbps) else 0)

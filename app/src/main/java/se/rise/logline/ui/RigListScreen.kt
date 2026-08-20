@@ -15,6 +15,10 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -25,6 +29,7 @@ import se.rise.logline.platform.DiscoveryState
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.ScreenScaffold
 import androidx.compose.material3.Button
+import se.rise.logline.ui.components.InfoDialog
 import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
@@ -112,6 +117,14 @@ fun RigListScreen(
             dismissLabel = "Cancel",
         )
     }
+    // One dialog for the whole screen, as (title, body) — the same shape `SettingsScreen` uses, so the
+    // explanations that used to sit between the sections are a tap away rather than in the way.
+    var info by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    info?.let { (title, body) ->
+        InfoDialog(title = title, body = body, onDismiss = { info = null })
+    }
+
     ScreenScaffold(title = "Rigs", onBack = onBack) { padding ->
         Column(
             Modifier
@@ -168,13 +181,14 @@ fun RigListScreen(
                 }
             }
 
-            SectionHeader("Share with crowsnest")
-            Text(
-                "Crowsnest keeps its own platform list, keyed by the same entity ids. Exporting writes " +
-                    "the whole library in that shape; importing reads either that or a single " +
-                    "platform-geometry file.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            SectionHeader(
+                "Share with crowsnest",
+                onInfo = {
+                    info = "Share with crowsnest" to
+                        "Crowsnest keeps its own platform list, keyed by the same entity ids. " +
+                        "Exporting writes the whole library as the file it expects; importing reads " +
+                        "one back."
+                },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -209,13 +223,13 @@ fun RigListScreen(
                     DiscoveryState.Failed -> "failed"
                     DiscoveryState.Idle -> null
                 },
-            )
-            Text(
-                "Keelson has no list of platforms to ask for, so this listens: entity ids from " +
-                    "liveliness, and geometry from anything republishing its configuration. A " +
-                    "platform connector repeats every ten seconds, so the scan takes about that long.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                onInfo = {
+                    info = "On the bus" to
+                        "Keelson has no list of platforms to ask for, so this listens: entity ids " +
+                        "from liveliness, and geometry from anything republishing its " +
+                        "configuration. A platform connector repeats every ten seconds, so the scan " +
+                        "takes about that long."
+                },
             )
             // Said rather than left to be inferred from a button that does nothing: without a
             // session there is nothing to scan, and a `tls/` endpoint with no imported credentials is

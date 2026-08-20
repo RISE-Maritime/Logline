@@ -174,10 +174,10 @@ class Recorder(private val appContext: Context) {
         // once the run is marked stopped — which happens after that wait. Joining the scope would be
         // joining something waiting on the join.
         drainJob = newScope.launch {
-            // Its own run's channel, not whatever the field points at by then: a Stop immediately
-            // followed by a Start must not have this loop draining the new run's samples into the old
-            // run's file.
-            drain(newQueue, descriptor, maxBytes)
+            // Its own run's channel and its own run's scope, not whatever the fields point at by then:
+            // a Stop immediately followed by a Start must not have this loop draining the new run's
+            // samples into the old run's file, nor handing a rotation copy to the new run's scope.
+            drain(newQueue, descriptor, maxBytes, newScope)
         }
         // Anything left behind by a crash goes to Downloads, so a killed process never strands a
         // recording somewhere the user cannot reach — but on its *own* coroutine. Doing it before the
@@ -216,7 +216,12 @@ class Recorder(private val appContext: Context) {
         }
     }
 
-    private suspend fun drain(queue: Channel<RecordSample>, descriptor: ByteArray, maxBytes: Long) {
+    private suspend fun drain(
+        queue: Channel<RecordSample>,
+        descriptor: ByteArray,
+        maxBytes: Long,
+        runScope: CoroutineScope,
+    ) {
         var session = openSession(descriptor, maxBytes) ?: return
         try {
             for (sample in queue) {
@@ -237,8 +242,22 @@ class Recorder(private val appContext: Context) {
                 }
                 if (session.shouldRotate()) {
                     session.close()
-                    if (publish(session.path)) {
-                        _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+                    // **Off the drain, the same shape `publishOrphans()` uses and for the same
+                    // reason.** This copies up to 512 MB into Downloads, and called inline it stopped
+                    // the loop for the length of that copy — the queue holds about 45 seconds of
+                    // samples at the measured rate, and a large copy can plausibly outlast it, at
+                    // which point every further sample is counted as dropped. That is exactly the
+                    // failure `publishOrphans()` was moved off this coroutine for after it cost 20 000
+                    // samples in half a minute; a rotation is the same copy at the same place.
+                    //
+                    // `session.path` is read now rather than inside the launch: `session` is
+                    // reassigned on the very next line, and a lambda capturing the variable would
+                    // publish whichever file it happened to name by the time it ran.
+                    val finished = session.path
+                    runScope.launch {
+                        if (publish(finished)) {
+                            _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+                        }
                     }
                     session = openSession(descriptor, maxBytes) ?: return
                 }
@@ -256,6 +275,12 @@ class Recorder(private val appContext: Context) {
             // The last file counts too. It used to not: `filesCompleted` was incremented at rotation
             // only, so an ordinary run — one that never reached 512 MB — ended having written and saved
             // a file while the screen said nothing had been saved at all.
+            //
+            // **This one stays inline, unlike the rotation copy above.** `stop()` waits for *this*
+            // coroutine and then cancels the scope, so a final publish handed to that scope would be
+            // racing the cancellation that follows its own join. There is nothing left to stall here
+            // either — the queue is closed and empty by the time the `finally` runs, so a slow copy
+            // costs no samples.
             runCatching { session.close() }
             val saved = runCatching { publish(session.path) }.getOrDefault(false)
             if (saved) _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
@@ -320,14 +345,18 @@ class Recorder(private val appContext: Context) {
             // none of them: measured, a run that published 47 381 samples wrote 47 360 messages.
             val finished = withTimeoutOrNull(DRAIN_GRACE_MILLIS) { finishing?.join() } != null
             if (!finished) {
-                // The grace is generous for writing, and deliberately not generous enough to sit
-                // through a 512 MB rotation copy. If it ever expires, say how much it cost rather than
-                // letting the file be quietly short — `dropped` is already on screen.
+                // The grace is generous for writing what is buffered, which is all this now has to
+                // cover: the rotation copy moved off this coroutine, so the only file work left in the
+                // drain is the final publish in its `finally`. If it ever expires, say how much it cost
+                // rather than letting the file be quietly short — `dropped` is already on screen.
                 var lost = 0
                 while (runQueue?.tryReceive()?.isSuccess == true) lost++
                 Log.w(TAG, "drain did not finish within ${DRAIN_GRACE_MILLIS}ms; $lost samples not written")
                 if (lost > 0) _status.update { it.copy(dropped = it.dropped + lost) }
             }
+            // Also what waits for a rotation copy still in flight. `publish` is blocking I/O and never
+            // suspends, so cancellation cannot interrupt it part-way and leave a truncated file in
+            // Downloads — `cancelAndJoin` simply waits for it to finish.
             runCatching { runScope.coroutineContext[Job]?.cancelAndJoin() }
             // The estimate goes with the run that measured it: a stopped recording is not filling
             // anything, and a stale "40 min of space left" would outlive the thing it described.
@@ -399,10 +428,11 @@ class Recorder(private val appContext: Context) {
         /**
          * How long Stop waits for the queue to finish writing before giving up on it.
          *
-         * Ten thousand buffered samples are a fraction of a second of writing. The case that could
-         * genuinely take longer is a rotation landing in the final drain, where `publish()` copies up
-         * to 512 MB into Downloads — five seconds covers the first comfortably and declines to sit
-         * through the second, which would leave Stop looking hung.
+         * Ten thousand buffered samples are a fraction of a second of writing, so five seconds covers
+         * it many times over. It deliberately does not have to cover a 512 MB copy into Downloads: the
+         * rotation publish runs on its own coroutine, and the final one happens in the drain's
+         * `finally` *after* the loop has ended — so it is `cancelAndJoin` below that waits for it,
+         * without a timeout, rather than this.
          */
         private const val DRAIN_GRACE_MILLIS = 5_000L
 

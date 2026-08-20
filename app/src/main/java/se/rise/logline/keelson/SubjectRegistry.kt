@@ -697,6 +697,22 @@ enum class PublishedSubject(
     /** What the main screen calls this entry — the subject, plus the link when one subject has two. */
     val label: String get() = fixedSourceId?.let { "$subject · $it" } ?: subject
 
+    /**
+     * The entry whose rate governs this one, or null where it owns its own.
+     *
+     * Matched on [source] as well as the subject, because a subject string does **not** identify an
+     * entry: `location_fix` is published by both [LOCATION_FIX] and [CALIBRATION_ZERO], so
+     * [forSubject] would answer with whichever of the two comes first in the enum. That happens to be
+     * the right one today, which is precisely why it is worth pinning — a reordering of the entries
+     * would silently point the rig's surveyed zero point at the phone's live fix.
+     *
+     * One hop always reaches the head: no entry names an owner that has an owner, and
+     * `SubjectRegistryTest` holds that.
+     */
+    fun rateOwnerEntry(): PublishedSubject? = rateOwner?.let { owner ->
+        entries.firstOrNull { it.subject == owner && it.source == source }
+    }
+
     companion object {
         /**
          * The first entry publishing this subject.

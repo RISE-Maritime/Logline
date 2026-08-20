@@ -86,6 +86,23 @@ internal fun unitGap(unit: String): Dp =
     if (unit == "°" || unit == "%" || unit == "bit/s") 0.dp else 3.dp
 
 /**
+ * A bearing at a fixed three digits: `000`, `047`, `315`.
+ *
+ * The zero padding is not decoration. Three values sit side by side on the live dashboard and the row
+ * is centred on each, so an unpadded course stepping from `9` to `10` to `100` shifts its neighbours as
+ * it goes — a readout that twitches while the phone turns reads as unreliable, whatever the numbers
+ * say. Every marine instrument pads for the same reason.
+ *
+ * Wrapped into 0-359 first: a platform is free to hand back `360.0`, and `360°` is a bearing nobody
+ * writes.
+ */
+internal fun formatBearing(degrees: Float): String {
+    val wrapped = ((degrees % 360f) + 360f) % 360f
+    // Rounded before the modulo would be wrong: 359.7 rounds to 360, which has to come back to 000.
+    return "%03d".fmt(Math.round(wrapped) % 360)
+}
+
+/**
  * A wall-clock time, for "when did this start".
  *
  * The device's own zone and a fixed 24-hour pattern: this sits beside an elapsed duration on the same

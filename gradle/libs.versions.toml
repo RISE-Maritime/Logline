@@ -9,6 +9,9 @@ activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2026.08.00"
 navigationCompose = "2.9.8"
+# The Android artifact: the plain jar carries desktop natives only, and MCAP standardises
+# zstd and lz4 — Java's built-in Deflater would produce files Foxglove and mcap-python refuse.
+zstd = "1.5.6-9"
 protobuf = "3.25.5"
 protobufPlugin = "0.10.0"
 zenoh = "1.10.0"
@@ -45,6 +48,7 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstd" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 zenoh-kotlin-android = { group = "org.eclipse.zenoh", name = "zenoh-kotlin-android", version.ref = "zenoh" }
 protobuf-javalite = { group = "com.google.protobuf", name = "protobuf-javalite", version.ref = "protobuf" }

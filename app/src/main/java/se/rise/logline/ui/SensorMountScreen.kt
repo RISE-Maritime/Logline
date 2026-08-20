@@ -32,6 +32,7 @@ import se.rise.logline.calibrate.Vec3M
 import se.rise.logline.calibrate.defaultFrameId
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.FormActions
+import se.rise.logline.ui.components.InfoDialog
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
@@ -110,6 +111,12 @@ fun SensorMountScreen(
     val effectiveFrameId = frameId.ifBlank { defaultFrameId(rigName, label) }
     val valid = label.isNotBlank() && numbersParse
 
+    var info by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    info?.let { (title, body) ->
+        InfoDialog(title = title, body = body, onDismiss = { info = null })
+    }
+
     ScreenScaffold(
         title = if (initial == null) "Add sensor" else "Sensor",
         onBack = onCancel,
@@ -187,10 +194,19 @@ fun SensorMountScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            SectionHeader("Where it is")
+            SectionHeader(
+                "Where it is",
+                onInfo = {
+                    info = "Where it is" to
+                        "Metres from the rig's zero point: x forward, y to starboard, z DOWN — " +
+                        "maritime convention, not robotics.\n\n" +
+                        "Capture measures the offset by walking to the sensor, which needs a zero " +
+                        "point first. A tape measure beats a phone at decimetre scale."
+                },
+            )
+            // Kept: the field labels carry the directions, but nothing else carries the *sign*.
             Text(
-                "Metres from the rig's zero: x forward, y to starboard, z DOWN. A sensor up a mast " +
-                    "has a negative z.",
+                "A sensor up a mast has a negative z.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -227,12 +243,15 @@ fun SensorMountScreen(
                 )
             }
 
-            SectionHeader("Which way it points")
-            Text(
-                "Degrees, applied yaw then pitch then roll. Typed, always — a phone can measure where " +
-                    "a sensor is, not where it is aimed.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            SectionHeader(
+                "Which way it points",
+                onInfo = {
+                    info = "Which way it points" to
+                        "Degrees, applied yaw, then pitch, then roll.\n\n" +
+                        "Typed, always — and that is why there is no capture button here. A phone can " +
+                        "measure where a sensor is by being carried to it; it cannot measure where the " +
+                        "sensor is aimed."
+                },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField("Yaw", yaw, { yaw = it }, Modifier.weight(1f))

@@ -34,6 +34,11 @@ import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.config.isValidCategory
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.FormActions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import se.rise.logline.ui.components.InfoDialog
 import se.rise.logline.ui.components.ScreenScaffold
 
 /**
@@ -84,9 +89,31 @@ fun AnnotationButtonsScreen(
         )
     }
 
+    var showHelp by remember { mutableStateOf(false) }
+
+    if (showHelp) {
+        InfoDialog(
+            title = "Annotation buttons",
+            body = "Each button publishes one annotation on `log_message`.\n\n" +
+                "Severity and category are what a reader filters by. In Foxglove's Log panel the " +
+                "category appears as its own toggle, so a few shared categories are far more use than " +
+                "one per button — a unique category each turns the filter into a legend.\n\n" +
+                "Severity maps onto the log level, which the panel filters on regardless of anything " +
+                "else, so it is the coarse control somebody scrubbing a six-hour recording reaches for.",
+            onDismiss = { showHelp = false },
+        )
+    }
+
     ScreenScaffold(
         title = "Annotation buttons",
         onBack = leave,
+        // No SectionHeader on this screen to carry an ⓘ, so it goes in the bar — the shape the live
+        // view uses for the same job.
+        actions = {
+            IconButton(onClick = { showHelp = true }) {
+                Icon(Icons.Default.Info, contentDescription = "About annotation buttons")
+            }
+        },
         bottomBar = {
             FormActions(
                 onSave = { onSave(edited) },
@@ -104,14 +131,6 @@ fun AnnotationButtonsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                "Each button publishes one annotation on `log_message`. The severity and the category " +
-                    "are what a reader filters by — in Foxglove's Log panel the category appears as its " +
-                    "own toggle, so a few shared categories are more use than one per button.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
             labels.indices.forEach { index ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -179,6 +198,9 @@ private fun SeverityField(selected: AnnotationSeverity, onSelect: (AnnotationSev
             onValueChange = {},
             readOnly = true,
             label = { Text("Severity") },
+            // Its only explanation used to be the paragraph now behind the ⓘ, and unlike Category it
+            // had no supporting text of its own — so hiding that would have left it unlabelled.
+            supportingText = { Text("How a reader filters by importance.") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier
                 .fillMaxWidth()

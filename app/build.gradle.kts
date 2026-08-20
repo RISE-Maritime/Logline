@@ -148,6 +148,12 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
+    // zstd for the MCAP recording. `@aar` because the artifact ships the per-ABI .so; the plain jar
+    // carries desktop natives that would not load on a phone.
+    implementation("${libs.zstd.jni.get()}@aar")
+    // The plain jar for JVM unit tests: the @aar above carries only the Android .so, so the format
+    // tests — which decompress what the writer produced — would fail to load the native library.
+    testImplementation(libs.zstd.jni)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)

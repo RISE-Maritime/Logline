@@ -25,6 +25,19 @@ sealed interface SensorRate {
     data class Hz(val hz: Double) : SensorRate
 }
 
+/**
+ * The slower of two rates — used to clamp a publish rate to the rate the sensor is actually sampled at.
+ *
+ * [SensorRate.Max] is the *fastest* rate, so it loses to any explicit Hz: recording at Max and
+ * publishing at 1 Hz gives 1 Hz on the wire, and publishing at Max while recording at 1 Hz can only
+ * give 1 Hz, because that is all the samples there are.
+ */
+fun slowerOf(a: SensorRate, b: SensorRate): SensorRate = when {
+    a is SensorRate.Max -> b
+    b is SensorRate.Max -> a
+    else -> if ((a as SensorRate.Hz).hz <= (b as SensorRate.Hz).hz) a else b
+}
+
 /** Delay for `SensorManager.registerListener`; 0 is `SENSOR_DELAY_FASTEST`. */
 fun SensorRate.toRateUs(): Int = when (this) {
     SensorRate.Max -> 0

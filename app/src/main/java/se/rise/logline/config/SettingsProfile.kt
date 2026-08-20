@@ -81,6 +81,9 @@ data class SettingsProfile(
     val disabledSubjects: String? = null,
     /** Subject name to the stored rate string (`"MAX"` or a number). */
     val sensorRates: Map<String, String>? = null,
+    val recordRates: Map<String, String>? = null,
+    val recordAllMax: Boolean? = null,
+    val publishAllMax: Boolean? = null,
     val qosOverrides: Map<String, QosProfileEntry>? = null,
     /** One serialised button per line, as `serialiseAnnotationButtons` writes them. */
     val annotationButtons: String? = null,
@@ -159,6 +162,14 @@ fun SettingsProfile.encode(pretty: Boolean = true): String {
                 buildJsonObject { rates.toSortedMap().forEach { (k, v) -> put(k, JsonPrimitive(v)) } },
             )
         }
+        recordRates?.takeIf { it.isNotEmpty() }?.let { rates ->
+            put(
+                "record_rates",
+                buildJsonObject { rates.toSortedMap().forEach { (k, v) -> put(k, JsonPrimitive(v)) } },
+            )
+        }
+        putIfPresent("record_all_max", recordAllMax)
+        putIfPresent("publish_all_max", publishAllMax)
         qosOverrides?.takeIf { it.isNotEmpty() }?.let { overrides ->
             put(
                 "qos_overrides",
@@ -224,6 +235,11 @@ fun parseSettingsProfile(text: String): SettingsProfile? {
         videoBitrateKbps = root.int("video_bitrate_kbps"),
         videoKeyframeSeconds = root.int("video_keyframe_seconds"),
         disabledSubjects = root.string("disabled_subjects"),
+        recordRates = (root["record_rates"] as? JsonObject)
+            ?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }
+            ?.toMap(),
+        recordAllMax = (root["record_all_max"] as? JsonPrimitive)?.booleanOrNull,
+        publishAllMax = (root["publish_all_max"] as? JsonPrimitive)?.booleanOrNull,
         sensorRates = (root["sensor_rates"] as? JsonObject)
             ?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }
             ?.toMap(),
@@ -295,6 +311,9 @@ fun Settings.toProfile(): SettingsProfile = SettingsProfile(
     videoKeyframeSeconds = videoKeyframeSeconds,
     disabledSubjects = disabledSubjects.serialiseDisabledSubjects(),
     sensorRates = sensorRates.mapValues { (_, rate) -> rate.serialise() }.ifEmpty { null },
+    recordRates = recordRates.mapValues { (_, rate) -> rate.serialise() }.ifEmpty { null },
+    recordAllMax = recordAllMax,
+    publishAllMax = publishAllMax,
     qosOverrides = qosOverrides.mapValues { (_, qos) ->
         QosProfileEntry(
             priority = qos.priority.name,
@@ -366,6 +385,12 @@ fun Settings.applyProfile(profile: SettingsProfile, withOperator: Boolean = true
     videoBitrateKbps = profile.videoBitrateKbps ?: videoBitrateKbps,
     videoKeyframeSeconds = profile.videoKeyframeSeconds ?: videoKeyframeSeconds,
     disabledSubjects = profile.disabledSubjects?.let { parseDisabledSubjects(it) } ?: disabledSubjects,
+    recordRates = profile.recordRates
+        ?.mapNotNull { (subject, stored) -> parseSensorRate(stored)?.let { subject to it } }
+        ?.toMap()
+        ?: recordRates,
+    recordAllMax = profile.recordAllMax ?: recordAllMax,
+    publishAllMax = profile.publishAllMax ?: publishAllMax,
     sensorRates = profile.sensorRates
         ?.mapNotNull { (subject, stored) -> parseSensorRate(stored)?.let { subject to it } }
         ?.toMap()

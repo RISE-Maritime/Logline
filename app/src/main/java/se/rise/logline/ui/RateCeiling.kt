@@ -55,10 +55,17 @@ enum class CeilingBasis {
 data class RateCeiling(val hz: Double?, val basis: CeilingBasis) {
 
     /** `max 50`, `max 4`, `max ~1`, `on change` — what a subject row puts after the achieved rate. */
+    /**
+     * `sensor 25.0`, not `max 25.0`.
+     *
+     * "max" now names the *rate mode* on the Session screen, so a row reading `Rec max · pub 1.0 ·
+     * max 25.0` used the same word for two different things a few characters apart — the mode chosen
+     * and the hardware's own limit. This is the limit.
+     */
     fun label(): String = when (basis) {
         CeilingBasis.OnChange -> "on change"
-        CeilingBasis.Estimated -> "max ~${formatRate(hz ?: 0.0)}"
-        else -> "max ${formatRate(hz ?: 0.0)}"
+        CeilingBasis.Estimated -> "sensor ~${formatRate(hz ?: 0.0)}"
+        else -> "sensor ${formatRate(hz ?: 0.0)}"
     }
 }
 

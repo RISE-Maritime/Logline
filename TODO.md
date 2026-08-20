@@ -95,59 +95,32 @@ else can build against the checklist feature, and this app's vendored copies are
 definition of a wire format two projects already speak — crowsnest reconstructed from its
 generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
 
+- [ ] **No ChunkIndex is written, so a reader scans instead of seeking.** The recording is chunked and
+      compressed now, but the summary carries no `ChunkIndex` records — legal MCAP, and no worse than the
+      unchunked file that came before, but it means Foxglove reads the whole data section to open a
+      file. Keelson's own `keelson2mcap.py` writes full indexes. Adding them is bookkeeping the writer
+      already has most of: each chunk's byte offset, its message-time range and a per-channel offset map.
+      Worth it once files are routinely hundreds of megabytes.
 
+- [ ] **`audio` and `video_compressed` cannot be thinned, so they have no publish rate.** Dropped H.264
+  frames do not decode, and `audio`'s rate is a *chunk length* — dropping a chunk puts a hole in the
+  sound rather than thinning the stream. Both are exempt from the decimator, so on those two the wire
+  always carries the full recorded rate however the publish rate is set. Nothing on their subject
+  pages says so yet. The honest fix for video would be a second, lower-fps encode for the wire,
+  which is a real piece of work rather than a setting.
 
 
 ## UI iteration (2026-08-19)
 
 The design review's ten priorities, implemented and walked on a Pixel 6. What follows is what the work
 turned up rather than what it did — the *what* is in the commit and in
-[docs/architecture.md](docs/architecture.md).You 
-
-- [x] **The backlog indicator has been seen to move under load.** Verified on a Pixel 6 by putting the
-      gyroscope on `Maximum`: the whole rate went from 743 to ~2295 samples/s, the gyro itself ran at
-      **443 Hz against an advertised 416**, and the app reported **"Losing data — 8 samples never left
-      the sensor"**, with the Live breakdown naming the two collectors that lost them — `roll rate` and
-      `angular velocity`, both riding the gyro. Before this change those eight samples vanished with no
-      trace anywhere in the app.
-      Two things worth keeping from the run. The loss was **upstream of the recorder**: its queue sat at
-      a depth of 1 with a peak of 24 — *lower* than the 53 seen at 743 samples/s, because the writer was
-      untroubled — so the recorder's `dropped` counter would never have seen this, which is exactly why
-      the per-subject sensor counters exist. And the healthy path holds a long way: a 6 h 36 m run at
-      743 samples/s wrote **17 684 195 samples / 479.1 MB with zero drops and zero shed**.
-      Done in the working tree, uncommitted.
-
-- [ ] **A sensor can publish faster than the ceiling it advertises.** The subject rows now read
-      `55.3 Hz · max 50.0` for `linear_acceleration` on a Pixel 6 — the achieved rate is above the
-      maximum. Not a display bug: the ceiling is `Sensor.getMinDelay()`, which is what the sensor
-      *advertises*, and Android delivers whatever the fastest client on that sensor asked for, so a
-      rate above it is normal rather than impossible. Worth deciding whether the row should say so,
-      cap the display, or leave it — it currently looks like an inconsistency to anyone who has not
-      read `SensorCapabilities.kt`.
-
-- [ ] **A 512 MB rotation stalls the recorder's drain, and that is the likeliest cause of the drops
-      the new indicator reports.** `Recorder.drain()` calls `publish(session.path)` inline on the drain
-      coroutine, and that copies up to 512 MB into Downloads — nothing is drained for its duration. The
-      10 000-sample queue gives about 46 s of cover at the measured rate, which a large copy can plausibly
-      exceed. Deliberately not fixed when the indicator was added, so the first thing the indicator is
-      likely to report is this. The fix is the shape `publishOrphans()` already uses: its own coroutine,
-      which the comment at `Recorder.kt:169-173` says was moved off the drain for exactly this reason
-      after it cost 20 000 samples in half a minute.
+[docs/architecture.md](docs/architecture.md).
 
 - [ ] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
       allocations a second on the one coroutine that must not fall behind. Left alone when the queue
       instrumentation went in (which is why the new depth counters are atomics read by a UI ticker
       rather than another field on that flow), but it is pure overhead on the hot path.
 
-- [ ] **`MAP_HEIGHT_EXPANDED` is now compensating for the navigation bar by hand.** Dropped 640 → 560dp
-      so the *visible* chart is the size it always was, with the bar kept on screen deliberately (a
-      control that disappears strands somebody on a full-screen map). A real fix reads the bar's height
-      rather than hard-coding the difference; this is measured against one device.
-
-- [ ] **The live view's chip row scrolls off the right edge** — "Rig calibratio" is clipped on a Pixel
-      6 at six groups. Correct behaviour now that it is horizontally scrollable, and it still looks
-      like a truncation bug at a glance. A fade or a narrower `chipName` for the calibration group
-      would settle it.
 
 - [ ] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
       `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run
@@ -164,3 +137,65 @@ turned up rather than what it did — the *what* is in the commit and in
 - [ ] **Rig calibration lost its intro paragraph to the ⓘ, and gained a `BackHandler` it should have
       had all along** — it was the one form screen where a system-back discarded unsaved edits
       silently, unlike `SettingsScreen`, `AnnotationButtonsScreen` and `SubjectQosScreen`.
+
+## Live view, second pass (2026-08-20)
+
+The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
+satellite, inline and full-screen. Findings:
+
+- [ ] **The Session screen's Position row wraps its rate line onto two lines**, and has done since
+      before the position format changed — verified by building both formats and comparing the crops,
+      so this is not a regression from the middot. The row is the only one in the list whose value is
+      wide enough to squeeze `0.1 Hz · set 1.0 · sensor ~1.0` into a wrap. Readable, and it makes that
+      one row a line taller than its neighbours. A shorter live value for the fix (the accuracy rather
+      than the coordinates?) or letting the subtitle ellipsize would settle it.
+
+- [ ] **`No fix` now shows in red beside a perfectly good position, on a desk indoors.** This is the
+      documented and intended behaviour — the fused provider derives a position from wifi and cell with
+      the GNSS engine solving nothing, and `location_fix_quality` says so honestly — but the vitals row
+      makes it far more prominent than the old run-on string did. Worth watching on an actual trial: if
+      a phone under a coachroof spends the day showing red, the colour is crying wolf and `FIX_NO`
+      should drop to amber with red kept for a fix that has genuinely stopped arriving.
+
+- [ ] **The four map icons are hand-declared `ImageVector`s and nothing checks them.** `ui/MapIcons.kt`
+      is the first drawn icon set in the app; a path typo produces a wrong-looking glyph rather than a
+      build failure, and there is no screenshot test to catch it. Checked by eye at 24dp on a Pixel 6
+      in both themes. If more get added, that is the point to consider a comparison test.
+
+- [ ] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
+      line attached under it, the pair take a fixed 400dp plus about 40 — a little over half a Pixel 6's
+      content height, and proportionally more on a small phone. Worth deriving from the available height
+      rather than pinning, the same argument that removed the second hand-tuned constant from the
+      full-screen branch.
+
+- [ ] **The health chips no longer say anything when a run is healthy**, by design — colour is spent
+      only on the abnormal now. Flagged because it is the one change in this pass that removes a signal
+      rather than quietening it: if a glance at a good run comes to feel like the row is dead, the fix
+      is one quiet green dot on the row as a whole, not one per chip.
+
+## Per-subject publish rates (2026-08-20)
+
+Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
+
+- [ ] **Saving a subject's page always writes a QoS override, even when nothing about the QoS was
+      touched.** `onSave` does `qosOverrides + (subject to qos)` unconditionally, so changing only a
+      rate leaves the subject reading "Overridden for this phone" against values identical to
+      `qos.yaml`. Noticed while testing the rate control — it took a deliberate "Reset to qos.yaml
+      policy" to undo something the user never asked for. Pre-existing; the fix is to write the entry
+      only when `qos != policyQosForSubject(subject)`.
+
+- [ ] **The row's `max` and the page's cap are two different ceilings and the row shows only one.**
+      A derived subject's row still reads its owner's *hardware* maximum, while the page may be
+      capping it far lower. The row is honest about what goes out (`set` is the clamped value) and the
+      three-number rule says not to add a fourth, so this was left alone deliberately — but somebody
+      reading `max 442` on a heading subject capped at 1 Hz has to open the page to find that out.
+
+- [ ] **`ratesCanDiffer` still resolves through the owner**, which is now the only rate function that
+      does so for a reason unrelated to recording. It decides whether the *record* control appears, so
+      it is correct — but the name reads as a statement about the pair of rates, which for a derived
+      subject is no longer what it answers.
+
+- [ ] **Nothing tests the publish path end to end at differing rates within one group.** The
+      decimator, the interval map and the resolution are each covered, and the combination was checked
+      by hand on a Pixel 6 (`course_over_ground_deg` at 0.2 Hz against the fix at 1.0). An instrumented
+      test would need a running publisher and a real sensor, which is why it was not written.
