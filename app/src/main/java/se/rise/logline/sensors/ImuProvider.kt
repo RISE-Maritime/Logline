@@ -48,11 +48,17 @@ class ImuProvider(context: Context) {
 
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-    fun linearAcceleration(rateUs: Int = SensorManager.SENSOR_DELAY_GAME): Flow<Vec3Sample> =
-        vector3Flow(Sensor.TYPE_LINEAR_ACCELERATION, rateUs)
+    fun linearAcceleration(
+        rateUs: Int = SensorManager.SENSOR_DELAY_GAME,
+        onShed: () -> Unit = {},
+    ): Flow<Vec3Sample> =
+        vector3Flow(Sensor.TYPE_LINEAR_ACCELERATION, rateUs, onShed)
 
-    fun angularVelocity(rateUs: Int = SensorManager.SENSOR_DELAY_GAME): Flow<Vec3Sample> =
-        vector3Flow(Sensor.TYPE_GYROSCOPE, rateUs)
+    fun angularVelocity(
+        rateUs: Int = SensorManager.SENSOR_DELAY_GAME,
+        onShed: () -> Unit = {},
+    ): Flow<Vec3Sample> =
+        vector3Flow(Sensor.TYPE_GYROSCOPE, rateUs, onShed)
 
     /**
      * Calibrated magnetic field, in microtesla — convert before publishing, since the subject is
@@ -61,8 +67,11 @@ class ImuProvider(context: Context) {
      * The calibrated sensor is the right one here: the uncalibrated variant omits the hard-iron
      * estimate, which is what makes a phone's own magnets cancel out.
      */
-    fun magneticField(rateUs: Int = SensorManager.SENSOR_DELAY_GAME): Flow<Vec3Sample> =
-        vector3Flow(Sensor.TYPE_MAGNETIC_FIELD, rateUs)
+    fun magneticField(
+        rateUs: Int = SensorManager.SENSOR_DELAY_GAME,
+        onShed: () -> Unit = {},
+    ): Flow<Vec3Sample> =
+        vector3Flow(Sensor.TYPE_MAGNETIC_FIELD, rateUs, onShed)
 
     /**
      * The fused attitude, and with it the compass.
@@ -78,7 +87,10 @@ class ImuProvider(context: Context) {
      * mounted face-up is the case this answers. `orientation_quaternion` carries the full attitude for
      * anyone who needs a different convention.
      */
-    fun orientation(rateUs: Int = SensorManager.SENSOR_DELAY_GAME): Flow<QuatSample> = callbackFlow {
+    fun orientation(
+        rateUs: Int = SensorManager.SENSOR_DELAY_GAME,
+        onShed: () -> Unit = {},
+    ): Flow<QuatSample> = callbackFlow {
         val sensor = manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         if (sensor == null) {
             close(); return@callbackFlow
@@ -98,7 +110,8 @@ class ImuProvider(context: Context) {
                 SensorManager.getQuaternionFromVector(q, vector)
                 SensorManager.getRotationMatrixFromVector(rotation, vector)
                 SensorManager.getOrientation(rotation, orientation)
-                trySend(
+                // Checked, not discarded — see the note in `vector3Flow`.
+                if (trySend(
                     QuatSample(
                         x = q[1],
                         y = q[2],
@@ -116,7 +129,7 @@ class ImuProvider(context: Context) {
                         headingAccuracyDegrees = event.values.getOrNull(4)?.let { radiansToDegrees(it) },
                         elapsedNanos = event.timestamp,
                     )
-                )
+                ).isFailure) onShed()
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -125,14 +138,19 @@ class ImuProvider(context: Context) {
         awaitClose { manager.unregisterListener(listener) }
     }
 
-    private fun vector3Flow(type: Int, rateUs: Int): Flow<Vec3Sample> = callbackFlow {
+    private fun vector3Flow(type: Int, rateUs: Int, onShed: () -> Unit): Flow<Vec3Sample> = callbackFlow {
         val sensor = manager.getDefaultSensor(type)
         if (sensor == null) {
             close(); return@callbackFlow
         }
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
-                trySend(Vec3Sample(event.values[0], event.values[1], event.values[2], event.timestamp))
+                // The result is checked rather than discarded: the flow's buffer holds 64 samples, and
+                // once a collector falls behind this is where the loss happens — silently, until now.
+                if (trySend(
+                        Vec3Sample(event.values[0], event.values[1], event.values[2], event.timestamp)
+                    ).isFailure
+                ) onShed()
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }

@@ -4,6 +4,8 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.graphics.Color
+import se.rise.logline.publish.ConnectionState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -121,6 +123,8 @@ fun LiveScreen(
      */
     basicOnly: Boolean,
     onBasicOnlyChange: (Boolean) -> Unit,
+    /** The recorder's backlog, pulled on the caller's ticker. See `SensorPublisher.recordingLoad`. */
+    load: RecordingLoad = RecordingLoad(),
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -132,6 +136,7 @@ fun LiveScreen(
         }
     }
     var showAbout by remember { mutableStateOf(false) }
+    var showThroughputHelp by remember { mutableStateOf(false) }
     var showAxes by remember { mutableStateOf(false) }
     // Which group the chips have narrowed to, if any. Deliberately *not* hoisted: narrowing to Wi-Fi
     // is something you do for a minute while looking at it, the same call `mapExpanded` makes.
@@ -149,6 +154,27 @@ fun LiveScreen(
     val heading = latest(PublishedSubject.HEADING_TRUE_NORTH) ?: latest(PublishedSubject.HEADING_MAGNETIC)
     val headingIsTrue = latest(PublishedSubject.HEADING_TRUE_NORTH) != null
 
+    if (showThroughputHelp) {
+        InfoDialog(
+            title = "Keeping up",
+            body = "Two of the three places a backlog can build are measured here, and the third " +
+                "cannot be.\n\n" +
+                "The recorder queue holds ${formatCount(load.capacity.toLong())} samples — tens of " +
+                "seconds of slack — between the sensors and the file. Depth is what is waiting; the " +
+                "peak is the deepest it has been this run, and it is the number worth reading, since " +
+                "a once-a-second look at a queue this size misses most bursts.\n\n" +
+                "Shed samples never got that far: each sensor's callback buffer holds 64, and a " +
+                "collector that cannot keep up loses them there. That is the phone itself falling " +
+                "behind rather than the disk.\n\n" +
+                "The link is the one that cannot be measured. Every subject is published with " +
+                "congestion control set to drop, and a publish returns success whether or not " +
+                "anything received it — measured on this app, about 9000 successful publishes landed " +
+                "on an empty bus during a 26 s outage. So the rate above is what was handed to Zenoh, " +
+                "not what arrived. Connection state and the replay figure are the only honest signals " +
+                "about the bus, and both are coarse.",
+            onDismiss = { showThroughputHelp = false },
+        )
+    }
     if (showAbout) {
         InfoDialog(
             title = "About this view",
@@ -258,6 +284,29 @@ fun LiveScreen(
             HorizontalDivider(Modifier.padding(top = 4.dp))
             WindowControl(windowSeconds, onWindowSecondsChange, paused, onPausedChange)
             ScopeControl(basicOnly, onBasicOnlyChange)
+
+            if (running) {
+                ThroughputSection(
+                    load = load,
+                    dropped = recording.dropped,
+                    shedBySubject = status.subjects
+                        .filterValues { it.shed > 0 }
+                        .mapValues { it.value.shed },
+                    connection = status.connection,
+                    replayLost = status.replayLost,
+                    samplesPerSecond = subjectGroups().sumOf { group ->
+                        groupSummary(
+                            entries = group.entries,
+                            status = status,
+                            running = true,
+                            nowMillis = nowMillis,
+                            unavailable = unavailableSubjects,
+                            disabled = disabledSubjects,
+                        ).samplesPerSecond
+                    },
+                    onInfo = { showThroughputHelp = true },
+                )
+            }
 
             if (!running && snapshot.track.isEmpty()) {
                 StatusLine(
@@ -418,6 +467,108 @@ private fun LayerControl(
  * Pause is the one that earns its place during a test: something odd goes past, and without it the
  * evidence has scrolled off the window before anyone can look at it.
  */
+/**
+ * Whether the phone is keeping up, in the detail the Session card deliberately leaves out.
+ *
+ * The card gives a verdict; this gives the numbers behind it and, just as importantly, says which
+ * numbers do not exist. The link cannot be measured from here at all — see the ⓘ — so this section
+ * separates what is measured (the recorder queue, the sensor flows) from what is merely reported
+ * (connection state, replay), rather than mixing them into one reassuring figure.
+ */
+@Composable
+private fun ThroughputSection(
+    load: RecordingLoad,
+    dropped: Long,
+    shedBySubject: Map<PublishedSubject, Long>,
+    connection: ConnectionState,
+    replayLost: Long,
+    samplesPerSecond: Double,
+    onInfo: () -> Unit,
+) {
+    SectionHeader(
+        title = "Keeping up",
+        trailing = if (dropped > 0 || shedBySubject.isNotEmpty()) "losing data" else null,
+        trailingColor = if (dropped > 0 || shedBySubject.isNotEmpty()) {
+            MaterialTheme.colorScheme.error
+        } else {
+            null
+        },
+        onInfo = onInfo,
+    )
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ThroughputRow("Producing", "${formatRate(samplesPerSecond)} samples/s")
+            ThroughputRow(
+                "Waiting to be written",
+                "${formatCount(load.depth)} of ${formatCount(load.capacity.toLong())}",
+            )
+            // The peak is given its own row rather than folded into the one above, because they answer
+            // different questions: one is now, the other is whether this run ever came close.
+            ThroughputRow("Deepest this run", formatCount(load.peak))
+
+            if (dropped > 0) {
+                ThroughputRow(
+                    "Never reached the file",
+                    formatCount(dropped),
+                    tone = MaterialTheme.colorScheme.error,
+                )
+            }
+            shedBySubject.forEach { (entry, shed) ->
+                ThroughputRow(
+                    "Shed by ${labelOf(entry).name.lowercase()}",
+                    formatCount(shed),
+                    tone = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            HorizontalDivider()
+            // Below the line on purpose: everything above is measured, everything here is inferred.
+            ThroughputRow(
+                "Router",
+                when (connection) {
+                    ConnectionState.Connected -> "connected"
+                    ConnectionState.Disconnected -> "not connected"
+                    ConnectionState.Idle -> "idle"
+                },
+                tone = if (connection == ConnectionState.Disconnected) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    null
+                },
+            )
+            if (replayLost > 0) {
+                ThroughputRow(
+                    "Outran the replay buffer",
+                    formatCount(replayLost),
+                    tone = MaterialTheme.colorScheme.error,
+                )
+            }
+            Text(
+                "Delivery is not measurable from the phone — tap ⓘ.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThroughputRow(label: String, value: String, tone: Color? = null) {
+    Row(Modifier.fillMaxWidth().readAsOneItem("$label $value")) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = tone ?: MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
 /**
  * Basic or All — how much of the bus this screen is trying to show.
  *

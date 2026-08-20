@@ -77,7 +77,10 @@ class LocationProvider(context: Context) {
      */
     @SuppressLint("MissingPermission")
     @RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
-    fun updates(intervalMillis: Long = 1_000L): Flow<LocationUpdate> = callbackFlow {
+    fun updates(
+        intervalMillis: Long = 1_000L,
+        onShed: () -> Unit = {},
+    ): Flow<LocationUpdate> = callbackFlow {
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
             .setMinUpdateIntervalMillis(intervalMillis)
             .build()
@@ -91,7 +94,9 @@ class LocationProvider(context: Context) {
 
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { trySend(LocationUpdate.Fix(it)) }
+                // Only the fixes are counted as shed. The availability notices below are state
+                // changes, not data — losing one costs a label, not a measurement.
+                result.lastLocation?.let { if (trySend(LocationUpdate.Fix(it)).isFailure) onShed() }
             }
 
             override fun onLocationAvailability(availability: LocationAvailability) {

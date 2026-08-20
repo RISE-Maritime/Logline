@@ -44,7 +44,7 @@ class NmeaProvider(context: Context) {
      */
     @SuppressLint("MissingPermission")
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-    fun sentences(): Flow<NmeaSentence> = callbackFlow {
+    fun sentences(onShed: () -> Unit = {}): Flow<NmeaSentence> = callbackFlow {
         val locationManager = manager
         if (locationManager == null) {
             close(); return@callbackFlow
@@ -55,7 +55,7 @@ class NmeaProvider(context: Context) {
             // starts with $ or ! is the real thing and is passed through byte for byte.
             val sentence = message?.trim().orEmpty()
             if (sentence.startsWith("$") || sentence.startsWith("!")) {
-                trySend(NmeaSentence(sentence, timestamp))
+                if (trySend(NmeaSentence(sentence, timestamp)).isFailure) onShed()
             }
         }
         locationManager.addNmeaListener(listener, Handler(Looper.getMainLooper()))

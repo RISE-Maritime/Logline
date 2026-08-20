@@ -421,6 +421,17 @@ amber, because it is what `StatusTone.Warning` paints and a cool tertiary sat cl
 that a warning read as just another blue label. Passing `dynamicColor = true` hands the scheme back to
 the wallpaper.
 
+**Start and Stop carry a glyph, and REC is a lamp rather than a line of text.** The stop square is
+*drawn* — a `Box` with a rounded clip — because `material-icons-core` has no stop glyph and
+`material-icons-extended` is tens of megabytes of vectors to buy one shape. The recording lamp sits in
+the pinned action surface rather than beside the connection chip in the app bar, and that placement is
+the whole point of it: the bar uses `enterAlwaysScrollBehavior` and leaves the screen on the first
+downward scroll, and thirty-nine subject rows is a page people scroll — so an indicator up there
+answers "is it still recording" only until somebody looks at anything. It blinks via a `graphicsLayer`
+block so the animated value is read in the draw phase and nothing recomposes for it, and it is shown
+only when a file is actually being written: publishing and recording are two facts, and only one of
+them leaves something to take off the phone afterwards.
+
 **Navigation is four tabs, and everything else is pushed on top of one of them.** Home used to carry
 six full-width buttons under its status card — Settings, Live view, Mark event, Rigs, Recordings,
 Checklists — which made the first screen a dashboard and a table of contents at once, and made `Start

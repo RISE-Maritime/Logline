@@ -127,6 +127,17 @@ class Recorder(private val appContext: Context) {
     private var scope: CoroutineScope? = null
     private var drainJob: Job? = null
 
+    /**
+     * How far behind the writer is — see [QueueLoad].
+     *
+     * Long-lived and `reset()` per run rather than replaced with the channel, because the UI polls it
+     * on a ticker and a field swapped underneath a reader would hand back a fresh zero mid-run. It is
+     * deliberately **not** on [RecordingStatus]: the drain loop already updates that flow once per
+     * written sample, and putting a depth there would add a second allocation at the same rate, on the
+     * one coroutine whose falling behind is the thing being measured.
+     */
+    val queueLoad = QueueLoad(QUEUE_CAPACITY)
+
     private val recordingsDir: File get() = recordingsDir(appContext)
 
     /**
@@ -138,7 +149,7 @@ class Recorder(private val appContext: Context) {
         // where a run had started but its channel had not been swapped in yet.
         val channel = queue ?: return
         val accepted = channel.trySend(sample).isSuccess
-        if (!accepted) _status.update { it.copy(dropped = it.dropped + 1) }
+        if (accepted) queueLoad.enqueued() else _status.update { it.copy(dropped = it.dropped + 1) }
     }
 
     fun start(maxBytes: Long = DEFAULT_MAX_BYTES) {
@@ -151,6 +162,8 @@ class Recorder(private val appContext: Context) {
         }
 
         val newQueue = Channel<RecordSample>(capacity = QUEUE_CAPACITY)
+        // With the channel, so a run always starts from a clean depth and an empty high-water mark.
+        queueLoad.reset()
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         queue = newQueue
         scope = newScope
@@ -212,6 +225,9 @@ class Recorder(private val appContext: Context) {
                 // place a write marginally *before* the enclose it followed.
                 val at = java.time.Instant.now()
                 session.write(sample, at.epochSecond * 1_000_000_000L + at.nano)
+                // After the write, not before it: the depth this reports is samples still owed a place
+                // in the file, so a sample counts as drained only once it is in one.
+                queueLoad.drained()
                 _status.update {
                     it.copy(
                         fileName = session.path.name,

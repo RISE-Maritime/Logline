@@ -243,7 +243,11 @@ class RadioProvider(private val context: Context) {
         )
     }
 
-    private companion object {
-        const val MIN_POLL_MILLIS = 250L
+    /**
+     * Internal rather than private so `rateCeilings()` can quote the floor instead of copying it: a
+     * ceiling shown on screen and the loop that enforces it must be the same number.
+     */
+    internal companion object {
+        internal const val MIN_POLL_MILLIS = 250L
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -72,6 +73,8 @@ fun SubjectQosScreen(
     isOverridden: Boolean,
     rate: SensorRate,
     capabilities: SensorCapabilities,
+    /** The fastest this source can go and where that number came from. See `rateCeilings()`. */
+    ceiling: RateCeiling?,
     achievedHz: Double?,
     onSave: (SubjectQos, SensorRate) -> Unit,
     onResetToPolicy: () -> Unit,
@@ -200,6 +203,40 @@ fun SubjectQosScreen(
             if (!eventDriven) {
                 SectionHeader("Sampling rate")
 
+                // The three numbers, before any control that changes one of them. They answer three
+                // different questions — what the source could give, what this phone asked for, what is
+                // actually going out — and the commonest confusion on this screen was reading one of
+                // them as an answer to another.
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        RateFact(
+                            label = "Hardware",
+                            value = ceiling?.let { c ->
+                                c.hz?.let { "${formatHz(it)} Hz" } ?: "reports on change"
+                            } ?: "not stated",
+                            note = ceilingNote(ceiling),
+                        )
+                        RateFact(
+                            label = "Setting",
+                            value = when (rate) {
+                                SensorRate.Max -> "maximum"
+                                is SensorRate.Hz -> "${formatHz(rate.hz)} Hz"
+                            },
+                            note = rateOwner?.let { "Inherited from $it" }
+                                ?: "A request, not a promise — the platform delivers what it can",
+                        )
+                        RateFact(
+                            label = "Actual",
+                            value = achievedHz?.let { "${formatHz(it)} Hz" } ?: "not publishing",
+                            note = achievedHz?.let { "Averaged over the run" }
+                                ?: "Start a run to measure it",
+                        )
+                    }
+                }
+
                 // Some subjects ride another subject's sample stream — speed and course come off the same
                 // Location callback as location_fix, and the battery scalars off one poll. Showing them a
                 // rate control would be showing a control that silently does nothing, so say where it lives.
@@ -210,13 +247,6 @@ fun SubjectQosScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    achievedHz?.let {
-                        Text(
-                            "Currently achieving ${formatHz(it)} Hz.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 } else {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -246,36 +276,20 @@ fun SubjectQosScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    Text(
-                        when {
-                            useMaxRate && capabilities.maxRateHz != null ->
-                                "The hardware is the only limit. This sensor advertises " +
-                                    "${formatHz(capabilities.maxRateHz)} Hz, though it may deliver more — " +
-                                    "asking for 400 Hz on this device yields around 442 Hz."
-                            useMaxRate ->
-                                "The hardware is the only limit. The fused location provider publishes " +
-                                    "none, so what you get depends on the GNSS chipset and the sky view."
-                            capabilities.maxRateHz != null ->
-                                "This sensor supports up to ${formatHz(capabilities.maxRateHz)} Hz " +
-                                    "(min delay ${capabilities.minDelayUs} µs)."
-                            else ->
-                                "The fused location provider publishes no rate limit — what you get " +
-                                    "depends on the GNSS chipset and the sky view."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    capabilities.name?.let {
+                    // What the card above does not say: that `Maximum` is a zero delay rather than the
+                    // advertised figure, and that the two differ in practice.
+                    if (useMaxRate && capabilities.maxRateHz != null) {
                         Text(
-                            "$it${capabilities.vendor?.let { v -> " · $v" } ?: ""}",
+                            "A zero delay, not ${formatHz(capabilities.maxRateHz)} Hz written out — this " +
+                                "sensor may deliver more than it advertises, and does: asking for 400 Hz " +
+                                "on this device yields around 442 Hz.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    achievedHz?.let {
+                    capabilities.name?.let {
                         Text(
-                            "Currently achieving ${formatHz(it)} Hz — the rate is a request, and the " +
-                                "hardware delivers what it can.",
+                            "$it${capabilities.vendor?.let { v -> " · $v" } ?: ""}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -447,3 +461,44 @@ private fun <T> EnumField(
  */
 private fun formatHz(hz: Double): String =
     if (hz == hz.toLong().toDouble()) hz.toLong().toString() else "%.2f".fmt(hz).trimEnd('0').trimEnd('.')
+
+/** One of the three rate numbers, with the sentence that says what kind of number it is. */
+@Composable
+private fun RateFact(label: String, value: String, note: String?) {
+    Row(Modifier.fillMaxWidth()) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(88.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(value, style = MaterialTheme.typography.bodyLarge)
+            note?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Who is doing the limiting, which the number alone cannot say.
+ *
+ * `max 2` on the time-lapse row is this app's own half-second floor, not a camera that cannot go
+ * faster — and reading it as the latter is exactly the wrong conclusion to draw from a ceiling.
+ */
+private fun ceilingNote(ceiling: RateCeiling?): String = when (ceiling?.basis) {
+    CeilingBasis.Reported ->
+        "Advertised by the sensor. Not a hard cap — Android delivers to every client at the " +
+            "fastest rate any of them asked for, so this can be exceeded."
+    CeilingBasis.Imposed -> "A floor this app holds the loop to, not a limit of the hardware"
+    CeilingBasis.Estimated ->
+        "An estimate: the fused location provider publishes no rate limit, so what arrives " +
+            "depends on the GNSS chipset and the sky view"
+    CeilingBasis.OnChange -> "An on-change sensor: it reports when the reading moves, so there is no rate"
+    null -> "This source states no limit"
+}

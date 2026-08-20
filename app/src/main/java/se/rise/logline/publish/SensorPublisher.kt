@@ -31,6 +31,7 @@ import se.rise.logline.keelson.sourceLivelinessKey
 import se.rise.logline.keelson.subjectLivelinessKeys
 import se.rise.logline.record.RecordSample
 import se.rise.logline.record.Recorder
+import se.rise.logline.record.QueueLoad
 import se.rise.logline.record.RecordingStatus
 import se.rise.logline.sensors.AudioProvider
 import se.rise.logline.sensors.BatteryProvider
@@ -101,7 +102,7 @@ private const val TAG = "SensorPublisher"
 private const val CONNECTION_POLL_MILLIS = 2_000L
 
 /** Chunk bounds: below a fifth of a second the overhead dominates, above ten seconds a drop hurts. */
-private const val MIN_AUDIO_CHUNK_MILLIS = 200L
+internal const val MIN_AUDIO_CHUNK_MILLIS = 200L
 private const val MAX_AUDIO_CHUNK_MILLIS = 10_000L
 
 /**
@@ -121,7 +122,7 @@ private const val DEFAULT_VIDEO_FRAME_RATE = 10
  * smoothness rather than bytes — but it also multiplies the message count, and every frame is a
  * separate `put`, an MCAP record and a live-store append.
  */
-private const val MAX_VIDEO_FRAME_RATE = 30
+internal const val MAX_VIDEO_FRAME_RATE = 30
 
 /** What `CompressedImage.frame_id` says the picture was taken with. */
 private const val FRAME_ID_REAR = "camera_rear"
@@ -132,7 +133,7 @@ private const val FRAME_ID_FRONT = "camera_front"
  * two-minute backlog clears in about a minute while live traffic keeps flowing.
  */
 /** Ten seconds is the default; this is only the floor a "Max" rate setting is held to. */
-private const val MIN_CALIBRATION_INTERVAL_MILLIS = 1_000L
+internal const val MIN_CALIBRATION_INTERVAL_MILLIS = 1_000L
 
 /**
  * The LSM6DSR's own operating range, used only to notice a vendor sensor reporting something that is
@@ -163,6 +164,16 @@ class SensorPublisher(private val appContext: Context) {
     /** Local MCAP recording. Independent of publish success — see [Recorder]. */
     private val recorder = Recorder(appContext)
     val recording: StateFlow<RecordingStatus> get() = recorder.status
+
+    /**
+     * How far behind the recorder's writer is — **pulled on a ticker, never pushed.**
+     *
+     * The same rule `liveLatest()` above follows, and for a sharper reason here: the drain loop already
+     * updates its status flow once per written sample, so routing a depth through that flow would add
+     * an allocation at the sample rate to the one coroutine whose falling behind is the thing being
+     * reported. Reading two atomics from the UI's existing 1 Hz poll costs nothing on the hot path.
+     */
+    fun recordingLoad(): QueueLoad = recorder.queueLoad
 
     private var scope: CoroutineScope? = null
     private var session: KeelsonSession? = null
@@ -820,7 +831,12 @@ class SensorPublisher(private val appContext: Context) {
         val msl = MslAltitudeResolver(appContext)
         val sink = SubjectSink(PublishedSubject.LOCATION_FIX, session)
         sink.guard {
-            LocationProvider(appContext).updates(intervalMillis = rate.toIntervalMillis()).collect { update ->
+            LocationProvider(appContext)
+                .updates(
+                    intervalMillis = rate.toIntervalMillis(),
+                    onShed = { statusStore.shed(PublishedSubject.LOCATION_FIX) },
+                )
+                .collect { update ->
                 // Why there is no fix, when that is knowable, on every subject that rides this
                 // callback — all four go silent together, so all four have to account for it.
                 val loc = when (update) {
@@ -990,7 +1006,9 @@ class SensorPublisher(private val appContext: Context) {
         }
         val sink = SubjectSink(PublishedSubject.RAW_NMEA0183, session)
         sink.guard {
-            NmeaProvider(appContext).sentences().collect { nmea ->
+            NmeaProvider(appContext)
+                .sentences(onShed = { statusStore.shed(PublishedSubject.RAW_NMEA0183) })
+                .collect { nmea ->
                 // The callback's own instant, not now: sentences arrive in bursts once per fix, and
                 // stamping them at publish time would spread one fix's worth across the gaps between
                 // them. See `nmeaEpochNanos` for why the value is checked rather than trusted.
@@ -1042,7 +1060,9 @@ class SensorPublisher(private val appContext: Context) {
         val qualityPub = publishers.of(PublishedSubject.FIX_QUALITY)
 
         qualitySink.guard {
-            GnssStatusProvider(appContext).status().collect { sample ->
+            GnssStatusProvider(appContext)
+                .status(onShed = { statusStore.shed(PublishedSubject.SATELLITES_USED) })
+                .collect { sample ->
                 // The callback carries no timestamp of its own and describes the receiver's state
                 // right now, so this is one of the few places the observation time genuinely is now.
                 val at = protoTimestamp()
@@ -1092,7 +1112,9 @@ class SensorPublisher(private val appContext: Context) {
         val sink = SubjectSink(PublishedSubject.LINEAR_ACCEL, session)
         sink.guard {
             var checked = false
-            ImuProvider(appContext).linearAcceleration(rate.toRateUs()).collect { s ->
+            ImuProvider(appContext)
+                .linearAcceleration(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.LINEAR_ACCEL) })
+                .collect { s ->
                 val observedAtNanos = SensorClock.epochNanosNow(s.elapsedNanos)
                 if (!checked) {
                     checked = true
@@ -1117,7 +1139,9 @@ class SensorPublisher(private val appContext: Context) {
         val sink = SubjectSink(PublishedSubject.ANGULAR_VEL, session)
         sink.guard {
             var checked = false
-            ImuProvider(appContext).angularVelocity(rate.toRateUs()).collect { s ->
+            ImuProvider(appContext)
+                .angularVelocity(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.ANGULAR_VEL) })
+                .collect { s ->
                 val observedAtNanos = SensorClock.epochNanosNow(s.elapsedNanos)
                 if (!checked) {
                     checked = true
@@ -1149,7 +1173,9 @@ class SensorPublisher(private val appContext: Context) {
         val accuracySink = SubjectSink(PublishedSubject.HEADING_ACCURACY, session)
         sink.guard {
             var checked = false
-            ImuProvider(appContext).orientation(rate.toRateUs()).collect { q ->
+            ImuProvider(appContext)
+                .orientation(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.ORIENTATION) })
+                .collect { q ->
                 val observedAtNanos = SensorClock.epochNanosNow(q.elapsedNanos)
                 if (!checked) {
                     checked = true
@@ -1218,7 +1244,9 @@ class SensorPublisher(private val appContext: Context) {
         val pitchSink = SubjectSink(PublishedSubject.PITCH, session)
         val yawSink = SubjectSink(PublishedSubject.YAW, session)
         rollSink.guard {
-            ImuProvider(appContext).orientation(rate.toRateUs()).collect { q ->
+            ImuProvider(appContext)
+                .orientation(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.ROLL) })
+                .collect { q ->
                 val at = protoTimestamp(SensorClock.epochNanosNow(q.elapsedNanos))
                 rollSink.emit(rollPub, timestampedFloat(at, q.rollDegrees).toByteArray(), q.rollDegrees)
                 pitchSink.emit(pitchPub, timestampedFloat(at, q.pitchDegrees).toByteArray(), q.pitchDegrees)
@@ -1247,7 +1275,9 @@ class SensorPublisher(private val appContext: Context) {
         val pitchSink = SubjectSink(PublishedSubject.PITCH_RATE, session)
         val yawSink = SubjectSink(PublishedSubject.YAW_RATE, session)
         rollSink.guard {
-            ImuProvider(appContext).angularVelocity(rate.toRateUs()).collect { s ->
+            ImuProvider(appContext)
+                .angularVelocity(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.ROLL_RATE) })
+                .collect { s ->
                 val at = protoTimestamp(SensorClock.epochNanosNow(s.elapsedNanos))
                 val rates = attitudeRatesOf(s.x, s.y, s.z)
                 rollSink.emit(rollPub, timestampedFloat(at, rates.roll).toByteArray(), rates.roll)
@@ -1276,7 +1306,9 @@ class SensorPublisher(private val appContext: Context) {
         val sink = SubjectSink(PublishedSubject.IMU_TEMPERATURE, session)
         sink.guard {
             var checked = false
-            ScalarSensorProvider(appContext).imuTemperature(rate.toIntervalMillis()).collect { s ->
+            ScalarSensorProvider(appContext)
+                .imuTemperature(rate.toIntervalMillis(), onShed = { statusStore.shed(PublishedSubject.IMU_TEMPERATURE) })
+                .collect { s ->
                 if (!checked) {
                     checked = true
                     if (s.value < MIN_PLAUSIBLE_DIE_CELSIUS || s.value > MAX_PLAUSIBLE_DIE_CELSIUS) {
@@ -1302,7 +1334,9 @@ class SensorPublisher(private val appContext: Context) {
         val sink = SubjectSink(PublishedSubject.MAGNETIC_FIELD, session)
         sink.guard {
             var checked = false
-            ImuProvider(appContext).magneticField(rate.toRateUs()).collect { s ->
+            ImuProvider(appContext)
+                .magneticField(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.MAGNETIC_FIELD) })
+                .collect { s ->
                 val observedAtNanos = SensorClock.epochNanosNow(s.elapsedNanos)
                 if (!checked) {
                     checked = true
@@ -1354,7 +1388,9 @@ class SensorPublisher(private val appContext: Context) {
             // defeat the whole point of repeating the timestamp, and any consumer deduplicating on it.
             var lastElapsedNanos = 0L
             var lastObservedAtNanos = 0L
-            ScalarSensorProvider(appContext).illuminance(rate.toIntervalMillis()).collect { s ->
+            ScalarSensorProvider(appContext)
+                .illuminance(rate.toIntervalMillis(), onShed = { statusStore.shed(PublishedSubject.ILLUMINANCE) })
+                .collect { s ->
                 if (s.elapsedNanos != lastElapsedNanos) {
                     lastElapsedNanos = s.elapsedNanos
                     lastObservedAtNanos = SensorClock.epochNanosNow(s.elapsedNanos)
@@ -1553,7 +1589,9 @@ class SensorPublisher(private val appContext: Context) {
         val sink = SubjectSink(PublishedSubject.AIR_PRESSURE, session)
         sink.guard {
             var checked = false
-            ScalarSensorProvider(appContext).pressure(rate.toRateUs()).collect { s ->
+            ScalarSensorProvider(appContext)
+                .pressure(rate.toRateUs(), onShed = { statusStore.shed(PublishedSubject.AIR_PRESSURE) })
+                .collect { s ->
                 val observedAtNanos = SensorClock.epochNanosNow(s.elapsedNanos)
                 if (!checked) {
                     checked = true

@@ -86,9 +86,13 @@ class BatteryProvider(private val context: Context) {
         )
     }
 
-    private companion object {
+    /**
+     * Internal rather than private so `rateCeilings()` can quote the floor instead of copying it: a
+     * ceiling shown on screen and the loop that enforces it must be the same number.
+     */
+    internal companion object {
         const val MISSING = Int.MIN_VALUE
-        const val MIN_POLL_MILLIS = 1_000L
+        internal const val MIN_POLL_MILLIS = 1_000L
 
         /** 100 A. Real phone draw is milliamps; anything past this is a sentinel, not a measurement. */
         const val IMPLAUSIBLE_MICROAMPS = 100_000_000

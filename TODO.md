@@ -104,6 +104,19 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).You 
 
+- [x] **The backlog indicator has been seen to move under load.** Verified on a Pixel 6 by putting the
+      gyroscope on `Maximum`: the whole rate went from 743 to ~2295 samples/s, the gyro itself ran at
+      **443 Hz against an advertised 416**, and the app reported **"Losing data — 8 samples never left
+      the sensor"**, with the Live breakdown naming the two collectors that lost them — `roll rate` and
+      `angular velocity`, both riding the gyro. Before this change those eight samples vanished with no
+      trace anywhere in the app.
+      Two things worth keeping from the run. The loss was **upstream of the recorder**: its queue sat at
+      a depth of 1 with a peak of 24 — *lower* than the 53 seen at 743 samples/s, because the writer was
+      untroubled — so the recorder's `dropped` counter would never have seen this, which is exactly why
+      the per-subject sensor counters exist. And the healthy path holds a long way: a 6 h 36 m run at
+      743 samples/s wrote **17 684 195 samples / 479.1 MB with zero drops and zero shed**.
+      Done in the working tree, uncommitted.
+
 - [ ] **A sensor can publish faster than the ceiling it advertises.** The subject rows now read
       `55.3 Hz · max 50.0` for `linear_acceleration` on a Pixel 6 — the achieved rate is above the
       maximum. Not a display bug: the ceiling is `Sensor.getMinDelay()`, which is what the sensor
@@ -111,6 +124,20 @@ turned up rather than what it did — the *what* is in the commit and in
       rate above it is normal rather than impossible. Worth deciding whether the row should say so,
       cap the display, or leave it — it currently looks like an inconsistency to anyone who has not
       read `SensorCapabilities.kt`.
+
+- [ ] **A 512 MB rotation stalls the recorder's drain, and that is the likeliest cause of the drops
+      the new indicator reports.** `Recorder.drain()` calls `publish(session.path)` inline on the drain
+      coroutine, and that copies up to 512 MB into Downloads — nothing is drained for its duration. The
+      10 000-sample queue gives about 46 s of cover at the measured rate, which a large copy can plausibly
+      exceed. Deliberately not fixed when the indicator was added, so the first thing the indicator is
+      likely to report is this. The fix is the shape `publishOrphans()` already uses: its own coroutine,
+      which the comment at `Recorder.kt:169-173` says was moved off the drain for exactly this reason
+      after it cost 20 000 samples in half a minute.
+
+- [ ] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
+      allocations a second on the one coroutine that must not fall behind. Left alone when the queue
+      instrumentation went in (which is why the new depth counters are atomics read by a UI ticker
+      rather than another field on that flow), but it is pure overhead on the hot path.
 
 - [ ] **`MAP_HEIGHT_EXPANDED` is now compensating for the navigation bar by hand.** Dropped 640 → 560dp
       so the *visible* chart is the size it always was, with the bar kept on screen deliberately (a
@@ -137,24 +164,3 @@ turned up rather than what it did — the *what* is in the commit and in
 - [ ] **Rig calibration lost its intro paragraph to the ⓘ, and gained a `BackHandler` it should have
       had all along** — it was the one form screen where a system-back discarded unsaved edits
       silently, unlike `SettingsScreen`, `AnnotationButtonsScreen` and `SubjectQosScreen`.
-
-- [ ] **The light theme has not been looked at since the session card was rewritten.** Everything in
-      this pass was walked in dark on a Pixel 6. The one genuinely new colour is `SignalGreenLight` /
-      `SignalGreenDark` in `ui/theme/Color.kt` — the router dot and the app-bar chip — which is not a
-      Material scheme role and so has had no contrast check against `surfaceContainer` in light.
-
-- [ ] **The tab bar is at five, and the fifth label only just fits.** `Files` rather than `Recordings`
-      because five `NavigationBarItem`s leave about 72 dp each and the longer word ellipsizes; the
-      screen itself is still titled Recordings. Material's guidance stops at five, so anything else
-      wanting a tab has to displace one rather than join them.
-
-- [ ] **`Actions` is pinned above the tab bar, and nothing has measured what that costs a short
-      phone.** The Start/Stop surface plus the bar is roughly 150 dp of permanent chrome at the bottom
-      of the Session screen. Fine on a Pixel 6 with every group collapsed; unknown on a small screen
-      with two groups open.
-
-- [ ] **`RecordingStatus.stoppedAtEpochMillis` is written in two places and read in one.** Added so the
-      detail panel's `Recording time` freezes at Stop instead of counting on over a closed file. Both
-      writers are in `Recorder` (the normal stop and the "not enough space" path); a third exit that
-      forgets it would leave the clock running, which no test would catch.
-

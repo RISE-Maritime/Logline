@@ -60,6 +60,52 @@ private fun groupTitle(source: SourceKind, sourceId: String?): String {
 }
 
 /**
+ * Whether the phone is keeping up with what it has been asked to do.
+ *
+ * Three states rather than two, and the middle one is the point of the whole thing. Before this the
+ * screen went straight from a healthy recording readout to a red "N samples dropped" — the recorder's
+ * queue holds ten thousand samples, about forty-five seconds of slack, and nothing reported the depth
+ * climbing through it. The first thing anybody saw was data that had already been lost.
+ *
+ * Note what this deliberately does **not** claim. It covers the two backlogs the app can actually see:
+ * the sensor flows, whose 64-slot buffers shed when a collector falls behind, and the recorder's queue.
+ * Zenoh's egress queue is not among them and cannot be — every QoS profile is `DROP` and a `put`
+ * returns success whether or not anything received it. This says the *phone* is keeping up; it says
+ * nothing about the link.
+ */
+enum class ThroughputHealth {
+    /** Nothing has been lost and the queue is not filling. */
+    KeepingUp,
+
+    /**
+     * The queue has been deep enough to be worth knowing about, but nothing has been lost yet.
+     *
+     * A quarter of capacity is a judgement, not a measurement: it is far enough above the handful of
+     * samples a healthy drain sits at to mean something, and far enough below full to leave time to
+     * act. Read against the *peak*, because a 1 Hz poll against a ten-thousand-deep buffer will
+     * otherwise sit at nearly zero and miss every burst.
+     */
+    UnderStrain,
+
+    /** Samples have gone missing — shed by a sensor flow, or refused by the recorder's queue. */
+    Losing,
+}
+
+/** The share of the recorder queue that counts as strain. */
+private const val STRAIN_FRACTION = 0.25
+
+fun throughputHealth(
+    peakDepth: Long,
+    capacity: Int,
+    dropped: Long,
+    shed: Long,
+): ThroughputHealth = when {
+    dropped > 0 || shed > 0 -> ThroughputHealth.Losing
+    capacity > 0 && peakDepth >= capacity * STRAIN_FRACTION -> ThroughputHealth.UnderStrain
+    else -> ThroughputHealth.KeepingUp
+}
+
+/**
  * Whether a subject is doing what it should.
  *
  * [Stalled] is the state this exists for: a subject that published and then quietly stopped looks

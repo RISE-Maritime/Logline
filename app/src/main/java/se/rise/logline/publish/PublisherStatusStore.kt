@@ -20,6 +20,19 @@ data class SubjectStatus(
     /** When this subject's first sample of the run went out, for deriving the achieved rate. */
     val firstPublishEpochMillis: Long = 0,
     val failure: String? = null,
+    /**
+     * Samples this subject's sensor produced that never reached the publish path at all.
+     *
+     * The `callbackFlow` each sensor runs on holds 64 samples, and a collector that cannot keep up
+     * makes `trySend` start failing. Every provider used to discard that result, so the earliest and
+     * most direct evidence that *the phone* — rather than the link or the disk — cannot keep up was
+     * thrown away at the point it was generated.
+     *
+     * Distinct from a failed publish, which is [failure], and from a sample the recorder's queue
+     * refused, which is `RecordingStatus.dropped`: this one never got as far as either. Normally zero
+     * for a whole run, which is what makes it worth showing when it is not.
+     */
+    val shed: Long = 0,
 )
 
 data class PublisherStatus(
@@ -162,6 +175,17 @@ class PublisherStatusStore {
                 failure = null,
             )
         }
+    }
+
+    /**
+     * A sample this subject's sensor produced and its collector could not take.
+     *
+     * Updated per event rather than pulled like the recorder's depth, and the difference is the rate:
+     * shedding is rare and only happens under strain, where a drain happens hundreds of times a second.
+     * A `MutableStateFlow.update` is the right cost for something that should never fire.
+     */
+    fun shed(subject: PublishedSubject) = _status.update { status ->
+        status.replace(subject) { it.copy(shed = it.shed + 1) }
     }
 
     /** This subject stopped working — a failed publish, or a collector that died. */

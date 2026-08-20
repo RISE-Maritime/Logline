@@ -390,7 +390,7 @@ enum class TopLevel(val route: String, val label: String, val icon: ImageVector)
     /**
      * The start screen, and no longer a play arrow.
      *
-     * `PlayArrow` sat directly above the `Start publishing` button pinned into the same bottom bar —
+     * `PlayArrow` sat directly above the Start button pinned into the same bottom bar —
      * two start controls, one of which does nothing of the sort — and it went on saying "play" for the
      * whole of a run. `Home` is the honest reading: this is where a session is begun, watched and
      * ended. The choice is out of `material-icons-core`'s forty-eight, which is the whole vocabulary

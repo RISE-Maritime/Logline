@@ -37,7 +37,9 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import se.rise.logline.ui.components.LoglineNavBar
 import se.rise.logline.ui.components.TopLevel
 import se.rise.logline.ui.SetupScreen
+import se.rise.logline.ui.RecordingLoad
 import se.rise.logline.ui.Routes
+import se.rise.logline.ui.rateCeilings
 import se.rise.logline.ui.rigSummaryOf
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -342,16 +344,11 @@ private fun App(
     // Which sensors this device simply does not have, so a row that will never publish can say so
     // rather than looking broken. Resolved here because it needs a Context; screens take data.
     val unavailable = remember { unavailableSubjects(context) }
-    // What each sensor can actually do, asked once. `SensorManager` reports a `minDelay` per sensor and
-    // nothing else here reports anything — the fused location provider publishes no rate limit, battery
-    // and radio are polled rather than sampled — so this map is deliberately partial and a subject
-    // missing from it shows its achieved rate with no ceiling beside it. Remembered because it is a
-    // property of the hardware: it cannot change while the process lives.
-    val maxRates = remember {
-        PublishedSubject.entries.mapNotNull { entry ->
-            sensorCapabilities(context, entry.subject).maxRateHz?.let { entry to it }
-        }.toMap()
-    }
+    // The fastest each source can go, asked once. `SensorManager` reports a `minDelay` per sensor; the
+    // rest is the app's own poll and chunk floors, plus one honest estimate for GNSS — see
+    // `rateCeilings()`, which keeps the provenance so a soft number can be marked as one. Remembered
+    // because none of it changes while the process lives.
+    val ceilings = remember { rateCeilings(context) }
     // Switched off rather than missing — the distinction the subject rows draw. The user's own set,
     // plus audio and the camera, which are off until someone asks for them; `offSubjects()` is the one
     // place those two are folded together, and the publisher's gate reads the same function.
@@ -620,6 +617,16 @@ private fun App(
                     delay(1_000)
                 }
             }
+            // The recorder's backlog, on the same ticker and for the same reason: two atomic reads a
+            // second, rather than a flow updated once per written sample on the coroutine whose falling
+            // behind is the thing being reported.
+            val load by produceState(RecordingLoad(), app) {
+                while (true) {
+                    val queue = app.publisher.recordingLoad()
+                    value = RecordingLoad(queue.depth, queue.peak, queue.capacity)
+                    delay(1_000)
+                }
+            }
             // Polled rather than read once: this app writes ~77 MB an hour into that volume and
             // everything else on the phone shares it, so a remembered figure would be wrong within
             // minutes. Ten seconds is a `statvfs` six times a minute against a number shown in GB —
@@ -639,7 +646,8 @@ private fun App(
                 freeBytes = freeBytes,
                 unavailableSubjects = unavailable,
                 disabledSubjects = disabled,
-                maxRatesHz = maxRates,
+                ceilings = ceilings,
+                load = load,
                 onStart = startPublishing,
                 onStop = { PublisherService.stop(context) },
                 onGrantLocation = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
@@ -694,6 +702,15 @@ private fun App(
             // not drive recomposition. 5 Hz is smooth to look at and two orders of magnitude cheaper.
             // Pausing stops the pull, so the plots freeze while publishing carries on underneath —
             // which is the point: it is for looking at something that just went past.
+            // The recorder's backlog, on its own poll here for the same reason the snapshot is: this
+            // route is a sibling of the Session one, not a child, so it cannot see that ticker.
+            val liveLoad by produceState(RecordingLoad(), app, livePaused) {
+                while (!livePaused) {
+                    val queue = app.publisher.recordingLoad()
+                    value = RecordingLoad(queue.depth, queue.peak, queue.capacity)
+                    delay(1_000)
+                }
+            }
             val live by produceState(LiveSnapshot(), app, livePaused) {
                 while (!livePaused) {
                     value = app.publisher.liveSnapshot()
@@ -737,6 +754,7 @@ private fun App(
                 onSeaMarksChange = { liveSeaMarks = it },
                 basicOnly = liveBasicOnly,
                 onBasicOnlyChange = { liveBasicOnly = it },
+                load = liveLoad,
                 bottomBar = navBar,
             )
         }
@@ -753,6 +771,9 @@ private fun App(
                 isOverridden = current.qosOverrides.containsKey(subject),
                 rate = current.rate(subject),
                 capabilities = remember(subject) { sensorCapabilities(context, subject) },
+                // From the same map the subject rows read, so the two cannot state different maxima
+                // for one source.
+                ceiling = registryEntry?.let { ceilings[it] },
                 achievedHz = achievedHz(
                     samples = subjectStatus.samplesPublished,
                     firstEpochMillis = subjectStatus.firstPublishEpochMillis,

@@ -150,6 +150,32 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `dev`:** `0.6.0-pre.5` was cut from a feature branch and ships `illuminance_lux` and the four
   `checklist_*` subjects that `dev` does not have, so a release can be *ahead* of `dev` rather than
   behind it. `git tag --sort=-creatordate | head -1` names the one to read.
+- **A rate is three numbers, and a row that shows one of them lies by omission.** Every subject row
+  reads `55.3 Hz · set 50 · max 200` — achieved, requested, ceiling — and the per-subject page spells
+  the same three out as **Hardware / Setting / Actual** with a sentence each on what kind of number it
+  is. They can all disagree honestly and usually do: a `SensorRate` is a *hint* the platform may beat
+  or miss, and Android delivers to every client at the fastest rate any of them asked for, so 55.3 Hz
+  out of a sensor advertising 50 is normal rather than a bug. `set max` is a word rather than a figure
+  because `SensorRate.Max` is a zero delay — "give me everything" — not the advertised maximum written
+  out. A subject riding another's samples takes the owner's requested rate too, via `Settings.rate()`,
+  which resolves `rateOwner` for exactly this reason.
+- **A subject row's ceiling is four different claims, and `rateCeilings()` keeps them apart.** Every
+  source now states the fastest it can go — `55.3 Hz · max 200`, `Not published yet · max ~1.0`,
+  `on change` — and the number comes from one of four places, which `CeilingBasis` records because on
+  screen they look identical. **`Reported`** is `Sensor.getMinDelay()`, the device's own answer, and is
+  *not* a hard cap: Android delivers to every client at the fastest rate any of them asked for, so a
+  row reading above its own maximum is normal. **`Imposed`** is a floor this app holds a loop to and is
+  exact — the battery and radio poll floors, the audio chunk, the time-lapse interval, the calibration
+  republish — and each is **quoted from the provider that enforces it**, never copied, so a ceiling on
+  screen and the loop behind it cannot drift. **`Estimated`** is a judgement about hardware that
+  answers no query and prints with a `~`; GNSS is the only one, because `FusedLocationProviderClient`
+  has no supported-rate API and a 5 Hz chipset will simply beat it. **`OnChange`** carries no number at
+  all: `TYPE_LIGHT` reports `minDelay == 0`, meaning it speaks when the reading moves, and dividing by
+  that would either crash or promise an infinite rate for a sensor that goes twenty minutes silent.
+  A subject that rides another's samples takes its owner's ceiling verbatim — a derived subject cannot
+  outrun the callback it is published from. `RateCeilingTest` exercises every branch with the two
+  platform lookups stubbed, which is the only way any of it gets checked without owning the phone that
+  would contradict it.
 - **`PublishedSubject.featured` is what the live view shows under "Basic".** Eight subjects — the fix,
   speed, course, true heading, horizontal accuracy, fix quality, air pressure and charge. It defaults
   to false, so a new subject appears under **All** and nowhere else, and `SubjectRegistryTest`

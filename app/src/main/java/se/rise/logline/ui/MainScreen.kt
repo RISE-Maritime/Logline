@@ -64,6 +64,7 @@ import se.rise.logline.publish.SubjectStatus
 import se.rise.logline.publish.timeLeft
 import se.rise.logline.publish.TrackPoint
 import se.rise.logline.record.RecordingStatus
+import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.achievedHz
 import se.rise.logline.ui.components.AppMark
 import se.rise.logline.ui.components.ConnectionChip
@@ -100,6 +101,15 @@ internal fun rigSummaryOf(settings: Settings): String? {
     }
 }
 
+/**
+ * The recorder's backlog as of one poll.
+ *
+ * A plain snapshot rather than the live `QueueLoad`, because a screen here takes *data* — handing a
+ * composable an object whose values change under it would make the reading depend on when Compose
+ * happened to look.
+ */
+data class RecordingLoad(val depth: Long = 0, val peak: Long = 0, val capacity: Int = 0)
+
 @Composable
 fun MainScreen(
     settings: Settings,
@@ -125,10 +135,18 @@ fun MainScreen(
      * `unavailableSubjects` takes. Absent for anything `SensorManager` does not own, and a subject
      * missing from the map simply shows its achieved rate alone.
      */
-    maxRatesHz: Map<PublishedSubject, Double> = emptyMap(),
+    /**
+     * What each source can produce at best, from `rateCeilings()`.
+     *
+     * Absent for a subject whose hardware is not on this device, and for `log_message`, which is a
+     * button press rather than a sample.
+     */
+    ceilings: Map<PublishedSubject, RateCeiling> = emptyMap(),
     onStart: () -> Unit,
     onStop: () -> Unit,
     onGrantLocation: () -> Unit,
+    /** The recorder's backlog, pulled on the caller's ticker — never pushed from the publish path. */
+    load: RecordingLoad = RecordingLoad(),
     onOpenSubjectQos: (PublishedSubject) -> Unit,
     /** Switch one subject's publishing and recording on or off. */
     onToggleSubject: (PublishedSubject, Boolean) -> Unit,
@@ -174,6 +192,7 @@ fun MainScreen(
                 Actions(
                     running = status.running,
                     recording = recording.recording,
+                    willRecord = settings.recordingEnabled,
                     onStart = onStart,
                     onStop = onStop,
                 )
@@ -191,6 +210,10 @@ fun MainScreen(
         ) {
             StatusCard(
                 settings, status, recording, nowMillis, freeBytes, unavailableSubjects, disabledSubjects,
+                load = load,
+                // Summed rather than per subject here: the card answers "is the phone keeping up", and
+                // which sensor is starved is what the Live view's breakdown is for.
+                shedTotal = status.subjects.values.sumOf { it.shed },
             )
 
             if (!locationGranted) {
@@ -282,7 +305,8 @@ fun MainScreen(
                                     ),
                                     nowMillis = nowMillis,
                                     enabled = entry !in disabledSubjects,
-                                    maxRateHz = maxRatesHz[entry],
+                                    ceiling = ceilings[entry],
+                                    requested = settings.rate(entry.subject),
                                     onOpen = { onOpenSubjectQos(entry) },
                                     onToggle = { onToggleSubject(entry, it) },
                                 )
@@ -302,7 +326,7 @@ fun MainScreen(
  * It answers three questions and no more — what happened last time, is there room for another run,
  * and where will it connect — with the endpoint and the file details one tap behind the row along its
  * bottom edge. It deliberately no longer says **"Not publishing"**: the chip in the app bar says
- * `Idle` and the button pinned above the navigation bar says `Start publishing`, so a third statement
+ * `Idle` and the button pinned above the navigation bar says `START Publish & REC`, so a third statement
  * of the same fact was most of the card, and the two facts worth having were underneath it.
  *
  * **An icon means attention.** [StatusLine] is used only for a warning or a failure, so the resting
@@ -321,6 +345,10 @@ private fun StatusCard(
     freeBytes: Long,
     unavailableSubjects: Set<PublishedSubject>,
     disabledSubjects: Set<PublishedSubject>,
+    /** The recorder's backlog, pulled on the caller's ticker. See `SensorPublisher.recordingLoad`. */
+    load: RecordingLoad,
+    /** Samples shed by the sensor flows across every subject this run. */
+    shedTotal: Long,
 ) {
     var showDetail by rememberSaveable { mutableStateOf(false) }
     val summary =
@@ -457,20 +485,57 @@ private fun StatusCard(
                 }
             }
 
-            // The recording's own problems, which are the two things here that earn an icon: samples
-            // that never reached the file, and a file that could not be written or copied.
-            if (recording.dropped > 0 || recording.error != null) {
-                StatusLine(
-                    text = if (recording.dropped > 0) {
-                        "Recording — ${formatCounted(recording.dropped, "sample")} dropped"
-                    } else {
-                        "Recording problem"
-                    },
-                    tone = StatusTone.Error,
-                    detail = recording.error
-                        ?: "${formatCounted(recording.messagesWritten, "message")} written to " +
-                        (recording.fileName ?: "the current file"),
+            // Whether the phone is keeping up, in three states rather than two. The middle one is the
+            // whole point: before it, this card went straight from a healthy readout to "N dropped",
+            // and the queue holds about forty-five seconds of slack that filled with nothing said.
+            //
+            // Shown only while running — a stopped run's peak belongs to the past, and the card above
+            // already reports what the last one wrote.
+            if (status.running) {
+                val health = throughputHealth(
+                    peakDepth = load.peak,
+                    capacity = load.capacity,
+                    dropped = recording.dropped,
+                    shed = shedTotal,
                 )
+                when (health) {
+                    ThroughputHealth.KeepingUp -> StatusLine(
+                        text = "Keeping up",
+                        tone = StatusTone.Positive,
+                        detail = "Nothing waiting to be written, and nothing lost.",
+                    )
+
+                    ThroughputHealth.UnderStrain -> StatusLine(
+                        text = "Under strain",
+                        tone = StatusTone.Warning,
+                        detail = "The recorder queue reached ${formatCount(load.peak)} of " +
+                            "${formatCount(load.capacity.toLong())}. Nothing lost yet — lower a rate " +
+                            "or switch a subject off if it keeps climbing.",
+                    )
+
+                    ThroughputHealth.Losing -> StatusLine(
+                        text = "Losing data",
+                        tone = StatusTone.Error,
+                        detail = buildString {
+                            if (recording.dropped > 0) {
+                                append(formatCounted(recording.dropped, "sample"))
+                                append(" never reached the file")
+                            }
+                            if (shedTotal > 0) {
+                                if (isNotEmpty()) append("; ")
+                                append(formatCounted(shedTotal, "sample"))
+                                append(" never left the sensor")
+                            }
+                            append(".")
+                        },
+                    )
+                }
+            }
+
+            // A file that could not be written or copied — a different failure from falling behind,
+            // and the only one of the two that survives the run being stopped.
+            recording.error?.let {
+                StatusLine(text = "Recording problem", tone = StatusTone.Error, detail = it)
             }
 
             if (status.replayPending > 0) {
@@ -593,6 +658,30 @@ private fun lastRecordingOf(recording: RecordingStatus, finished: Boolean): Stri
     else -> null
 }
 
+/**
+ * The three numbers a rate has, in the order the questions get asked.
+ *
+ * `55.3 Hz · set 50 · max 200` — what is actually going out, what this phone asked for, and what the
+ * source could give. They are three different claims and any pair of them can disagree honestly: a
+ * request is only a hint (`SensorRate`), and a `Reported` ceiling is what a sensor *advertises* while
+ * Android delivers to every client at the fastest rate any of them asked for. Seeing one number alone
+ * is what makes a run look wrong when it is not.
+ *
+ * Parts drop out rather than being faked: no achieved rate before the second sample, no ceiling where
+ * the source will not state one.
+ */
+private fun rateLine(achievedHz: Double?, requested: SensorRate, ceiling: RateCeiling?): String =
+    listOfNotNull(
+        achievedHz?.let { "${formatRate(it)} Hz" },
+        when (requested) {
+            // Not the advertised maximum written out as a number — `Max` is a zero delay, i.e. "give
+            // me everything", which is why it is a word here rather than a figure.
+            SensorRate.Max -> "set max"
+            is SensorRate.Hz -> "set ${formatRate(requested.hz)}"
+        },
+        ceiling?.label(),
+    ).joinToString(" · ")
+
 /** The card's headline, for a state rather than a figure: `Publishing`, `Ready to publish`. */
 @Composable
 private fun CardHeadline(text: String, color: Color, value: String?) {
@@ -674,6 +763,11 @@ private fun Detail(label: String, value: String, dot: Color? = null) {
 private fun Actions(
     running: Boolean,
     /**
+     * Whether the *next* run will record, i.e. `Settings.recordingEnabled` — not [recording], which is
+     * false until a file is open and therefore always false on the button this labels.
+     */
+    willRecord: Boolean,
+    /**
      * Whether a file is actually being written — **not** the same question as [running].
      *
      * A run publishes to the bus whether or not recording is switched on, so "it is going" and "it is
@@ -699,7 +793,12 @@ private fun Actions(
                         modifier = Modifier.size(ButtonDefaults.IconSize),
                     )
                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text("Start publishing")
+                    // Both halves of what one press does, because they are two facts and only one of
+                    // them is recoverable afterwards — a run publishes to the bus whether or not a
+                    // file is being kept. `& REC` is dropped rather than shown when recording is
+                    // switched off in Settings: a button promising a recording nobody is writing is
+                    // the one thing worse than not mentioning it at all.
+                    Text(if (willRecord) "START Publish & REC" else "START Publish")
                 }
             } else {
                 // Just Stop. Live view and Mark event used to sit here as well, duplicated out of the
@@ -848,8 +947,10 @@ private fun SubjectRow(
     health: SubjectHealth,
     nowMillis: Long,
     enabled: Boolean,
-    /** What the hardware itself can do, where it can be asked. Null where it cannot — see the caller. */
-    maxRateHz: Double?,
+    /** The fastest this source can produce, and where that number came from. See `rateCeilings()`. */
+    ceiling: RateCeiling?,
+    /** What it was *asked* for — `Settings.rate()`, which already resolves a `rateOwner`. */
+    requested: SensorRate,
     onOpen: () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
@@ -868,10 +969,14 @@ private fun SubjectRow(
         SubjectHealth.Off ->
             if (entry in START_TIME_SUBJECTS) "Off — switching it on restarts the run" else "Off"
         SubjectHealth.Failed -> "Failed — ${status.failure}"
-        SubjectHealth.Waiting -> "Waiting for the first sample"
+        // Both of these have no achieved rate to state, so the ceiling stands in — which is the one
+        // moment it is worth reading, since deciding what to ask a source for happens before a run and
+        // not during one. Once there is a sample count from the last run, that is the better fact and
+        // the line is long enough without both.
+        SubjectHealth.Waiting -> "Waiting · ${rateLine(null, requested, ceiling)}"
         SubjectHealth.Idle ->
             if (status.samplesPublished == 0L) {
-                "Not published yet"
+                rateLine(null, requested, ceiling).replaceFirstChar { it.uppercase() }
             } else {
                 "${formatCounted(status.samplesPublished, "sample")} last run"
             }
@@ -898,10 +1003,10 @@ private fun SubjectRow(
             // no rate limit, the battery and radio subjects are polled rather than sampled, and the IMU
             // temperature is found by string type with no `sensorType` to ask about. Those rows print
             // the achieved rate alone rather than an invented ceiling.
-            hz?.let { achieved ->
-                val ceiling = maxRateHz?.let { " · max ${formatRate(it)}" }.orEmpty()
-                "${formatRate(achieved)} Hz$ceiling"
-            } ?: "Publishing"
+            // Before the first two samples there is no achieved rate to divide out, so the line is
+            // the other two numbers — more use than "Publishing" was on a 0.1 Hz subject.
+            rateLine(hz, requested, ceiling).replaceFirstChar { it.uppercase() }
+                .ifBlank { "Publishing" }
         }
     }
     val detailColor = when (health) {

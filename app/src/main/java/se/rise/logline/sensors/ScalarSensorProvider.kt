@@ -25,8 +25,11 @@ class ScalarSensorProvider(context: Context) {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-    fun pressure(rateUs: Int = SensorManager.SENSOR_DELAY_NORMAL): Flow<ScalarSample> =
-        scalarFlow(Sensor.TYPE_PRESSURE, rateUs)
+    fun pressure(
+        rateUs: Int = SensorManager.SENSOR_DELAY_NORMAL,
+        onShed: () -> Unit = {},
+    ): Flow<ScalarSample> =
+        scalarFlow(Sensor.TYPE_PRESSURE, rateUs, onShed)
 
     /**
      * Ambient light in lux, on a steady tick.
@@ -35,8 +38,8 @@ class ScalarSensorProvider(context: Context) {
      * is a ceiling it ignores, so `SENSOR_DELAY_NORMAL` here only bounds how quickly a *change* is
      * delivered, and [heldAt] is what produces the actual cadence.
      */
-    fun illuminance(intervalMillis: Long): Flow<ScalarSample> =
-        scalarFlow(Sensor.TYPE_LIGHT, SensorManager.SENSOR_DELAY_NORMAL).heldAt(intervalMillis)
+    fun illuminance(intervalMillis: Long, onShed: () -> Unit = {}): Flow<ScalarSample> =
+        scalarFlow(Sensor.TYPE_LIGHT, SensorManager.SENSOR_DELAY_NORMAL, onShed).heldAt(intervalMillis)
 
     /**
      * The IMU's own die temperature, on a device that exposes one.
@@ -56,20 +59,22 @@ class ScalarSensorProvider(context: Context) {
      * Held on a ticker rather than published raw: the sensor is continuous and will not go below
      * 1.62 Hz, while a die temperature moves over minutes.
      */
-    fun imuTemperature(intervalMillis: Long): Flow<ScalarSample> =
-        sensorFlow(imuTemperatureSensor(appContext), SensorManager.SENSOR_DELAY_NORMAL)
+    fun imuTemperature(intervalMillis: Long, onShed: () -> Unit = {}): Flow<ScalarSample> =
+        sensorFlow(imuTemperatureSensor(appContext), SensorManager.SENSOR_DELAY_NORMAL, onShed)
             .heldAt(intervalMillis)
 
-    private fun scalarFlow(type: Int, rateUs: Int): Flow<ScalarSample> =
-        sensorFlow(manager.getDefaultSensor(type), rateUs)
+    private fun scalarFlow(type: Int, rateUs: Int, onShed: () -> Unit): Flow<ScalarSample> =
+        sensorFlow(manager.getDefaultSensor(type), rateUs, onShed)
 
-    private fun sensorFlow(sensor: Sensor?, rateUs: Int): Flow<ScalarSample> = callbackFlow {
+    private fun sensorFlow(sensor: Sensor?, rateUs: Int, onShed: () -> Unit): Flow<ScalarSample> = callbackFlow {
         if (sensor == null) {
             close(); return@callbackFlow
         }
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
-                trySend(ScalarSample(event.values[0], event.timestamp))
+                // Checked rather than discarded — the 64-slot flow buffer is where a collector that
+                // cannot keep up loses samples, and it used to lose them silently.
+                if (trySend(ScalarSample(event.values[0], event.timestamp)).isFailure) onShed()
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }

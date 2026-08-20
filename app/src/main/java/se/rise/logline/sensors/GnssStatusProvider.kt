@@ -41,7 +41,7 @@ class GnssStatusProvider(context: Context) {
 
     @SuppressLint("MissingPermission")
     @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-    fun status(): Flow<GnssSample> = callbackFlow {
+    fun status(onShed: () -> Unit = {}): Flow<GnssSample> = callbackFlow {
         val locationManager = manager
         if (locationManager == null) {
             close(); return@callbackFlow
@@ -52,7 +52,7 @@ class GnssStatusProvider(context: Context) {
                 for (i in 0 until status.satelliteCount) {
                     if (status.usedInFix(i)) used++
                 }
-                trySend(GnssSample(visible = status.satelliteCount, used = used))
+                if (trySend(GnssSample(visible = status.satelliteCount, used = used)).isFailure) onShed()
             }
         }
         // A Handler on the main looper, matching the app's other location callbacks; the work per
