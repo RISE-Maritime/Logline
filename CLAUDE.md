@@ -394,6 +394,16 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   **The chip row is no longer the plot list.** `Rig calibration` is filtered out of it: geometry surveyed
   once and republished on a ten-second loop is configuration the phone is announcing, not telemetry it is
   measuring. The group keeps its plot section, so a stalled republish loop is still visible somewhere.
+  **The chart opens on satellite, over Gothenburg.** Imagery is the right default for a tool used on
+  the water: the standard map's value is street names and building outlines, and there are none at sea —
+  what a track is read against is the shoreline, the shoals and the jetty being approached. It costs no
+  more, both being online tiles fetched only for what is on screen. The *centre* had to move with it.
+  osmdroid with no centre set opens at 0°N 0°E, which OSM covers with a plain blue ocean tile and Esri
+  does not cover at all — so the satellite default's first screenful was a grid reading "Map data not
+  yet available", which reads as a broken map rather than as a missing fix. `HOME_CENTRE` /`HOME_ZOOM`
+  in `TrackMap.kt` is a placeholder at regional zoom, and the first fix sets **both** the tracking zoom
+  and the centre, so a phone that has not solved yet shows the home water rather than a random street in
+  a city it is not in.
   **Attribution is a condition of use, not a design element.** `CopyrightOverlay` defaults to 12dp black
   (`paint.setTextSize(dm.density * 12)`; `setTextSize` takes dp), which competed with the readouts and
   was near-invisible on dark imagery besides. It is set to 9dp and coloured per layer — near-black on map

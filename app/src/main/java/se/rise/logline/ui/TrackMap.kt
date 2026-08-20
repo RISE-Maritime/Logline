@@ -141,7 +141,15 @@ fun TrackMap(
                     }
                 )
                 setMultiTouchControls(true)
-                controller.setZoom(16.0)
+                // **Somewhere real until a fix arrives.** With no centre set, osmdroid opens at 0°N 0°E
+                // — the Gulf of Guinea — which OSM covers with a plain blue ocean tile and Esri does
+                // not cover at all: the satellite layer's first screenful was a grid reading "Map data
+                // not yet available", which reads as a broken map rather than as a missing fix.
+                //
+                // Wide, not the tracking zoom. A street-level view of a city the phone is not in says
+                // less than the region it is in, and the first fix sets both centre and zoom anyway.
+                controller.setZoom(HOME_ZOOM)
+                controller.setCenter(HOME_CENTRE)
                 trackHalo.outlinePaint.color = Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
                 trackHalo.outlinePaint.strokeWidth = TRACK_PX + TRACK_HALO_PX
                 polyline.outlinePaint.color = Color.rgb(0x3F, 0x6F, 0xD8)
@@ -196,6 +204,10 @@ fun TrackMap(
                 val point = GeoPoint(fix.latitude, fix.longitude)
                 when {
                     !centred.value -> {
+                        // Zoom first, then centre: the first fix is what turns the placeholder view
+                        // into a working one, and `setCenter` rather than `animateTo` because
+                        // animating a view that has not been laid out is silently a no-op.
+                        map.controller.setZoom(TRACK_ZOOM)
                         map.controller.setCenter(point)
                         centred.value = true
                     }
@@ -377,6 +389,19 @@ private class FixOverlay : Overlay() {
         const val HALO_PX = 4f
     }
 }
+
+/**
+ * Where the chart looks before the first fix, and how far out.
+ *
+ * Gothenburg and its archipelago — the home water this app is built for and tested on. It is a
+ * placeholder, not a claim: nothing is drawn on it until a real position arrives, at which point the
+ * chart jumps to [TRACK_ZOOM] on the actual fix.
+ */
+private val HOME_CENTRE = GeoPoint(57.7089, 11.9746)
+private const val HOME_ZOOM = 10.0
+
+/** Close enough to see which side of a jetty a track passed. */
+private const val TRACK_ZOOM = 16.0
 
 private const val TRACK_PX = 6f
 private const val TRACK_HALO_PX = 4f

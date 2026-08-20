@@ -336,9 +336,16 @@ private fun App(
     var livePaused by rememberSaveable { mutableStateOf(false) }
     var liveCollapsed by rememberSaveable { mutableStateOf(listOf<String>()) }
     // Which chart the live view draws, and whether seamarks go over it. Hoisted like the rest of the
-    // live-view preferences: switching to satellite and coming back to a standard map would be an
-    // odd thing to have to redo every time.
-    var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Standard) }
+    // live-view preferences: switching layers and coming back to the other one would be an odd thing to
+    // have to redo every time.
+    //
+    // **Satellite by default.** This app is used on the water, where the standard map's value is street
+    // names and building outlines and there are none — imagery shows the shoreline, the shoals and the
+    // jetty actually being approached, which is what a track is read against. It costs no more than the
+    // other layer: both are online tiles at the same zoom, fetched only for what is on screen. Note the
+    // consequence for a first run with no signal — a fresh install now opens on an empty grid rather
+    // than a cached street map, and the layer menu is the way out of that.
+    var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Satellite) }
     var liveSeaMarks by rememberSaveable { mutableStateOf(false) }
     // Whether the live view plots the curated set or all of it. Defaults to the curated one: thirty-nine
     // plots is a page nobody scrolls during a run, and `PublishedSubject.featured` names the few that
