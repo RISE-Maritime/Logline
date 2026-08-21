@@ -41,7 +41,19 @@ sealed interface TrackState {
     /** The recording has no fix channel at all: GNSS was off, or never reached the file. */
     data object NoGnss : TrackState
 
-    data class Ready(val fixes: List<TrackFix>) : TrackState
+    /**
+     * The walk stopped before it could establish anything.
+     *
+     * Deliberately not folded into [NoGnss]: that one states a fact about the run, and a reader that
+     * gave up has no grounds for it. A truncated file and a day without GNSS are different answers.
+     */
+    data object Unreadable : TrackState
+
+    data class Ready(
+        val fixes: List<TrackFix>,
+        /** The walk ended early, so these are the fixes so far rather than the whole track. */
+        val partial: Boolean = false,
+    ) : TrackState
 }
 
 /**
@@ -164,6 +176,14 @@ private fun TrackCard(track: TrackState) {
                 modifier = Modifier.padding(12.dp),
             )
 
+            // What a reader that gave up is allowed to say, which is only what it did.
+            TrackState.Unreadable -> EmptyState(
+                title = "Could not read the track",
+                body = "Reading this recording stopped early, so whether it holds any positions is " +
+                    "unknown. Its messages are still in the file.",
+                modifier = Modifier.padding(12.dp),
+            )
+
             is TrackState.Ready ->
                 if (track.fixes.size < 2) {
                     EmptyState(
@@ -175,7 +195,14 @@ private fun TrackCard(track: TrackState) {
                     Column(Modifier.padding(12.dp)) {
                         TrackChart(track.fixes)
                         Text(
-                            "${formatCount(track.fixes.size.toLong())} positions",
+                            if (track.partial) {
+                                // "so far", because the count is the reader's progress rather than the
+                                // run's total — the same distinction the Unreadable state exists for.
+                                "${formatCount(track.fixes.size.toLong())} positions so far — " +
+                                    "reading stopped early"
+                            } else {
+                                "${formatCount(track.fixes.size.toLong())} positions"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 6.dp),

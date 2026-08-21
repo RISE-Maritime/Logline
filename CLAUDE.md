@@ -1150,8 +1150,34 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   to the Atlantic.
   The chart scales longitude by **`cos(latitude)`** — 0.54 at 57°N — or a track drawn on raw degrees comes
   out nearly twice as wide as it was sailed. Same correction, same reason, as the accuracy circle's
-  `metersToPixels`. And the screen distinguishes **no GNSS channel** from **a channel with no fixes**:
-  the first is a Tuesday, the second is a fault.
+  `metersToPixels`.
+- **The track reader must read every shape this app has ever written, and saying otherwise is a lie about
+  somebody's day.** `TrackScan` carries three facts rather than a list — `channelFound`, `fixes`,
+  `stoppedEarly` — because an empty list has three causes the screen must never merge: a run with no
+  GNSS, a fix channel that yielded nothing, and a read that failed before it could say. Both bugs this
+  shape exists to prevent were found on the phone rather than reasoned about, and both put a confident
+  false statement on screen.
+  **Messages are read at the top level as well as inside Chunks.** Everything written today is
+  zstd-chunked; everything written before that change is a flat run of `OP_MESSAGE` records, and 101 of
+  the 216 files on the dev phone are that shape. Descending only into chunks had a 479 MB, three-hour
+  recording holding **1 843 fixes** report "Not enough positions — this recording holds 0". Note it read
+  the whole 502 MB while finding nothing, because an 8 kB buffer faults the file in to satisfy the skips;
+  a fast scan is not evidence it looked at anything.
+  **A scan with no channel list discovers the fix channel itself.** `McapRecovery.finalise` writes
+  `summary_start = 0` for every run a killed process interrupted, so `readMcapDetails` returns null and
+  there is no channel list to consult — and a missing *footer* says nothing whatever about GNSS.
+  Passing null now means "find it", which works because `McapWriter` keeps Schema and Channel records
+  outside the chunks and ahead of the messages. Before this, a rescued 3 MB recording holding **47
+  fixes** said "GNSS was not publishing while this ran".
+  **The walk stops at `OP_DATA_END`**, and that is what makes a short read unambiguous rather than
+  merely tidy: everything past it is summary, so a well-formed file always reaches it, and running out
+  of bytes first means the file was cut off mid-record. Hence `readExactly`/`skipExactly` throw where
+  the old helpers answered null — the one catch turns that into `stoppedEarly`, and the footer reads
+  "N positions **so far** — reading stopped early". Without the `OP_DATA_END` break the trailing eight
+  magic bytes are a short 9-byte header, and *every* healthy file would report itself truncated.
+  Measured on a Pixel 6, `/proc/<pid>/io` sampled at ~5 Hz through `run-as`: the 479 MB file is read in
+  **4.33 s at 116 MB/s**, track on screen within five seconds of the tap. A spinner is the right
+  affordance; no progress bar is needed.
 - **`readMcapSummary` is the deliberate mirror of `McapWriter.writeStatistics()`, and only a test holds
   them together.** It steps over four fields it does not want to reach the four it does, in the right
   widths, so a wrong width produces a plausible number rather than an error — `McapSummaryTest` writes
@@ -1195,6 +1221,13 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   is mandatory or `google/protobuf/timestamp.proto` is missing and no reader can resolve anything.
   Restrict the option to the main variants — `all().configureEach` also covers the test proto tasks and
   they race for the same output file.
+- **Unit tests return defaults for the Android stubs, and that was a deliberate narrow trade.**
+  `testOptions { unitTests { isReturnDefaultValues = true } }` exists because `android.util.Log` throws
+  "not mocked" in a JVM test, and `McapTrack` logs on exactly the path a truncated-file test must go
+  down. It is safe only because nothing here *depends* on a stub throwing — the parsers that consume
+  foreign input use `kotlinx-serialization` rather than `org.json` precisely so the tested code is the
+  shipped code. Reaching for a stubbed Android API in a unit test is still the wrong move; this flag
+  makes a log call survivable, not `android.jar` usable.
 - **`subjectSchemaNames` in `record/McapSchemas.kt` must track `subjects.yaml`.** A wrong type there
   produces a file that opens and decodes to nonsense.
 - **The file's figures reach the status flow on a throttle, and the last push is forced.** The drain

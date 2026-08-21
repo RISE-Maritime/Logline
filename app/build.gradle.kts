@@ -93,6 +93,16 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests {
+            // `android.util.Log` is a stub that throws in a JVM test, and the track reader logs when a
+            // walk stops early — the one path a truncated-file test has to go down. Returning defaults
+            // rather than throwing keeps that path testable. Note this is only safe because nothing
+            // here *depends* on a stub throwing; the parsers that take foreign input deliberately use
+            // kotlinx-serialization rather than `org.json` so the tested code is the shipped code.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 protobuf {

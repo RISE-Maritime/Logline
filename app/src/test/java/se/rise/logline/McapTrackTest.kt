@@ -2,6 +2,7 @@ package se.rise.logline
 
 import foxglove.LocationFixOuterClass.LocationFix
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -11,8 +12,14 @@ import se.rise.logline.record.McapWriter
 import se.rise.logline.record.TopicCount
 import se.rise.logline.record.TrackFix
 import se.rise.logline.record.readMcapDetails
+import com.github.luben.zstd.Zstd
+import se.rise.logline.record.MAGIC_SIZE
+import se.rise.logline.record.RECORD_HEADER_SIZE
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * The track reader against the writer, in the same shape as [McapSummaryTest] and for the same reason:
@@ -31,8 +38,8 @@ class McapTrackTest {
     private fun fix(lat: Double, lon: Double): ByteArray =
         LocationFix.newBuilder().setLatitude(lat).setLongitude(lon).build().toByteArray()
 
-    /** A recording with the given topics, each carrying the payloads listed for it. */
-    private fun recording(into: File, topics: List<Pair<String, List<ByteArray>>>) {
+    /** A recording with the given topics, each carrying the payloads listed for it. Answers their ids. */
+    private fun recording(into: File, topics: List<Pair<String, List<ByteArray>>>): Map<String, Int> =
         into.outputStream().use { out ->
             val writer = McapWriter(out)
             writer.start()
@@ -53,14 +60,14 @@ class McapTrackTest {
                 }
             }
             writer.finish()
+            channels
         }
-    }
 
     private fun trackOf(file: File): List<TrackFix> {
         val details = RandomAccessFile(file, "r").use { readMcapDetails(it.channel) }
         assertNotNull("the file should have a readable summary", details)
         val channel = McapTrack.fixChannel(details!!.topics) ?: return emptyList()
-        return file.inputStream().use { McapTrack.read(it, channel.channelId) }
+        return file.inputStream().use { McapTrack.read(it, channel.channelId) }.fixes
     }
 
     @Test
@@ -234,4 +241,200 @@ class McapTrackTest {
             file.delete()
         }
     }
+
+    /**
+     * **The shape this app wrote before it chunked: every Message a top-level record.**
+     *
+     * Not a hypothetical. Measured on the phone: a 479 MB, three-hour recording holding **1 843**
+     * `location_fix` messages drew no track at all and said "this recording holds 0", because the walk
+     * descended into Chunks and skipped everything else — so a hundred older files on that phone were
+     * each reported as a run that never got a fix. The file format's shape was being read as a fact
+     * about the day.
+     */
+    @Test
+    fun `a recording written before chunking still yields its track`() {
+        val chunked = File.createTempFile("track", ".mcap")
+        val flat = File.createTempFile("track-flat", ".mcap")
+        try {
+            val ids = recording(
+                chunked,
+                listOf(
+                    phoneFix to listOf(fix(57.10, 12.10), fix(57.20, 12.20), fix(57.30, 12.30)),
+                    pressure to List(50) { byteArrayOf(9) },
+                ),
+            )
+            unchunk(chunked, flat)
+
+            // The rewrite really did remove them, or this would pass on the chunked path.
+            assertEquals(0, chunkCount(flat))
+            assertTrue("and the chunked original had some", chunkCount(chunked) > 0)
+
+            val track = flat.inputStream().use { McapTrack.read(it, ids.getValue(phoneFix)) }.fixes
+            assertEquals(
+                listOf(
+                    TrackFix(57.10, 12.10),
+                    TrackFix(57.20, 12.20),
+                    TrackFix(57.30, 12.30),
+                ),
+                track,
+            )
+        } finally {
+            chunked.delete()
+            flat.delete()
+        }
+    }
+
+    /** A message on another channel must be stepped over, not misread as a fix. */
+    @Test
+    fun `an unchunked recording ignores the other channels`() {
+        val chunked = File.createTempFile("track", ".mcap")
+        val flat = File.createTempFile("track-flat", ".mcap")
+        try {
+            val ids = recording(
+                chunked,
+                listOf(
+                    pressure to List(200) { byteArrayOf(9, 9, 9) },
+                    phoneFix to listOf(fix(57.10, 12.10)),
+                    rigZero to listOf(fix(57.99, 11.99)),
+                ),
+            )
+            unchunk(chunked, flat)
+
+            val track = flat.inputStream().use { McapTrack.read(it, ids.getValue(phoneFix)) }.fixes
+            assertEquals(listOf(TrackFix(57.10, 12.10)), track)
+        } finally {
+            chunked.delete()
+            flat.delete()
+        }
+    }
+
+    /**
+     * The same recording in the pre-chunking shape: each Chunk replaced by the records it held, every
+     * other record copied across untouched.
+     *
+     * The summary's offsets are left pointing where they did, which is wrong afterwards and does not
+     * matter — these tests hand [McapTrack.read] the channel id directly, and that walk streams from the
+     * start of the file rather than seeking from the footer.
+     */
+    private fun unchunk(source: File, into: File) {
+        val src = source.readBytes()
+        val out = ByteArrayOutputStream()
+        out.write(src, 0, MAGIC_SIZE)
+        var at = MAGIC_SIZE
+        while (at + RECORD_HEADER_SIZE <= src.size) {
+            val opcode = src[at].toInt() and 0xFF
+            val length = header(src, at).toInt()
+            val body = at + RECORD_HEADER_SIZE
+            if (opcode == McapWriter.OP_CHUNK) {
+                val chunk = ByteBuffer.wrap(src, body, length).order(ByteOrder.LITTLE_ENDIAN)
+                chunk.long // message start time
+                chunk.long // message end time
+                val uncompressed = chunk.long
+                chunk.int // uncompressed CRC
+                val compression = ByteArray(chunk.int).also { chunk.get(it) }.toString(Charsets.UTF_8)
+                val payload = ByteArray(chunk.long.toInt()).also { chunk.get(it) }
+                out.write(
+                    if (compression == McapWriter.COMPRESSION_ZSTD) {
+                        Zstd.decompress(payload, uncompressed.toInt())
+                    } else {
+                        payload
+                    }
+                )
+            } else {
+                out.write(src, at, RECORD_HEADER_SIZE + length)
+            }
+            at = body + length
+        }
+        into.writeBytes(out.toByteArray())
+    }
+
+    /** How many top-level Chunk records a file holds. */
+    private fun chunkCount(file: File): Int {
+        val src = file.readBytes()
+        var at = MAGIC_SIZE
+        var chunks = 0
+        while (at + RECORD_HEADER_SIZE <= src.size) {
+            if ((src[at].toInt() and 0xFF) == McapWriter.OP_CHUNK) chunks++
+            at += RECORD_HEADER_SIZE + header(src, at).toInt()
+        }
+        return chunks
+    }
+
+    /**
+     * **A file with no summary still declares its channels**, so the scan can find the fix channel
+     * itself rather than the screen inventing an answer.
+     *
+     * `McapRecovery.finalise` leaves `summary_start = 0` on every recording a killed process
+     * interrupted, and there were plenty on the phone this was written against. With no channel list to
+     * consult, the caller passes null and the walk watches for the Channel record instead. Before this,
+     * a 3 MB rescued recording said "GNSS was not publishing while this ran" — a statement about
+     * somebody's day drawn from nothing but a missing footer.
+     */
+    @Test
+    fun `a scan with no channel list discovers the fix channel itself`() {
+        val file = File.createTempFile("track", ".mcap")
+        try {
+            recording(
+                file,
+                listOf(
+                    pressure to List(20) { byteArrayOf(9) },
+                    phoneFix to listOf(fix(57.10, 12.10), fix(57.20, 12.20)),
+                ),
+            )
+
+            val scan = file.inputStream().use { McapTrack.read(it, null) }
+
+            assertTrue("the channel was found without a summary", scan.channelFound)
+            assertFalse(scan.stoppedEarly)
+            assertEquals(listOf(TrackFix(57.10, 12.10), TrackFix(57.20, 12.20)), scan.fixes)
+        } finally {
+            file.delete()
+        }
+    }
+
+    /** Discovery applies the same rule as the summary path: a rig's zero point is not the track. */
+    @Test
+    fun `discovery skips the calibration channel`() {
+        val file = File.createTempFile("track", ".mcap")
+        try {
+            recording(file, listOf(rigZero to listOf(fix(57.99, 11.99))))
+
+            val scan = file.inputStream().use { McapTrack.read(it, null) }
+
+            assertFalse("a zero point is not a fix channel", scan.channelFound)
+            assertTrue(scan.fixes.isEmpty())
+        } finally {
+            file.delete()
+        }
+    }
+
+    /**
+     * **"No fix channel" and "could not tell" must stay apart.** A run without GNSS reports
+     * `channelFound = false` having read the whole file; a truncated one reports `stoppedEarly` as well,
+     * and the screen says it does not know rather than making a claim about the run.
+     */
+    @Test
+    fun `a truncated file is not reported as a run without GNSS`() {
+        val file = File.createTempFile("track", ".mcap")
+        val cut = File.createTempFile("track-cut", ".mcap")
+        try {
+            recording(file, listOf(pressure to List(20) { byteArrayOf(9) }))
+            val whole = file.readBytes()
+
+            val complete = file.inputStream().use { McapTrack.read(it, null) }
+            assertFalse(complete.channelFound)
+            assertFalse("a whole file finishes", complete.stoppedEarly)
+
+            // Cut mid-record, which is what a killed process leaves.
+            cut.writeBytes(whole.copyOfRange(0, whole.size / 2 + 3))
+            val partial = cut.inputStream().use { McapTrack.read(it, null) }
+            assertTrue("a cut file admits it stopped", partial.stoppedEarly)
+        } finally {
+            file.delete()
+            cut.delete()
+        }
+    }
+
+    private fun header(src: ByteArray, at: Int): Long =
+        ByteBuffer.wrap(src, at + 1, 8).order(ByteOrder.LITTLE_ENDIAN).long
 }

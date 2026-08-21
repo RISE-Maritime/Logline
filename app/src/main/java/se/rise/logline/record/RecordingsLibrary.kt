@@ -163,11 +163,13 @@ fun recordingDetails(context: Context, uri: Uri): McapDetails? = try {
  * **Streamed rather than seeked**, unlike everything else here: this reads the file forwards from the
  * start and there is nothing to seek to — the writer emits no chunk index on purpose.
  */
-fun recordingTrack(context: Context, uri: Uri, channelId: Int): List<TrackFix> = try {
-    context.contentResolver.openInputStream(uri)?.use { McapTrack.read(it, channelId) } ?: emptyList()
+fun recordingTrack(context: Context, uri: Uri, channelId: Int?): TrackScan = try {
+    context.contentResolver.openInputStream(uri)?.use { McapTrack.read(it, channelId) }
+        // The file could not be opened at all, which is not the same as having no fix channel in it.
+        ?: TrackScan(channelFound = false, fixes = emptyList(), stoppedEarly = true)
 } catch (t: Throwable) {
     Log.i(TAG, "no track for $uri", t)
-    emptyList()
+    TrackScan(channelFound = false, fixes = emptyList(), stoppedEarly = true)
 }
 
 /**

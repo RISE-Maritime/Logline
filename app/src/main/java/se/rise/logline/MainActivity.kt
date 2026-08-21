@@ -885,17 +885,26 @@ private fun App(
                     value = TrackState.Reading
                     return@produceState
                 }
-                val channel = detail?.topics?.let(McapTrack::fixChannel)
-                // No fix channel means the scan never starts — an IMU-only run costs nothing here.
-                if (channel == null) {
+                val known = detail?.topics?.let(McapTrack::fixChannel)
+                // With a summary, the channel list says up front whether there is anything to look
+                // for — so an IMU-only run costs nothing here. **Without one there is no such list**,
+                // and a missing summary says nothing at all about GNSS: the scan is handed a null and
+                // discovers the channel from the file's own Channel records instead.
+                if (detail != null && known == null) {
                     value = TrackState.NoGnss
                     return@produceState
                 }
                 value = TrackState.Reading
-                val fixes = withContext(Dispatchers.IO) {
-                    recordingTrack(context, uri, channel.channelId)
+                val scan = withContext(Dispatchers.IO) {
+                    recordingTrack(context, uri, known?.channelId)
                 }
-                value = TrackState.Ready(fixes)
+                value = when {
+                    scan.channelFound -> TrackState.Ready(scan.fixes, partial = scan.stoppedEarly)
+                    // Nothing found and the walk did not finish: the reader cannot say either way, and
+                    // must not fill the silence with a claim about the run.
+                    scan.stoppedEarly -> TrackState.Unreadable
+                    else -> TrackState.NoGnss
+                }
             }
 
             RecordingDetailScreen(

@@ -141,7 +141,8 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
 }
 
 /** `writeChannel()` read backwards: id, schema id, topic, encoding, empty metadata map. */
-private fun ByteBuffer.readChannel(): Pair<Int, String>? {
+/** A Channel record's id and topic. Shared with [McapTrack], which reads the same record inline. */
+internal fun ByteBuffer.readChannel(): Pair<Int, String>? {
     if (remaining() < 2 + 2 + 4) return null
     val id = short.toInt() and 0xFFFF
     short // schema id
