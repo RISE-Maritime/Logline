@@ -5,9 +5,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.rise.logline.record.RecordingFacts
+import se.rise.logline.record.RecordingKind
+import se.rise.logline.record.recordingKindOf
 import se.rise.logline.ui.RecordingFilter
 import se.rise.logline.ui.RecordingSort
 import se.rise.logline.ui.matchesQuery
+import se.rise.logline.ui.recordingSubtitle
 import se.rise.logline.ui.recordingsCount
 import se.rise.logline.ui.visibleRecordings
 
@@ -31,8 +34,10 @@ class RecordingsQueryTest {
         override val savedAtMillis: Long = 0L,
         override val sizeBytes: Long = 0L,
         override val durationMillis: Long? = 0L,
+        override val isComplete: Boolean? = durationMillis != null,
+        private val messagesOverride: Long? = null,
     ) : RecordingFacts {
-        override val isComplete: Boolean get() = durationMillis != null
+        override val messages: Long? get() = messagesOverride ?: durationMillis?.let { 1L }
     }
 
     private fun recording(
@@ -41,6 +46,10 @@ class RecordingsQueryTest {
         size: Long = 0L,
         durationMillis: Long? = 0L,
     ) = Fake(name, savedAt, size, durationMillis)
+
+    /** A file in the folder that is not a recording at all: `isComplete` does not apply to it. */
+    private fun export(name: String, size: Long = 982L) =
+        Fake(name, savedAtMillis = 0L, sizeBytes = size, durationMillis = null, isComplete = null)
 
     private val august21 = "logline-2026-08-21T104536.mcap"
 
@@ -158,6 +167,109 @@ class RecordingsQueryTest {
         val shown = visibleRecordings(all, "08-21", RecordingSort.Oldest, RecordingFilter.Incomplete)
 
         assertEquals(listOf(wanted), shown)
+    }
+
+    /**
+     * The four things that write into `Downloads/Logline`, by the names they actually use.
+     *
+     * The listing filters on the folder and not on a file type, so all four land in the Files tab; these
+     * strings are copied from `Recorder`, `exportSettingsProfile`, `exportPlatformGeometry` and
+     * `exportPlatformRegistry`.
+     */
+    @Test
+    fun `a file's kind comes from its name`() {
+        assertEquals(RecordingKind.Recording, recordingKindOf("logline-2026-08-21T104536.mcap"))
+        assertEquals(
+            RecordingKind.SettingsProfile,
+            recordingKindOf("logline-settings-2026-08-19T133226.json"),
+        )
+        assertEquals(RecordingKind.RigLibrary, recordingKindOf("logline-platform-registry.json"))
+        assertEquals(RecordingKind.RigGeometry, recordingKindOf("ssrs18-platform-geometry.json"))
+        assertEquals(RecordingKind.Other, recordingKindOf("holiday-snap.jpg"))
+        assertEquals("case is not the file system's promise", RecordingKind.Recording, recordingKindOf("LOGLINE.MCAP"))
+    }
+
+    /**
+     * **The regression test for the reason any of this changed.**
+     *
+     * A settings profile and a rig-geometry export have no MCAP summary, and while `isComplete` was a
+     * plain `Boolean` that made them *incomplete recordings* — so a bulk delete built on the Incomplete
+     * set would have destroyed a rig's surveyed geometry, which cannot be recovered without going back
+     * out with a tape measure. They must appear under All and under neither of the other two.
+     */
+    @Test
+    fun `an export is neither complete nor incomplete`() {
+        val run = recording("logline-2026-08-21T104536.mcap", durationMillis = 10L)
+        val rescued = recording("logline-2026-08-21T110000.mcap", durationMillis = null)
+        val geometry = export("ssrs18-platform-geometry.json")
+        val profile = export("logline-settings-2026-08-21T120000.json")
+        val all = listOf(run, rescued, geometry, profile)
+
+        assertEquals(
+            "everything is listed under All",
+            all,
+            visibleRecordings(all, "", RecordingSort.Oldest, RecordingFilter.All),
+        )
+        assertEquals(
+            listOf(run),
+            visibleRecordings(all, "", RecordingSort.Oldest, RecordingFilter.Complete),
+        )
+        assertEquals(
+            "the exports are not in the set a bulk delete would take",
+            listOf(rescued),
+            visibleRecordings(all, "", RecordingSort.Oldest, RecordingFilter.Incomplete),
+        )
+    }
+
+    /**
+     * What each row says under the name.
+     *
+     * The export lines are the fix for a mislabel that was there from the start: every JSON in the
+     * folder read `982 B · no summary`, which describes a recording that failed rather than a settings
+     * profile that is exactly as it should be.
+     */
+    @Test
+    fun `a row says what kind of file it is`() {
+        assertEquals(
+            "2 MB · 9605 messages over 00:01:58",
+            recordingSubtitle(
+                Fake(
+                    "logline-2026-08-21T104536.mcap",
+                    sizeBytes = 2_000_000L,
+                    durationMillis = 118_000L,
+                ).copy(messagesOverride = 9_605L)
+            ),
+        )
+        assertEquals(
+            "139 MB · incomplete, never closed",
+            // The real size of logline-2026-08-19T210534.mcap on the dev phone.
+            recordingSubtitle(recording("x.mcap", size = 145_815_242L, durationMillis = null)),
+        )
+        assertEquals(
+            "982 bytes · Settings profile",
+            recordingSubtitle(export("logline-settings-2026-08-21T120000.json")),
+        )
+        assertEquals(
+            "982 bytes · Rig geometry export",
+            recordingSubtitle(export("ssrs18-platform-geometry.json")),
+        )
+        assertEquals(
+            "982 bytes · Rig library export",
+            recordingSubtitle(export("logline-platform-registry.json")),
+        )
+        assertEquals("982 bytes · Not a recording", recordingSubtitle(export("holiday-snap.jpg")))
+    }
+
+    /** Under a second there is no duration worth printing, the same as the list has always done. */
+    @Test
+    fun `a very short recording states its messages and no duration`() {
+        assertEquals(
+            "2 kB · 3 messages",
+            recordingSubtitle(
+                Fake("short.mcap", sizeBytes = 2_048L, durationMillis = 4L)
+                    .copy(messagesOverride = 3L)
+            ),
+        )
     }
 
     /**

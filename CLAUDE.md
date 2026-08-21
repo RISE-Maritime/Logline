@@ -1158,6 +1158,34 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   which has no implementation off a device, and there is no Robolectric and no mocking framework on the
   test classpath — the same stance that had `PlatformGeometryParse` choose `kotlinx-serialization` over
   `org.json`. Naming the four facts the query actually reads is what keeps it a JVM test.
+- **`Downloads/Logline` is not a folder of recordings, and `savedRecordings()` lists it by *path*.**
+  Four things write there — the recorder, `exportSettingsProfile`, `exportPlatformGeometry` and
+  `exportPlatformRegistry` — and the query filters on `RELATIVE_PATH` with **no extension test**, so all
+  four appear in the Files tab. `recordingKindOf(name)` names them, which is what stops an export being
+  read as a recording that failed: a rig-geometry export used to read `982 B · no summary`, describing a
+  broken recording rather than a file that is exactly as it should be.
+  **`RecordingFacts.isComplete` is therefore `Boolean?`, and the null is load-bearing.** While it was a
+  plain `Boolean` every JSON in the folder was *incomplete*, so a bulk delete built on the Incomplete set
+  would have destroyed a hand-surveyed rig geometry document — a thing no amount of re-recording brings
+  back, only a tape measure. Null means "not a recording, the question does not apply", and because both
+  filter arms compare against a value (`== true`, `== false`) those files fall out of each without the
+  query logic knowing kinds exist. `RecordingsQueryTest` pins it; that test is the one that fails if
+  anybody simplifies the type back.
+  Four such exports were already in the folder on the dev phone and happened to be invisible, because
+  MediaStore ties a file to the install that wrote it and an earlier install wrote them. Luck, not
+  design — a profile exported today is listed, which is exactly how this was verified.
+  **The bulk delete is offered only under the Incomplete filter**, so the set it removes is exactly the
+  one named on the button and it can never become a one-tap way to destroy good recordings. Its dialog
+  has to carry the thing the word "incomplete" invites people to get wrong: these runs hold **every
+  message they captured** — only the closing figures were never written, and this app reads them
+  perfectly well. Measured on the dev phone: 50 files, 542 MB. Figures rather than adjectives, the same
+  rule that produced `~241 MB/h` over "much larger files". `deleteSavedRecordings` returns a **count**
+  rather than a boolean because MediaStore refuses a delete from a package that did not write the file,
+  so a sweep can partly fail and the snackbar says which — silence there would read as a clean sweep.
+  Note that limitation is not small: of the 89 incomplete recordings on this phone's disk, only 50 are
+  reachable at all.
+  The button is an `OutlinedButton` with `error` **content**, never a filled red block — that one is
+  Stop, deliberately, and this is a step up from the per-row `TextButton` without taking it over.
 - **A recording's figures are free; its track is not, and the Files tab is built around that split.**
   `McapWriter.finish` puts the Schema and Channel records in the summary section beside Statistics, and
   `writeStatistics()` already emits `channelMessageCounts` — so `readMcapDetails()` gets every topic and

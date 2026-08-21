@@ -1,6 +1,9 @@
 package se.rise.logline.ui
 
+import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.RecordingFacts
+import se.rise.logline.record.RecordingKind
+import se.rise.logline.record.recordingKindOf
 
 /**
  * Which recordings a screenful of 119 files should actually show, and in what order.
@@ -67,8 +70,12 @@ fun <T : RecordingFacts> visibleRecordings(
     val kept = all.filter { recording ->
         val passesFilter = when (filter) {
             RecordingFilter.All -> true
-            RecordingFilter.Complete -> recording.isComplete
-            RecordingFilter.Incomplete -> !recording.isComplete
+            // **Both compare against a value, so null falls out of each.** A settings profile or a
+            // rig-geometry export has no MCAP summary and so no answer to "did it close properly";
+            // it therefore shows under All and under neither of the other two, which is what keeps
+            // it out of the bulk delete built on the Incomplete set.
+            RecordingFilter.Complete -> recording.isComplete == true
+            RecordingFilter.Incomplete -> recording.isComplete == false
         }
         passesFilter && matchesQuery(recording.name, query)
     }
@@ -100,6 +107,42 @@ fun <T : RecordingFacts> visibleRecordings(
 fun recordingsCount(shown: Int, total: Int): String = when {
     shown == total -> formatCounted(total.toLong(), "recording")
     else -> "$shown of ${formatCounted(total.toLong(), "recording")}"
+}
+
+/**
+ * What a row says about a file under its name.
+ *
+ * Lives here rather than in the screen because this is where the mislabel was: every JSON export in
+ * `Downloads/Logline` used to read `982 B · no summary`, which describes a recording that failed and
+ * not a settings profile that is exactly as it should be. A file that is not a recording now says what
+ * it is instead.
+ *
+ * A recording with no summary reads **`incomplete, never closed`** rather than `no summary`, so the row
+ * and the filter that selects it use the same word — and so the state reads as something that happened
+ * to the run rather than as a missing field.
+ */
+fun recordingSubtitle(file: RecordingFacts): String = buildString {
+    append(formatBytes(file.sizeBytes))
+    append(" · ")
+    when (recordingKindOf(file.name)) {
+        RecordingKind.SettingsProfile -> append("Settings profile")
+        RecordingKind.RigGeometry -> append("Rig geometry export")
+        RecordingKind.RigLibrary -> append("Rig library export")
+        RecordingKind.Other -> append("Not a recording")
+        RecordingKind.Recording -> {
+            val messages = file.messages
+            if (file.isComplete != true || messages == null) {
+                append("incomplete, never closed")
+            } else {
+                append(formatCounted(messages, "message"))
+                val duration = file.durationMillis ?: 0L
+                if (duration >= 1_000L) {
+                    append(" over ")
+                    append(formatElapsed(duration))
+                }
+            }
+        }
+    }
 }
 
 /** Lower-cased with everything that is not a letter or a digit removed. */

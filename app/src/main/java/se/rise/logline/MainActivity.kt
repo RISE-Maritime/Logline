@@ -98,6 +98,7 @@ import se.rise.logline.map.importedMaps
 import se.rise.logline.publish.PublisherService
 import se.rise.logline.record.SavedRecording
 import se.rise.logline.record.deleteSavedRecording
+import se.rise.logline.record.deleteSavedRecordings
 import se.rise.logline.record.recordingsFreeBytes
 import se.rise.logline.record.savedRecordings
 import se.rise.logline.record.shareIntent
@@ -791,6 +792,15 @@ private fun App(
                         withContext(Dispatchers.IO) { deleteSavedRecording(context, file) }
                         recordingsRevision++
                     }
+                },
+                // Suspending, and awaited by the screen, because the screen reports the outcome in its
+                // own snackbar — a sweep can partly fail and the count is the only honest thing to say.
+                onDeleteAll = { doomed ->
+                    val deleted = withContext(Dispatchers.IO) {
+                        deleteSavedRecordings(context, doomed)
+                    }
+                    recordingsRevision++
+                    deleted
                 },
                 query = recordingsQuery,
                 onQueryChange = { recordingsQuery = it },

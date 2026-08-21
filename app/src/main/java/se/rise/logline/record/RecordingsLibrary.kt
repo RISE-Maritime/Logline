@@ -32,16 +32,62 @@ interface RecordingFacts {
     val sizeBytes: Long
     val savedAtMillis: Long
 
-    /** Null when the recording has no summary section — see [isComplete]. */
+    /** Null for anything that is not a recording, or a recording with no summary section. */
     val durationMillis: Long?
 
+    /** Null for anything that is not a recording — see [isComplete]. */
+    val messages: Long?
+
     /**
-     * Whether the recording closed properly.
+     * Whether the recording closed properly, or **null when the question does not apply**.
      *
      * False is what `McapRecovery.finalise` leaves behind for a run a killed process interrupted: every
      * message present, the figures never written.
+     *
+     * Null is the load-bearing one. `Downloads/Logline` holds settings profiles and rig-geometry exports
+     * as well as recordings, and every one of them lacks an MCAP summary — so while this was a plain
+     * `Boolean`, the Incomplete filter counted a hand-surveyed rig geometry document as a broken
+     * recording, and a bulk delete built on that set would have destroyed it. Nullable here means those
+     * files fall out of both Complete and Incomplete without the query logic knowing kinds exist.
      */
-    val isComplete: Boolean
+    val isComplete: Boolean?
+}
+
+/**
+ * What a file in `Downloads/Logline` actually is.
+ *
+ * Four things write into that folder — the recorder, the settings-profile export, a rig's geometry
+ * export and the rig library export — and [savedRecordings] lists the folder rather than a file type,
+ * so all four appear in the Files tab. Naming them is what stops an export being read as a recording
+ * that failed.
+ */
+enum class RecordingKind {
+    Recording,
+    SettingsProfile,
+    RigGeometry,
+    RigLibrary,
+
+    /** Something else somebody put in the folder. Shown, never assumed to be ours. */
+    Other,
+}
+
+/**
+ * A file's kind from its name.
+ *
+ * By name because that is all the listing has — MediaStore's MIME type is whatever the writer declared,
+ * and the recorder declares `application/octet-stream`. The patterns are the ones the four writers
+ * actually use; `RecordingsQueryTest` pins each against the code that produces it.
+ */
+fun recordingKindOf(name: String): RecordingKind {
+    val lower = name.lowercase()
+    return when {
+        lower.endsWith(".mcap") -> RecordingKind.Recording
+        lower.startsWith("logline-settings-") && lower.endsWith(".json") ->
+            RecordingKind.SettingsProfile
+        lower == "logline-platform-registry.json" -> RecordingKind.RigLibrary
+        lower.endsWith("-platform-geometry.json") -> RecordingKind.RigGeometry
+        else -> RecordingKind.Other
+    }
 }
 
 data class SavedRecording(
@@ -51,8 +97,14 @@ data class SavedRecording(
     override val savedAtMillis: Long,
     val summary: McapSummary?,
 ) : RecordingFacts {
+    val kind: RecordingKind get() = recordingKindOf(name)
     override val durationMillis: Long? get() = summary?.durationMillis
-    override val isComplete: Boolean get() = summary != null
+    override val messages: Long? get() = summary?.messages
+
+    // Only a recording can be complete or not. An export is neither, and saying so here is what keeps
+    // it out of the Incomplete filter and therefore out of the bulk delete.
+    override val isComplete: Boolean?
+        get() = if (kind == RecordingKind.Recording) summary != null else null
 }
 
 /**
@@ -97,14 +149,21 @@ fun savedRecordings(context: Context): List<SavedRecording> {
                         MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                         cursor.getLong(id),
                     )
+                    val displayName = cursor.getString(name)
                     add(
                         SavedRecording(
                             uri = uri,
-                            name = cursor.getString(name),
+                            name = displayName,
                             sizeBytes = cursor.getLong(size),
                             // MediaStore keeps this one in seconds, unlike every other time in the app.
                             savedAtMillis = cursor.getLong(added) * 1_000L,
-                            summary = summaryOf(context, uri),
+                            // Not asked of an export: there is no MCAP footer to find, and this opened
+                            // and failed on every JSON in the folder on the way past.
+                            summary = if (recordingKindOf(displayName) == RecordingKind.Recording) {
+                                summaryOf(context, uri)
+                            } else {
+                                null
+                            },
                         )
                     )
                 }
@@ -235,3 +294,13 @@ fun deleteSavedRecording(context: Context, file: SavedRecording): Boolean = try 
     Log.w(TAG, "could not delete ${file.name}", t)
     false
 }
+
+/**
+ * Delete several, reporting how many actually went.
+ *
+ * A count rather than a boolean because a bulk delete can partly fail — an entry that outlived the
+ * install that wrote it refuses, and the screen has to be able to say so rather than claim a clean
+ * sweep. Each file is deleted on its own terms, so one refusal does not abandon the rest.
+ */
+fun deleteSavedRecordings(context: Context, files: List<SavedRecording>): Int =
+    files.count { deleteSavedRecording(context, it) }

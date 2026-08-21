@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -22,6 +23,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -31,11 +34,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.SavedRecording
 import se.rise.logline.ui.components.ConfirmDialog
@@ -75,10 +80,20 @@ fun RecordingsScreen(
     onSortChange: (RecordingSort) -> Unit,
     filter: RecordingFilter,
     onFilterChange: (RecordingFilter) -> Unit,
+    /**
+     * Delete every recording in the list, answering how many actually went.
+     *
+     * A count rather than a boolean because MediaStore refuses a delete from a package that did not
+     * write the file, so a sweep can partly fail and the screen has to be able to say which.
+     */
+    onDeleteAll: suspend (List<SavedRecording>) -> Int,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
     var confirmDelete by remember { mutableStateOf<SavedRecording?>(null) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    val snackbars = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     val shown = remember(files, query, sort, filter) {
         visibleRecordings(files, query, sort, filter)
     }
@@ -116,7 +131,46 @@ fun RecordingsScreen(
         )
     }
 
-    ScreenScaffold(title = "Recordings", bottomBar = bottomBar) { padding ->
+    if (confirmDeleteAll) {
+        val bytes = shown.sumOf { it.sizeBytes }
+        ConfirmDialog(
+            title = "Delete ${formatCounted(shown.size.toLong(), "incomplete recording")}?",
+            // **These files are not junk, and the word "incomplete" invites exactly that reading.** A
+            // run interrupted by a killed process keeps every message it captured; only the closing
+            // figures were never written, and this app reads them perfectly well — one of them draws a
+            // 47-fix track. So the dialog states what is lost, in figures rather than adjectives.
+            body = "Every message in these recordings is still there; only the closing figures are " +
+                "missing, and Logline can still read them.\n\n" +
+                "This frees ${formatBytes(bytes)}. The phone is the only copy unless they have been " +
+                "shared. There is no undo.",
+            confirmLabel = "Delete ${shown.size}",
+            dismissLabel = "Keep",
+            onConfirm = {
+                val doomed = shown
+                confirmDeleteAll = false
+                scope.launch {
+                    val deleted = onDeleteAll(doomed)
+                    val failed = doomed.size - deleted
+                    snackbars.showSnackbar(
+                        if (failed == 0) {
+                            "Deleted ${formatCounted(deleted.toLong(), "recording")}"
+                        } else {
+                            // Named rather than swallowed: a file that outlived the install that wrote
+                            // it cannot be deleted from here, and silence would read as a clean sweep.
+                            "Deleted $deleted · $failed could not be deleted"
+                        }
+                    )
+                }
+            },
+            onDismiss = { confirmDeleteAll = false },
+        )
+    }
+
+    ScreenScaffold(
+        title = "Recordings",
+        bottomBar = bottomBar,
+        snackbarHost = { SnackbarHost(snackbars) },
+    ) { padding ->
         if (files.isEmpty()) {
             // "Looking…" and "none yet" are different states and must not be conflated: a listing
             // that has not been read yet has nothing to say about whether there are files.
@@ -150,6 +204,26 @@ fun RecordingsScreen(
                 shown = shown.size,
                 total = files.size,
             )
+
+            // **Offered only under the Incomplete filter**, so the set it deletes is exactly the one
+            // named on the button and it can never become a one-tap way to destroy good recordings.
+            // Exports are not in that set — see `RecordingFacts.isComplete`.
+            if (filter == RecordingFilter.Incomplete && shown.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { confirmDeleteAll = true },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        // Error-coloured content, not a filled red block: the one large red block in
+                        // this app is Stop, deliberately, and this is a step up from the per-row
+                        // `TextButton` without taking that over.
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Text("Delete all ${shown.size} · ${formatBytes(shown.sumOf { it.sizeBytes })}")
+                }
+            }
 
             if (shown.isEmpty()) {
                 // **A third empty state.** "Nothing saved yet" would be a lie with a hundred files on
@@ -186,7 +260,7 @@ fun RecordingsScreen(
                     ) {
                         Text(file.name, style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            detailOf(file),
+                            recordingSubtitle(file),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -291,27 +365,5 @@ private fun <T> ChoiceMenu(
                 )
             }
         }
-    }
-}
-
-/**
- * Size first, then what the file says about itself.
- *
- * A file with no summary shows its size and stops. That is a recording rescued from a killed process —
- * every message present, statistics gone — or the rig calibration's JSON export, which shares this
- * folder. Neither should be made to claim a message count it does not have.
- */
-private fun detailOf(file: SavedRecording): String = buildString {
-    append(formatBytes(file.sizeBytes))
-    val summary = file.summary
-    if (summary == null) {
-        append(" · no summary")
-        return@buildString
-    }
-    append(" · ")
-    append(formatCounted(summary.messages, "message"))
-    if (summary.durationMillis >= 1_000L) {
-        append(" over ")
-        append(formatElapsed(summary.durationMillis))
     }
 }
