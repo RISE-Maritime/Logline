@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -122,6 +123,10 @@ fun LiveScreen(
     onBasicOnlyChange: (Boolean) -> Unit,
     /** Open one subject's own page. Supplied by `MainActivity`, like every other navigation lambda. */
     onOpenSubject: (PublishedSubject) -> Unit = {},
+    /** Whether the chart layers that need a MapTiler key can draw. */
+    hasMapTilerKey: Boolean = false,
+    /** Where the layer menu sends somebody whose chosen layer needs configuring. */
+    onOpenSettings: () -> Unit = {},
     /** The recorder's backlog, pulled on the caller's ticker. See `SensorPublisher.recordingLoad`. */
     load: RecordingLoad = RecordingLoad(),
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
@@ -230,6 +235,8 @@ fun LiveScreen(
                     onSeaMarksChange = onSeaMarksChange,
                     expanded = mapExpanded,
                     onExpandedChange = { mapExpanded = it },
+                    hasMapTilerKey = hasMapTilerKey,
+                    onOpenSettings = onOpenSettings,
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 )
             }
@@ -271,6 +278,8 @@ fun LiveScreen(
                     onSeaMarksChange = onSeaMarksChange,
                     expanded = mapExpanded,
                     onExpandedChange = { mapExpanded = it },
+                    hasMapTilerKey = hasMapTilerKey,
+                    onOpenSettings = onOpenSettings,
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 )
                 }
@@ -443,6 +452,8 @@ private fun MapToolbar(
     onSeaMarksChange: (Boolean) -> Unit,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    hasMapTilerKey: Boolean,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -465,6 +476,8 @@ private fun MapToolbar(
                 onLayerChange = onLayerChange,
                 seaMarks = seaMarks,
                 onSeaMarksChange = onSeaMarksChange,
+                hasMapTilerKey = hasMapTilerKey,
+                onOpenSettings = onOpenSettings,
             )
             MapIconButton(
                 icon = if (expanded) IconFullscreenExit else IconFullscreen,
@@ -517,6 +530,10 @@ private fun LayerControl(
     onLayerChange: (MapLayer) -> Unit,
     seaMarks: Boolean,
     onSeaMarksChange: (Boolean) -> Unit,
+    /** Whether the layers that need a MapTiler key can actually draw. See [MapLayer.needsKey]. */
+    hasMapTilerKey: Boolean,
+    /** Where a layer that needs configuring sends you. */
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -531,12 +548,46 @@ private fun LayerControl(
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             MapLayer.entries.forEach { option ->
+                // **A layer that cannot fetch a tile is not a choice, it is a dead end.** Selecting one
+                // would leave the chart blank with nothing on screen saying why — the same failure as
+                // opening on an uncovered satellite grid. So it keeps its place in the list, says what
+                // it wants, and goes to the setting instead of pretending to be selectable.
+                val locked = option.needsKey && !hasMapTilerKey
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = {
+                        Column {
+                            Text(
+                                option.label,
+                                color = if (locked) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    Color.Unspecified
+                                },
+                            )
+                            if (locked) {
+                                Text(
+                                    "Needs a MapTiler key",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
                     leadingIcon = { Text(if (option == layer) "✓" else " ") },
+                    trailingIcon = if (locked) {
+                        {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        null
+                    },
                     onClick = {
-                        onLayerChange(option)
                         open = false
+                        if (locked) onOpenSettings() else onLayerChange(option)
                     },
                 )
             }

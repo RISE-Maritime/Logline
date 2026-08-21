@@ -788,6 +788,8 @@ private fun App(
                 basicOnly = liveBasicOnly,
                 onBasicOnlyChange = { liveBasicOnly = it },
                 onOpenSubject = { nav.navigate(Routes.subjectDetail(it.name)) },
+                hasMapTilerKey = current.mapTilerKey.isNotBlank(),
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 load = liveLoad,
                 bottomBar = navBar,
             )

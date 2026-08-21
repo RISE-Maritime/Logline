@@ -27,10 +27,19 @@ import se.rise.logline.publish.TrackPoint
 import java.io.File
 import kotlin.math.hypot
 
-/** Which base layer the chart draws. */
-enum class MapLayer(val label: String) {
+/**
+ * Which base layer the chart draws.
+ *
+ * [needsKey] is what puts a settings gear beside a layer in the menu instead of letting it be chosen:
+ * a layer that cannot fetch a tile is not a choice, it is a dead end, and selecting one would leave the
+ * chart blank with nothing on screen saying why. Satellite is deliberately **not** marked — it falls
+ * back to Esri, so it always draws something.
+ */
+enum class MapLayer(val label: String, val needsKey: Boolean = false) {
     Standard("Map"),
     Satellite("Satellite"),
+    Ocean("Ocean", needsKey = true),
+    Topographic("Topographic", needsKey = true),
 }
 
 /**
@@ -86,13 +95,20 @@ private val ESRI_WORLD_IMAGERY: OnlineTileSourceBase = object : OnlineTileSource
  * merely rude, and it keeps `CacheManager` from ever being pointed at it. MapTiler's terms require the
  * notice below, which `CopyrightOverlay` draws.
  */
-private fun mapTilerSatellite(key: String): OnlineTileSourceBase = object : OnlineTileSourceBase(
-    "MapTiler Satellite",
+private fun mapTilerRaster(
+    displayName: String,
+    /** The part after `api.maptiler.com/`, e.g. `tiles/satellite-v2` or `maps/ocean`. */
+    path: String,
+    extension: String,
+    key: String,
+): OnlineTileSourceBase = object : OnlineTileSourceBase(
+    displayName,
     0,
     MAPTILER_MAX_ZOOM,
+    // 512 verified against the service, not assumed: every endpoint returns 512x512.
     512,
-    ".jpg",
-    arrayOf("https://api.maptiler.com/tiles/satellite-v2/"),
+    extension,
+    arrayOf("https://api.maptiler.com/$path/"),
     "© MapTiler © OpenStreetMap contributors",
     TileSourcePolicy(
         2,
@@ -120,11 +136,26 @@ private fun mapTilerSatellite(key: String): OnlineTileSourceBase = object : Onli
 private fun sourceFor(layer: MapLayer, mapTilerKey: String) = when (layer) {
     MapLayer.Standard -> TileSourceFactory.MAPNIK
     MapLayer.Satellite ->
-        if (mapTilerKey.isNotBlank()) mapTilerSatellite(mapTilerKey) else ESRI_WORLD_IMAGERY
+        if (mapTilerKey.isNotBlank()) {
+            mapTilerRaster("MapTiler Satellite", "tiles/satellite-v2", ".jpg", mapTilerKey)
+        } else {
+            ESRI_WORLD_IMAGERY
+        }
+    // Bathymetry, which is the one of these a boat actually wants: depth contours and soundings under
+    // a plain land mask. The other layers say where the shore is; this one says what is under the hull.
+    MapLayer.Ocean -> mapTilerRaster("MapTiler Ocean", "maps/ocean", ".png", mapTilerKey)
+    MapLayer.Topographic -> mapTilerRaster("MapTiler Topo", "maps/topo-v2", ".png", mapTilerKey)
 }
 
-/** What MapTiler's satellite tiles go to. Beyond it the chart upscales — see [maxZoomFor]. */
-private const val MAPTILER_MAX_ZOOM = 20
+/**
+ * How deep MapTiler will serve, which is deeper than its imagery actually resolves.
+ *
+ * Measured against the service with a real key: zoom 19, 20, 21 and 22 over Onsala all return 200 with
+ * a real tile — decreasing in size, so the deep ones are their own upscaling — rather than the 404 that
+ * would be needed for osmdroid to upscale them here. Letting the server do it is the better half of the
+ * bargain anyway, since it can pick the best source it has.
+ */
+private const val MAPTILER_MAX_ZOOM = 22
 
 /**
  * How far in the chart will go, which is **not the same answer for every source**.
@@ -135,17 +166,24 @@ private const val MAPTILER_MAX_ZOOM = 20
  * has — blurry, and still the right answer, because the position, the track and the heading line stay
  * sharp and keep their true scale, and those are what is being read at that zoom.
  *
- * **Esri does not fail past 19; it serves a grey "Map data not available" tile.** Verified on a Pixel 6
- * by forcing zoom 21: a 200 with a placeholder in it is a tile as far as the provider is concerned, so
- * there is nothing to approximate from and over-zooming buys a grey field rather than a blurry one. It
- * is therefore capped at exactly what it serves. MapTiler returns nothing for a tile it does not have,
- * which is what makes the extra levels worth having there.
+ * Three sources, three answers, each from what the service actually does:
+ *
+ * **OpenStreetMap 404s past 19**, so the approximater has something to do — verified on a Pixel 6,
+ * zoom 21 draws building footprints upscaled from 19, soft-edged, with the position sharp on top. It is
+ * the only one that gets the extra levels.
+ *
+ * **Esri does not fail past 19; it serves a grey "Map data not available" tile.** Verified by forcing
+ * zoom 21: a 200 with a placeholder in it is a tile as far as the provider is concerned, so there is
+ * nothing to approximate from and over-zooming buys a grey field rather than a blurry one.
+ *
+ * **MapTiler over-zooms on its own**, all the way to 22 — see [MAPTILER_MAX_ZOOM] — so it declares that
+ * depth itself and needs no help.
  */
 private fun maxZoomFor(source: OnlineTileSourceBase): Double =
-    if (source === ESRI_WORLD_IMAGERY) {
-        source.maximumZoomLevel.toDouble()
-    } else {
+    if (source === TileSourceFactory.MAPNIK) {
         source.maximumZoomLevel + OVER_ZOOM_LEVELS
+    } else {
+        source.maximumZoomLevel.toDouble()
     }
 
 /** Two levels of upscaling: 4x, past which the blur stops being worth the magnification. */
@@ -535,12 +573,18 @@ private const val ATTRIBUTION_TEXT_DP = 9
  * Ink that reads on whatever the base layer is drawing.
  *
  * Satellite imagery is dark far more often than it is light — water, forest, shadow — so it takes
- * white; the standard map's tiles are pale everywhere and take black. One function because two things
- * now depend on it and they must not disagree about which layer is which.
+ * white; every *cartographic* layer here is pale by design, whether it is drawing streets, contours or
+ * soundings, and takes black. One function because two things depend on it and they must not disagree
+ * about which layer is which.
+ *
+ * Exhaustive rather than defaulted on purpose: a layer added later is a layer whose background nobody
+ * has looked at, and the compiler asking is better than a white line vanishing into a white sea.
  */
 private fun chartInk(layer: MapLayer): Int = when (layer) {
     MapLayer.Satellite -> Color.WHITE
-    MapLayer.Standard -> Color.BLACK
+    MapLayer.Standard,
+    MapLayer.Ocean,
+    MapLayer.Topographic -> Color.BLACK
 }
 
 /**
