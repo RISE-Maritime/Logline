@@ -223,6 +223,36 @@ class Recorder(private val appContext: Context) {
         runScope: CoroutineScope,
     ) {
         var session = openSession(descriptor, maxBytes) ?: return
+        // When the file's figures were last put on the status flow. See [pushFileStatus].
+        var lastPushNanos = 0L
+
+        /**
+         * Publish the current file's name, message count and size — **at most every
+         * [STATUS_PUSH_NANOS]**, unless forced.
+         *
+         * It used to run on every written sample: a lambda, a `copy()` and a `MutableStateFlow` CAS
+         * for each, at a rate measured up to 800 samples a second, on the one coroutine that must not
+         * fall behind. Nothing reads it that fast — the start screen polls at 1 Hz and the live view at
+         * 5 — so it was the same anti-pattern the live store exists to avoid, stated in this codebase
+         * as "the live view pulls, it never gets pushed".
+         *
+         * `force` is not decoration. Throttling alone would leave the last fraction of a second of
+         * writes unreported, so the count on screen would settle just short of the count in the file —
+         * and this app's whole claim about recording is that those two numbers agree.
+         */
+        fun pushFileStatus(current: RecordingSession, force: Boolean = false) {
+            val now = System.nanoTime()
+            if (!force && now - lastPushNanos < STATUS_PUSH_NANOS) return
+            lastPushNanos = now
+            _status.update {
+                it.copy(
+                    fileName = current.path.name,
+                    messagesWritten = current.messageCount,
+                    bytesWritten = current.bytesWritten,
+                )
+            }
+        }
+
         try {
             for (sample in queue) {
                 // Instant.now() rather than currentTimeMillis()*1e6: the latter is millisecond-
@@ -233,15 +263,13 @@ class Recorder(private val appContext: Context) {
                 // After the write, not before it: the depth this reports is samples still owed a place
                 // in the file, so a sample counts as drained only once it is in one.
                 queueLoad.drained()
-                _status.update {
-                    it.copy(
-                        fileName = session.path.name,
-                        messagesWritten = session.messageCount,
-                        bytesWritten = session.bytesWritten,
-                    )
-                }
+                pushFileStatus(session)
                 if (session.shouldRotate()) {
                     session.close()
+                    // **After the close, not before.** `bytesWritten` reads through to the writer, and
+                    // closing is what emits the summary section and the footer — pushed first, the
+                    // figure on screen would be short by everything the close writes.
+                    pushFileStatus(session, force = true)
                     // **Off the drain, the same shape `publishOrphans()` uses and for the same
                     // reason.** This copies up to 512 MB into Downloads, and called inline it stopped
                     // the loop for the length of that copy — the queue holds about 45 seconds of
@@ -282,6 +310,15 @@ class Recorder(private val appContext: Context) {
             // either — the queue is closed and empty by the time the `finally` runs, so a slow copy
             // costs no samples.
             runCatching { session.close() }
+            // **Anything written since the last throttled push**, or the figures on screen settle a
+            // fraction of a second short of the file's own — and after the close, because that is what
+            // emits the summary section and the footer. Measured before this moved: a 1.51 MB file
+            // reported as 1.4 MB, which is the closing bytes missing.
+            //
+            // Guarded on the session having taken samples, for the same reason the block below only
+            // touches the count: after a rotation the final session can be empty, and restating its
+            // zeroes would wipe a real file's figures off the card.
+            if (session.messageCount > 0) pushFileStatus(session, force = true)
             val saved = runCatching { publish(session.path) }.getOrDefault(false)
             if (saved) _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
             // Only the count. `fileName`, `messagesWritten` and `bytesWritten` describe the last file
@@ -437,6 +474,15 @@ class Recorder(private val appContext: Context) {
         private const val DRAIN_GRACE_MILLIS = 5_000L
 
         private const val QUEUE_CAPACITY = 10_000
+
+        /**
+         * How often the file's figures reach the status flow: four times a second.
+         *
+         * Comfortably faster than anything that reads them — the start screen polls at 1 Hz and the
+         * live view at 5 — and it takes the work on the drain coroutine from up to 800 updates a second
+         * to four. The exact figure matters far less than that it is a ceiling at all.
+         */
+        private const val STATUS_PUSH_NANOS = 250_000_000L
 
 
 

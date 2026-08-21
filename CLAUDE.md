@@ -1179,6 +1179,24 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   they race for the same output file.
 - **`subjectSchemaNames` in `record/McapSchemas.kt` must track `subjects.yaml`.** A wrong type there
   produces a file that opens and decodes to nonsense.
+- **The file's figures reach the status flow on a throttle, and the last push is forced.** The drain
+  used to call `_status.update` for every written sample — a lambda, a `copy()` and a `MutableStateFlow`
+  CAS each, at a rate measured up to 800 a second, on the one coroutine that must not fall behind. It is
+  the same anti-pattern the live store exists to avoid ("the live view pulls, it never gets pushed"),
+  and nothing reads it that fast: the start screen polls at 1 Hz and the live view at 5. Capped at four
+  a second now.
+  Two things make the throttle safe rather than merely cheap. The push is **forced when the loop ends**,
+  or the count on screen settles a fraction of a second short of the count in the file — and this app's
+  whole claim about recording is that those two agree. And it is forced **after `session.close()`**, not
+  before: `bytesWritten` reads through to the writer and closing is what emits the summary section and
+  the footer, so pushing first reported a 1.51 MB file as 1.4 MB. Measured before and after; it now reads
+  1.0 MB for a 1 067 765-byte file.
+  The forced push is guarded on `messageCount > 0`, the same guard the `filesCompleted` line beside it
+  uses and for the same reason: after a rotation the final session can be empty, and restating its
+  zeroes would wipe a real file's figures off the card.
+  Worth knowing when checking this by hand: the start card's **"N samples" is the publisher's count, not
+  the recorder's**, so it legitimately differs from the message count in the file — the two run at
+  different rates by design. A 58 974 against 63 265 is the record/publish split, not a lost sample.
 - **`Recorder`'s channel is per *run*, not per Recorder — and that is load-bearing.** `stop()` closes
   the queue to end the drain loop, and a closed Kotlin `Channel` can never be reopened. When the channel
   was a single long-lived field, the *second* run in a process recorded **nothing**: `drain()` saw a

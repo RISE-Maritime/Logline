@@ -184,4 +184,75 @@ class RecorderStopTest {
         assertEquals(listOf("file-0", "file-1", "file-2"), publishedNames.sorted())
         assertTrue("the file still being written is never published", "file-3" !in publishedNames)
     }
+
+    /**
+     * **A throttled status push must still end on the true figure.**
+     *
+     * The drain used to put the file's name, count and size on the status flow for *every* written
+     * sample — a lambda, a `copy()` and a `MutableStateFlow` CAS each, at a rate measured up to 800 a
+     * second, on the one coroutine that must not fall behind. Nothing reads it that fast. Throttling
+     * alone would leave the last fraction of a second unreported, though, and this app's whole claim
+     * about recording is that the count on screen and the count in the file agree — hence the forced
+     * push when the loop ends.
+     *
+     * Modelled the way the rest of this file models the recorder: the shape, not the class.
+     */
+    @Test
+    fun `a throttled status push still ends on the true count`() = runBlocking {
+        // Roomier than the sample count on purpose: this test is about the *status push*, and a queue
+        // that overran would drop samples and fail on that instead, which is a different property and
+        // already has its own test above.
+        val queue = Channel<Int>(capacity = 4_000)
+        var written = 0
+        var published = 0L
+        var pushes = 0
+        var lastPushNanos = 0L
+        val intervalNanos = 20_000_000L   // 20 ms, so a short test still crosses it several times
+
+        fun push(force: Boolean) {
+            val now = System.nanoTime()
+            if (!force && now - lastPushNanos < intervalNanos) return
+            lastPushNanos = now
+            pushes++
+            published = written.toLong()
+        }
+
+        val drain = launch(Dispatchers.Default) {
+            for (sample in queue) {
+                written++
+                push(force = false)
+            }
+            // What the `finally` does: everything since the last throttled push.
+            push(force = true)
+        }
+
+        repeat(2_000) { queue.trySend(it) }
+        queue.close()
+        withTimeoutOrNull(5_000) { drain.join() }
+
+        assertEquals("every sample is written", 2_000, written)
+        assertEquals("the reported count ends equal to the written one", 2_000L, published)
+        assertTrue(
+            "the throttle should collapse 2000 samples into a handful of pushes, not one per sample",
+            pushes < 200,
+        )
+    }
+
+    /**
+     * The forced push is guarded on the session having taken samples, and this is why: after a
+     * rotation the final session can be empty, and restating its zeroes would wipe a real file's
+     * figures off the card — the same rule the `filesCompleted` block beside it follows.
+     */
+    @Test
+    fun `an empty final session does not overwrite a real file's figures`() {
+        var reported = 4_321L
+        fun finish(messageCount: Long) {
+            if (messageCount > 0) reported = messageCount
+        }
+
+        finish(0)
+        assertEquals("an empty session leaves the last real figures standing", 4_321L, reported)
+        finish(99)
+        assertEquals(99L, reported)
+    }
 }

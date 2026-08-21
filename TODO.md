@@ -116,32 +116,18 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
-- [x] The user need to be able to enter its own maptiler key in settings
-      Done in b4fd8ba — Setup › Settings › Recording › Satellite imagery. Blank falls back to
-      Esri, so a keyless phone still draws; the layer menu grew a gear pointing at this field
-      in e8fa7e2. Stored per phone, never in the repo or the APK, and carried by a settings
-      profile so a fleet provisions from one QR.
+- [ ] **Mark Events**
+  - Move the historcal events to the top, allow user to hide or show the events like compact just summary line or expand to show individual events
+  - that was quick an attention of buttons should be larger squares 
+  - if an qucik annotaion button is PressAndHold it shoud workm like a timer with start and stop time + duration 
 
-- [x] In the in the chart layer section allow used to also to past track, hading line and Vector line
-      Done in the chart-marks pass. Four ticks under the base layers: Sea marks, Track,
-      Heading line and Course vector — named that rather than "vector line" because it sits
-      directly under "Heading line" and the question there is which of the two is which.
-
-- [x] **Can you change the satelite layer to be MapTiler.** Done in the chart-sources pass.
-      Esri is kept as the keyless fallback — satellite is the default layer, so an install with
-      no key must still draw something rather than opening on a blank grid. The key is a
-      per-phone setting, never in the repo or the APK.
-
-- [x] the start button decrease its size in widthwise and make publish and REC chips that can be toggled on or off so user can select if they want to publish or only rec or combinatoin, the combination of both on is deaflult
-      Done in the run-mode pass. PUB and REC chips beside a narrowed START, both on by default;
-      neither on disables Start with a line saying why. A record-only run keeps its Zenoh session
-      and its liveliness — it says nothing rather than going dark — which was the user's call.
-
-- [ ] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
+- [x] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
       allocations a second on the one coroutine that must not fall behind. Left alone when the queue
       instrumentation went in (which is why the new depth counters are atomics read by a UI ticker
-      rather than another field on that flow), but it is pure overhead on the hot path.
-
+      rather than another field on that flow), but it is pure overhead on the hot path. Done in the status-throttle pass: capped at four
+      pushes a second, forced when the loop ends so the count still matches the file, and forced
+      *after* `close()` — which turned out to fix a pre-existing understatement of the file size,
+      1.4 MB reported for a 1.51 MB file, since closing is what writes the summary and footer.
 
 - [ ] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
       `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run
