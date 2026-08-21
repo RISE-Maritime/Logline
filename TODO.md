@@ -213,18 +213,25 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
 
 ## Recording details (2026-08-21)
 
-- [ ] **The track scan is unmeasured on a large recording.** The plan said to time it on the biggest
+- [x] **The track scan is unmeasured on a large recording.** The plan said to time it on the biggest
       file on the phone and put the figure in the commit; the phone locked behind its fingerprint
       before that could be done. What *is* measured: a 2.3 MB / 96 054-message recording had its track
       drawn within a second of the tap, navigation and layout included. The worst case on this phone is
       a **537 MB** file — three of them are sitting in Downloads — and that is a full zstd decompress of
       the data section. If it turns out to take long enough that a spinner is the wrong affordance, the
       fix is a progress fraction from the bytes consumed, which the reader already knows.
+      Done in 689b637.
 
-- [ ] **A partially-read track is indistinguishable from a complete one.** `McapTrack.read` catches a
+- [x] **A partially-read track is indistinguishable from a complete one.** `McapTrack.read` catches a
       mid-file failure and returns what it has, which is the right call — the points it got are real —
       but the screen then says "N positions" as though that were the whole run. It should say when the
-      read stopped early.
+      read stopped early. Done in 689b637.
+
+- [ ] **The Files list only shows recordings written by the current install.** MediaStore ties a file
+      to the package that created it, so 101 of the 216 recordings in `Downloads/Logline` on the dev
+      phone are invisible to the app — every one written before a reinstall. The empty state already
+      says this in words, but the *list* gives no hint that half the folder is missing, and it is why
+      the largest file the detail view could be tested against was 479 MB rather than 537 MB.
 
 - [ ] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
       hours at 1 Hz — the reader stops and downsamples what it has, so a twelve-hour passage shows its
