@@ -236,3 +236,20 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
 - [ ] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
       hours at 1 Hz — the reader stops and downsamples what it has, so a twelve-hour passage shows its
       first five hours and says nothing about the rest. Bounded work is right; saying so is missing.
+
+## Bulk delete removed more than it showed (2026-08-21)
+
+- [ ] **`e95ed93`'s delete-all removed 53 files where its dialog said 50, and the three extras are not
+      accounted for.** The dialog read "Delete 50 incomplete recordings?" and the code deletes exactly
+      the `shown` list, which the Incomplete filter had narrowed to 50. What actually went was those 50
+      *plus* the three newest files on the phone: `logline-settings-2026-08-21T142616.json` (the profile
+      exported minutes earlier, and verified on screen as excluded — the list read "50 of 120", not 51),
+      `logline-2026-08-21T104536.mcap` and `logline-2026-08-21T102926.mcap`, both **complete**
+      recordings with summaries and message counts. Every older complete recording survived, including
+      the 502 MB one, so it is not "deleted everything newer than X" either.
+      Nothing was recoverable: MediaStore did not trash them, and the logcat buffer had rotated by the
+      time it was checked.
+      Worth knowing when reproducing: the deletion runs on a coroutine and takes longer than it looks —
+      a file count taken ~2 s after confirming still showed all 221 files, and the sweep completed
+      minutes later. Any check that a delete did nothing has to wait for the coroutine, not the dialog.
+      Until this is explained the button should be treated as untrustworthy.

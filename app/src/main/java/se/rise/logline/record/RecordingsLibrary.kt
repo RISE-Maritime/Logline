@@ -96,6 +96,12 @@ data class SavedRecording(
     override val sizeBytes: Long,
     override val savedAtMillis: Long,
     val summary: McapSummary?,
+    /**
+     * Which channel carries the phone's own fixes, or null when the recording has none — and also null
+     * when there is no summary to ask, which is a different thing. See [McapTrack.read], which
+     * discovers the channel itself when handed null.
+     */
+    val fixChannelId: Int? = null,
 ) : RecordingFacts {
     val kind: RecordingKind get() = recordingKindOf(name)
     override val durationMillis: Long? get() = summary?.durationMillis
@@ -150,6 +156,13 @@ fun savedRecordings(context: Context): List<SavedRecording> {
                         cursor.getLong(id),
                     )
                     val displayName = cursor.getString(name)
+                    // Not asked of an export: there is no MCAP footer to find, and this opened and
+                    // failed on every JSON in the folder on the way past.
+                    val details = if (recordingKindOf(displayName) == RecordingKind.Recording) {
+                        detailsOf(context, uri)
+                    } else {
+                        null
+                    }
                     add(
                         SavedRecording(
                             uri = uri,
@@ -159,11 +172,11 @@ fun savedRecordings(context: Context): List<SavedRecording> {
                             savedAtMillis = cursor.getLong(added) * 1_000L,
                             // Not asked of an export: there is no MCAP footer to find, and this opened
                             // and failed on every JSON in the folder on the way past.
-                            summary = if (recordingKindOf(displayName) == RecordingKind.Recording) {
-                                summaryOf(context, uri)
-                            } else {
-                                null
-                            },
+                            summary = details?.summary,
+                            // Free with the summary, and the most valuable thing the listing can know:
+                            // a recording with no fix channel never starts a track scan at all.
+                            fixChannelId = details?.topics
+                                ?.let(McapTrack::fixChannel)?.channelId,
                         )
                     )
                 }
@@ -182,9 +195,9 @@ fun savedRecordings(context: Context): List<SavedRecording> {
  * a stream would have to be read to the end, which for a 512 MB recording is the whole point of not
  * doing it this way.
  */
-private fun summaryOf(context: Context, uri: Uri): McapSummary? = try {
+private fun detailsOf(context: Context, uri: Uri): McapDetails? = try {
     context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-        FileInputStream(pfd.fileDescriptor).use { readMcapSummary(it.channel) }
+        FileInputStream(pfd.fileDescriptor).use { readMcapDetails(it.channel) }
     }
 } catch (t: Throwable) {
     Log.i(TAG, "no summary for $uri", t)

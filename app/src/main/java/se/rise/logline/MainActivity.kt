@@ -98,6 +98,11 @@ import se.rise.logline.map.importedMaps
 import se.rise.logline.publish.PublisherService
 import se.rise.logline.record.SavedRecording
 import se.rise.logline.record.deleteSavedRecording
+import android.content.ContentUris
+import java.io.File
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import se.rise.logline.record.TrackCache
 import se.rise.logline.record.deleteSavedRecordings
 import se.rise.logline.record.recordingsFreeBytes
 import se.rise.logline.record.savedRecordings
@@ -780,8 +785,47 @@ private fun App(
             val recordings by produceState<List<SavedRecording>?>(null, recordingsRevision) {
                 value = withContext(Dispatchers.IO) { savedRecordings(context) }
             }
+            // **At most two scans at a time.** A track is a full decompress of a recording's data
+            // section, so a fast scroll through sixty rows would otherwise start sixty of them; the
+            // rows that scrolled away have already cancelled, but the reads they began have not.
+            val trackReads = remember { Semaphore(2) }
+            val trackDirectory = remember(context) { File(context.filesDir, "tracks") }
+            LaunchedEffect(recordings) {
+                // A deleted recording should not leave its cache entry behind.
+                recordings?.let { listed ->
+                    withContext(Dispatchers.IO) {
+                        TrackCache.prune(trackDirectory, listed.map { ContentUris.parseId(it.uri) }.toSet())
+                    }
+                }
+            }
             RecordingsScreen(
                 files = recordings.orEmpty(),
+                onLoadTrack = { file ->
+                    val id = ContentUris.parseId(file.uri)
+                    val stamp = TrackCache.Stamp(file.sizeBytes, file.savedAtMillis)
+                    withContext(Dispatchers.IO) {
+                        TrackCache.get(trackDirectory, id, stamp)
+                            ?: when {
+                                // Reading half a gigabyte off the volume the recorder is draining onto
+                                // is exactly the contention this app goes out of its way to avoid, and
+                                // the Files tab is a between-runs screen. Cached rows still draw.
+                                recording.recording -> null
+                                else -> trackReads.withPermit {
+                                    // Checked again inside the permit: the row ahead may have been
+                                    // reading the same recording while this one waited.
+                                    TrackCache.get(trackDirectory, id, stamp) ?: run {
+                                        val scan = recordingTrack(context, file.uri, file.fixChannelId)
+                                        // A truncated read draws a partial shape, and one cached is one
+                                        // wrong forever; re-reading a broken file is the cheaper error.
+                                        if (!scan.stoppedEarly) {
+                                            TrackCache.put(trackDirectory, id, stamp, scan.fixes)
+                                        }
+                                        scan.fixes
+                                    }
+                                }
+                            }
+                    }
+                },
                 loaded = recordings != null,
                 onShare = { context.startActivity(shareIntent(listOf(it))) },
                 onOpen = { file ->

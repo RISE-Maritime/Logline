@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.SavedRecording
+import se.rise.logline.record.TrackFix
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.EmptyState
@@ -87,6 +89,14 @@ fun RecordingsScreen(
      * write the file, so a sweep can partly fail and the screen has to be able to say which.
      */
     onDeleteAll: suspend (List<SavedRecording>) -> Int,
+    /**
+     * The recording's track for its thumbnail, or null when there is none to draw.
+     *
+     * Suspending and per row, because extracting one means decompressing the recording's whole data
+     * section — there is no chunk index to seek with. The caller caches and bounds how many run at
+     * once; see `MainActivity`.
+     */
+    onLoadTrack: suspend (SavedRecording) -> List<TrackFix>?,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -254,21 +264,38 @@ fun RecordingsScreen(
                 // sign it is tappable, and a row whose only controls send a file away or destroy it
                 // should not have a third, safer action hidden in the background.
                 Card(modifier = Modifier.fillMaxWidth(), onClick = { onOpen(file) }) {
-                    Column(
+                    Row(
                         Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(file.name, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            recordingSubtitle(file),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onOpen(file) }) { Text("Details") }
-                            OutlinedButton(onClick = { onShare(file) }) { Text("Share…") }
-                            TextButton(onClick = { confirmDelete = file }) { Text("Delete") }
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(file.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                recordingSubtitle(file),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onOpen(file) }) { Text("Details") }
+                                OutlinedButton(onClick = { onShare(file) }) { Text("Share…") }
+                                TextButton(onClick = { confirmDelete = file }) { Text("Delete") }
+                            }
                         }
+                        // **Loaded from inside the row, so only rows on screen cost anything.** A
+                        // `LazyColumn` composes a handful at a time, and `produceState` keyed on the
+                        // file cancels with the row when it scrolls away.
+                        val track by produceState<ThumbnailState>(ThumbnailState.Unread, file.uri) {
+                            value = ThumbnailState.Reading
+                            val fixes = onLoadTrack(file)
+                            value = when {
+                                fixes == null || fixes.size < 2 -> ThumbnailState.NoTrack
+                                else -> ThumbnailState.Ready(fixes)
+                            }
+                        }
+                        TrackThumbnail(track, Modifier.padding(start = 8.dp))
                     }
                 }
             }

@@ -1158,6 +1158,41 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   which has no implementation off a device, and there is no Robolectric and no mocking framework on the
   test classpath — the same stance that had `PlatformGeometryParse` choose `kotlinx-serialization` over
   `org.json`. Naming the four facts the query actually reads is what keeps it a JVM test.
+- **Every row carries its track, and the cost of that is the whole design.** Extracting a track means
+  decompressing a recording's entire data section — `McapWriter` writes no chunk index — so this looked
+  like the one thing not to do per row. Measured rather than assumed, it is cheap for almost every row
+  and expensive for one: of the 67 listed recordings the median is **2.1 MB** (~18 ms at the measured
+  111 MB/s) and exactly one is 502 MB (**4.55 s**, measured through `/proc/<pid>/io`). So it is read
+  lazily from inside the row — a `LazyColumn` composes a handful, and `produceState` keyed on the file
+  cancels with the row — through a **`Semaphore(2)`**, so a fast scroll cannot start sixty reads.
+  **`TrackCache` makes it a once-ever cost**: `filesDir/tracks/<id>.trk`, keyed on
+  `(id, sizeBytes, savedAtMillis)` so a file replaced under the same MediaStore id cannot show the old
+  shape. Verified: the second launch reads **0.4 MB** where the first read 504 MB. Coordinates are
+  **doubles, not floats** — a float's ~1 m error at 57°N is wider than most of the stationary runs this
+  is meant to tell apart. An **empty track is stored as an answer**, or every visit rescans every
+  IMU-only run to learn the same nothing. A `stoppedEarly` scan is deliberately *not* cached: one wrong
+  shape cached is wrong forever, and re-reading a truncated file is the cheaper error.
+  The listing now reads `readMcapDetails` rather than `readMcapSummary` — same seeks, same summary
+  section — purely so `fixChannelId` comes for free and **a recording with no GNSS never starts a scan**.
+  **New scans do not run while a run is recording.** Cached rows still draw. Reading half a gigabyte off
+  the volume the recorder is draining onto is exactly the contention this codebase goes out of its way
+  to avoid, and Files is a between-runs screen.
+  `tracks` is excluded from **both** backup files, like `recordings` and `osmdroid`: it is derived data
+  keyed on MediaStore ids that mean nothing on another phone.
+- **The thumbnail is a canvas, and below the span floor it stops being one.** It cannot be
+  `RecordingChart`: a `MapView` owns tile threads and a tile cache, and sixty-seven of them in a list is
+  not a thing to do — so a row shows **shape and scale, not place**, and place stays one tap away.
+  It uses the same `MIN_CHART_SPAN_METRES` floor as the detail chart, and that has a consequence at
+  64dp the 220dp chart does not have: a 10 m scatter inside a 200 m frame is about **three pixels**,
+  which is honest and invisible. So a track under the floor is drawn as a **ring and dot** meaning
+  "did not move" — in the track's own colour, because it *is* a track. The muted **dash** is the
+  different answer, "this recording has no positions at all", and an empty square is the third,
+  "nobody has read it yet". Three states that would otherwise all be a blank square.
+  `thumbnailOffsets()` is pure and tested because none of its arithmetic is visible until it is wrong:
+  at this size a squashed track still looks like a plausible track. Note the trap that caught the first
+  version of its test — each track is scaled to **its own** extent, so the `cos(latitude)` correction
+  has to be checked *within* one track; comparing two separate tracks gives a ratio of 1 whatever the
+  projection does.
 - **`Downloads/Logline` is not a folder of recordings, and `savedRecordings()` lists it by *path*.**
   Four things write there — the recorder, `exportSettingsProfile`, `exportPlatformGeometry` and
   `exportPlatformRegistry` — and the query filters on `RELATIVE_PATH` with **no extension test**, so all

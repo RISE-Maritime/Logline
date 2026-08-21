@@ -28,16 +28,23 @@
 
     * `osmdroid` — the map tile cache. Hundreds of MB of re-downloadable data, same quota problem,
       and it is a cache: `TrackMap` rebuilds it from the network.
+
+    * `tracks` — the recordings list's thumbnail tracks. Small (about two kilobytes a recording), but
+      derived entirely from files in Downloads/Logline and keyed on MediaStore ids that mean nothing
+      on another phone: restoring it would carry stale shapes for recordings the new device does not
+      have. `TrackCache` rebuilds it by reading the recordings again.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="tls" />
         <exclude domain="file" path="recordings" />
         <exclude domain="file" path="osmdroid" />
+        <exclude domain="file" path="tracks" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="tls" />
         <exclude domain="file" path="recordings" />
         <exclude domain="file" path="osmdroid" />
+        <exclude domain="file" path="tracks" />
     </device-transfer>
 </data-extraction-rules>
