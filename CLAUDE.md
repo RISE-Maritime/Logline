@@ -1151,6 +1151,31 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   The chart scales longitude by **`cos(latitude)`** — 0.54 at 57°N — or a track drawn on raw degrees comes
   out nearly twice as wide as it was sailed. Same correction, same reason, as the accuracy circle's
   `metersToPixels`.
+- **A track fitted to its own extent draws GNSS scatter as a voyage, and `MIN_CHART_SPAN_METRES` is the
+  same fix `plotBounds()` made for the barometer.** Every recording on the dev phone is a phone sitting
+  indoors, and on the longer axis — which is what `trackExtentMetres()` answers — a **three-hour** run of
+  1 843 fixes spans **10.6 m**, a 47-fix run 14.8 m, and a 17-fix run **1.8 m**. Autoscaled, all three
+  filled the card with a vigorous journey. The chart therefore never opens on less than **200 m**: about
+  thirteen times the widest scatter seen here and well above a single fix's own horizontal accuracy, so
+  anything genuinely under way still fills the frame. **It is a floor on the chart, never on the data** —
+  the fixes are drawn where they were, and a small track simply occupies a small part of a frame.
+  The footer states the extent alongside the count, and **the preposition carries the finding**: `1843
+  positions within 11 m` against `980 positions over 1.2 km`. The count alone cannot tell them apart —
+  1 843 positions reads as a passage whichever it was — which is exactly what the screen used to say.
+  No verdict word, for the reason `13 dB` beats "Good": the reader is the one who knows whether eleven
+  metres matters.
+- **`RecordingChart` is not `TrackMap`, and that is deliberate.** The live chart exists to follow a fix
+  that is still arriving — follow mode, heading vector, course vector, live position — and none of those
+  mean anything about a file that closed hours ago. What the two genuinely share is shared as functions
+  (`sourceFor`, `configureOsmdroid`, `chartInk`, `attributionColour`, `maxZoomFor`) rather than by making
+  one component serve both. Three things carried over because they are not optional: the track is drawn
+  **twice**, a white halo under the coloured line, since no single colour is legible on both pale tiles
+  and dark imagery; `CopyrightOverlay` must be added by hand, osmdroid draws no notice by itself and both
+  licences require one; and `onResume()` starts the tile threads, without which the map is a blank grid
+  that reads as broken. One trap of its own: **`zoomToBoundingBox` is a no-op before the view is laid
+  out**, which is exactly when `update` first runs — hence `addOnFirstLayoutListener`, the same shape as
+  the live chart's note about `animateTo`. The box is squared before use, because osmdroid fits the whole
+  box into the view and a box one metre tall by two hundred wide would still zoom to the metre.
 - **The track reader must read every shape this app has ever written, and saying otherwise is a lie about
   somebody's day.** `TrackScan` carries three facts rather than a list — `channelFound`, `fixes`,
   `stoppedEarly` — because an empty list has three causes the screen must never merge: a run with no

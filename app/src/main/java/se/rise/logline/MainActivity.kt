@@ -110,6 +110,7 @@ import se.rise.logline.publish.TextHistory
 import se.rise.logline.publish.SampleWindow
 import se.rise.logline.ui.LiveScreen
 import se.rise.logline.ui.WINDOW_CHOICES
+import se.rise.logline.ui.RecordingChart
 import se.rise.logline.ui.TrackMap
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -908,6 +909,15 @@ private fun App(
             }
 
             RecordingDetailScreen(
+                chart = { fixes, m ->
+                    RecordingChart(
+                        fixes = fixes,
+                        layer = liveLayer,
+                        offlineOnly = current.offlineTilesOnly,
+                        mapTilerKey = current.mapTilerKey,
+                        modifier = m,
+                    )
+                },
                 name = listed?.name ?: uri.lastPathSegment.orEmpty(),
                 sizeBytes = listed?.sizeBytes ?: 0L,
                 savedAtMillis = listed?.savedAtMillis ?: 0L,

@@ -1,6 +1,5 @@
 package se.rise.logline.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -20,9 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.McapDetails
@@ -31,7 +29,6 @@ import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.readAsOneItem
-import kotlin.math.cos
 
 /** How the track is coming along, so "still reading" and "there is none" cannot be confused. */
 sealed interface TrackState {
@@ -74,6 +71,11 @@ fun RecordingDetailScreen(
     /** Null while the summary is still being read; the track cannot be started before it. */
     detailsLoaded: Boolean,
     track: TrackState,
+    /**
+     * The chart, supplied by `MainActivity` — a `MapView` needs a `Context`, a tile cache and a
+     * lifecycle, none of which a screen may hold. The same slot `LiveScreen` takes its map through.
+     */
+    chart: @Composable (List<TrackFix>, Modifier) -> Unit,
     onBack: () -> Unit,
 ) {
     ScreenScaffold(title = "Recording", onBack = onBack) { padding ->
@@ -110,7 +112,7 @@ fun RecordingDetailScreen(
             }
 
             SectionHeader(title = "Track")
-            TrackCard(track)
+            TrackCard(track, chart)
 
             if (details != null && details.topics.isNotEmpty()) {
                 SectionHeader(title = "Topics", trailing = formatCount(details.summary.messages))
@@ -151,7 +153,7 @@ fun RecordingDetailScreen(
 }
 
 @Composable
-private fun TrackCard(track: TrackState) {
+private fun TrackCard(track: TrackState, chart: @Composable (List<TrackFix>, Modifier) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         when (track) {
             TrackState.Reading -> Row(
@@ -193,15 +195,22 @@ private fun TrackCard(track: TrackState) {
                     )
                 } else {
                     Column(Modifier.padding(12.dp)) {
-                        TrackChart(track.fixes)
+                        chart(
+                            track.fixes,
+                            Modifier.fillMaxWidth().height(CHART_HEIGHT).clip(CHART_SHAPE),
+                        )
+                        val extent = trackExtentMetres(track.fixes)
                         Text(
                             if (track.partial) {
                                 // "so far", because the count is the reader's progress rather than the
                                 // run's total — the same distinction the Unreadable state exists for.
-                                "${formatCount(track.fixes.size.toLong())} positions so far — " +
+                                "${trackSummary(track.fixes.size, extent)} so far — " +
                                     "reading stopped early"
                             } else {
-                                "${formatCount(track.fixes.size.toLong())} positions"
+                                // **The extent, not just the count.** 1 843 positions reads as a voyage
+                                // whether they span thirteen metres or thirteen miles, and on this
+                                // phone every recording so far is the former.
+                                trackSummary(track.fixes.size, extent)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -213,64 +222,10 @@ private fun TrackCard(track: TrackState) {
     }
 }
 
-private val CHART_HEIGHT = 200.dp
+private val CHART_HEIGHT = 220.dp
 
-/**
- * The track as a shape, with no map under it.
- *
- * Deliberately not `TrackMap`: that wants a network, a tile cache and a lifecycle, and this is here to
- * make a run recognisable rather than to navigate by.
- *
- * **Longitude is scaled by `cos(latitude)`.** A degree of longitude is that much shorter than a degree
- * of latitude — 0.54 at 57°N — so a track plotted on raw degrees comes out nearly twice as wide as it
- * was sailed. The same correction the accuracy circle makes through `metersToPixels`, for the same
- * reason.
- */
-@Composable
-private fun TrackChart(fixes: List<TrackFix>) {
-    val line = MaterialTheme.colorScheme.primary
-    val start = MaterialTheme.colorScheme.onSurfaceVariant
-    Canvas(
-        Modifier
-            .fillMaxWidth()
-            .height(CHART_HEIGHT)
-            .readAsOneItem("The recording's track, ${fixes.size} positions"),
-    ) {
-        val midLatitude = (fixes.minOf { it.latitude } + fixes.maxOf { it.latitude }) / 2.0
-        val scale = cos(Math.toRadians(midLatitude)).coerceAtLeast(0.01)
-        val xs = fixes.map { it.longitude * scale }
-        val ys = fixes.map { it.latitude }
-        val minX = xs.min()
-        val minY = ys.min()
-        // A stationary run is one point repeated, so both spans are zero. Floored rather than divided
-        // by: the track then draws as a dot in the middle, which is what it was.
-        val spanX = (xs.max() - minX).takeIf { it > 0 } ?: 1.0
-        val spanY = (ys.max() - minY).takeIf { it > 0 } ?: 1.0
-        // One scale for both axes, so the shape is the shape rather than stretched to the card.
-        val span = maxOf(spanX, spanY)
-        val pad = 8f
-        val extent = minOf(size.width, size.height) - pad * 2
-        val offsetX = (size.width - extent) / 2f
-        val offsetY = (size.height - extent) / 2f
-
-        fun px(i: Int) = Offset(
-            x = offsetX + pad + ((xs[i] - minX) / span * extent).toFloat(),
-            // Screen y grows downwards; north is up.
-            y = offsetY + pad + extent - ((ys[i] - minY) / span * extent).toFloat(),
-        )
-
-        val path = Path().apply {
-            moveTo(px(0).x, px(0).y)
-            for (i in 1 until fixes.size) {
-                val p = px(i)
-                lineTo(p.x, p.y)
-            }
-        }
-        drawPath(path, color = line, style = Stroke(width = 3f))
-        // Where it began, so a there-and-back track is not ambiguous about which end is which.
-        drawCircle(color = start, radius = 5f, center = px(0))
-    }
-}
+/** Matches the card it sits in, so the tiles do not square off a rounded surface. */
+private val CHART_SHAPE = RoundedCornerShape(8.dp)
 
 @Composable
 private fun Fact(label: String, value: String) {

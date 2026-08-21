@@ -156,7 +156,7 @@ private fun mapTilerRaster(
  * with no key would otherwise open the Live tab on a blank grid, which reads as a broken app rather
  * than a missing setting.
  */
-private fun sourceFor(layer: MapLayer, mapTilerKey: String) = when (layer) {
+internal fun sourceFor(layer: MapLayer, mapTilerKey: String) = when (layer) {
     MapLayer.Standard -> TileSourceFactory.MAPNIK
     MapLayer.Satellite ->
         if (mapTilerKey.isNotBlank()) {
@@ -207,7 +207,7 @@ private const val MAPTILER_MAX_ZOOM = 22
  * **MapTiler over-zooms on its own**, all the way to 22 — see [MAPTILER_MAX_ZOOM] — so it declares that
  * depth itself and needs no help.
  */
-private fun maxZoomFor(source: OnlineTileSourceBase): Double =
+internal fun maxZoomFor(source: OnlineTileSourceBase): Double =
     if (source === TileSourceFactory.MAPNIK) {
         source.maximumZoomLevel + OVER_ZOOM_LEVELS
     } else {
@@ -393,7 +393,7 @@ fun TrackMap(
  * Caches live under `filesDir`, consistent with the rest of the app keeping its data app-private, and
  * it is that cache which lets a pre-loaded area keep rendering with no network.
  */
-private fun configureOsmdroid(context: Context) {
+internal fun configureOsmdroid(context: Context) {
     val config = Configuration.getInstance()
     // Loading from shared prefs first is what osmdroid's own docs ask for; it seeds defaults that the
     // tile downloader reads, and skipping it leaves some of them null.
@@ -602,11 +602,11 @@ private const val HOME_ZOOM = 10.0
 /** Close enough to see which side of a jetty a track passed. */
 private const val TRACK_ZOOM = 16.0
 
-private const val TRACK_PX = 6f
-private const val TRACK_HALO_PX = 4f
+internal const val TRACK_PX = 6f
+internal const val TRACK_HALO_PX = 4f
 
 /** Small enough to retreat, large enough to read. See the note at the overlay's construction. */
-private const val ATTRIBUTION_TEXT_DP = 9
+internal const val ATTRIBUTION_TEXT_DP = 9
 
 /**
  * Ink that reads on whatever the base layer is drawing.
@@ -619,7 +619,7 @@ private const val ATTRIBUTION_TEXT_DP = 9
  * Exhaustive rather than defaulted on purpose: a layer added later is a layer whose background nobody
  * has looked at, and the compiler asking is better than a white line vanishing into a white sea.
  */
-private fun chartInk(layer: MapLayer): Int = when (layer) {
+internal fun chartInk(layer: MapLayer): Int = when (layer) {
     MapLayer.Satellite -> Color.WHITE
     MapLayer.Standard,
     MapLayer.Ocean,
@@ -634,7 +634,7 @@ private fun chartInk(layer: MapLayer): Int = when (layer) {
  * Present and checkable, and not competing with the position readout — attribution is a condition of
  * use rather than a design element.
  */
-private fun attributionColour(layer: MapLayer): Int {
+internal fun attributionColour(layer: MapLayer): Int {
     val ink = chartInk(layer)
     return Color.argb(0xB3, Color.red(ink), Color.green(ink), Color.blue(ink))
 }
