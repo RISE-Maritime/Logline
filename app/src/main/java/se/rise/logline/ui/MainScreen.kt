@@ -302,18 +302,8 @@ fun MainScreen(
                 onSetPublishAllMax = onSetPublishAllMax,
             )
 
-            // After the rates and before the per-subject groups: the rates say how much of the run
-            // there will be, this says what else is in it, and the groups below are the detail.
-            MediaSection(
-                settings = settings,
-                supportedAudioRates = supportedAudioRates,
-                unavailableSubjects = unavailableSubjects,
-                onChange = onMediaChange,
-                onOpenSubjectQos = onOpenSubjectQos,
-            )
-
             subjectGroups().forEach { rawGroup ->
-                // **The media subjects have their own section above**, so they are not also rows here —
+                // **The media subjects have their own section below**, so they are not also rows here —
                 // the same control twice on one screen teaches the eye to trust neither. `START_TIME_SUBJECTS`
                 // is exactly those three, and the group master switch already filters on it for the same
                 // reason, so this is the existing rule applied one level up.
@@ -393,6 +383,19 @@ fun MainScreen(
                     }
                 }
             }
+
+            // **Last on the page.** Audio and the camera are the heaviest things a run can carry
+            // and the least often changed — the switches are off by default and meant to stay that
+            // way — so they sit below the per-subject groups rather than above them, where they were
+            // pushing the sensor list a screen further down for a control most runs never touch.
+            MediaSection(
+                settings = settings,
+                supportedAudioRates = supportedAudioRates,
+                unavailableSubjects = unavailableSubjects,
+                onChange = onMediaChange,
+                onOpenSubjectQos = onOpenSubjectQos,
+            )
+
         }
     }
 }

@@ -1156,8 +1156,9 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   be a collapsed section two screens away in Settings *and* rows inside the Session page's Device group,
   because `toggleSubject()` already mapped `AUDIO` / `IMAGE_COMPRESSED` / `VIDEO_COMPRESSED` onto
   `audioEnabled` / `cameraEnabled` / `videoEnabled` — the same control in two places, which is how they
-  drift. `MediaSection` is now the one place, sitting after **Sampling rates** because the rates say how
-  much of the run there will be and this says what else is in it.
+  drift. `MediaSection` is now the one place, and it sits **last on the page**, below the per-subject
+  groups: audio and the camera are the heaviest things a run can carry and the least often changed, so
+  above the groups they pushed the sensor list a screen further down for a control most runs never touch.
   **`MainScreen` filters `START_TIME_SUBJECTS` out of the per-subject groups** so the rows do not also
   appear there. That set is *exactly* those three — `MediaSubjectsTest` pins it, because a fourth
   start-time subject added later would otherwise vanish from its group with no switch anywhere — and the
