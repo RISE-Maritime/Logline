@@ -1466,6 +1466,11 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   `formatElapsed()` moved from `ui/MainScreen.kt` into `publish/` for this: the screen prints it beside a
   running timer and the publisher puts it in the mark's message, and `publish` cannot reach into `ui`.
   One implementation rather than two, which is the rule this codebase keeps restating.
+  **Editing the buttons is a square at the end of the row, not an icon in the top bar.** In the bar it
+  was as far from the thing it edits as the screen allows, and it competed for the one place a glance
+  goes for the run's status. It is **outlined rather than filled**: it is the same size and shape as the
+  marks beside it and must not be mistaken for one, and a fill is what every other square there uses to
+  mean "this makes a mark".
   **The quick buttons are last, which on a phone is nearest the thumb.** They are squares now rather
   than pills — a pill sized to its text is as small as its shortest label, and this is the control the
   screen exists for. The long press fires a haptic, which is not a nicety: the whole purpose is arming a

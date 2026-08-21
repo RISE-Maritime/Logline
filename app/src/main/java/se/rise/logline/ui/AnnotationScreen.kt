@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Surface
 import se.rise.logline.publish.formatElapsed
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.unit.dp
 import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
@@ -138,11 +139,9 @@ fun AnnotationScreen(
     ScreenScaffold(
         title = "Mark event",
         onBack = onBack,
-        actions = {
-            IconButton(onClick = onEditButtons) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit buttons")
-            }
-        },
+        // No `actions`: editing the buttons moved down beside the buttons themselves. An icon in the
+        // top bar was as far from the thing it edits as the screen allows, and it competed for the one
+        // place a glance goes for the run's status.
         bottomBar = bottomBar,
         snackbarHost = { SnackbarHost(snackbars) },
     ) { padding ->
@@ -301,6 +300,37 @@ fun AnnotationScreen(
                             },
                             onHold = { confirm(onStartTimed(button), "${button.label} started") },
                         )
+                    }
+                    // Last in the same row, so it wraps with them and sits at the end of the set it
+                    // edits. **Outlined rather than filled**: it is the same size and shape as the
+                    // marks beside it and must not be mistaken for one, and the fill is what every
+                    // other square here uses to mean "this makes a mark".
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier
+                            .size(MARK_BUTTON_SIDE)
+                            .clickable(onClick = onEditButtons)
+                            .readAsOneItem("Edit the quick buttons"),
+                    ) {
+                        Column(
+                            Modifier.fillMaxSize().padding(8.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "Edit",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
                     }
                 }
             }
