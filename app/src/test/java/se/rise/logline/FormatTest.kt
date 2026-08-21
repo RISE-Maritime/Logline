@@ -3,7 +3,7 @@ package se.rise.logline
 import se.rise.logline.ui.formatBearing
 import se.rise.logline.ui.formatCount
 import se.rise.logline.ui.formatCounted
-import se.rise.logline.ui.duration
+import se.rise.logline.publish.formatElapsed
 import se.rise.logline.ui.formatRate
 import org.junit.Assert.assertEquals
 import se.rise.logline.ui.audioMegabytesPerHour
@@ -148,14 +148,14 @@ class FormatTest {
      */
     @Test
     fun `a finished run keeps its seconds`() {
-        assertEquals("00:00:00", duration(0))
-        assertEquals("00:00:59", duration(59_999))
-        assertEquals("00:12:34", duration(12 * 60_000L + 34_000L))
-        assertEquals("01:00:00", duration(3_600_000))
+        assertEquals("00:00:00", formatElapsed(0))
+        assertEquals("00:00:59", formatElapsed(59_999))
+        assertEquals("00:12:34", formatElapsed(12 * 60_000L + 34_000L))
+        assertEquals("01:00:00", formatElapsed(3_600_000))
         // Past a day it keeps counting hours rather than wrapping — 26 hours is a plausible run.
-        assertEquals("26:03:00", duration(26 * 3_600_000L + 3 * 60_000L))
+        assertEquals("26:03:00", formatElapsed(26 * 3_600_000L + 3 * 60_000L))
         // A clock that ran backwards is a bug somewhere else; it must not print a negative time here.
-        assertEquals("00:00:00", duration(-5_000))
+        assertEquals("00:00:00", formatElapsed(-5_000))
     }
 
     companion object {

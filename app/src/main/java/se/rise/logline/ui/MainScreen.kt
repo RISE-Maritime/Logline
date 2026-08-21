@@ -60,6 +60,7 @@ import se.rise.logline.publish.PublisherStatus
 import se.rise.logline.publish.RuntimeEstimate
 import se.rise.logline.publish.RuntimeLimit
 import se.rise.logline.publish.SubjectStatus
+import se.rise.logline.publish.formatElapsed
 import se.rise.logline.publish.timeLeft
 import se.rise.logline.publish.TrackPoint
 import se.rise.logline.record.RecordingStatus
@@ -453,7 +454,7 @@ private fun StatusCard(
                         // The span of the data, not of the session — see publishedSpanMillis. Left off
                         // when there is only one sample to span, where it would read 00:00:00.
                         val span = status.publishedSpanMillis
-                        if (span >= 1_000L) append(" · ${duration(span)}")
+                        if (span >= 1_000L) append(" · ${formatElapsed(span)}")
                         lastRecordingOf(recording, finishedRecording)?.let { append(" · $it") }
                     },
                 )
@@ -642,7 +643,7 @@ private fun StatusCard(
                         // recording would have the clock run on over a file nothing is writing to.
                         Detail(
                             "Recording time",
-                            duration(
+                            formatElapsed(
                                 (recording.stoppedAtEpochMillis.takeIf { !recording.recording && it > 0L }
                                     ?: nowMillis) - recording.startedAtEpochMillis,
                             ),
@@ -668,7 +669,7 @@ private fun StatusCard(
                 // Answers "how long did that run for?" without arithmetic on two clock times. Only
                 // once it is over: while it is running the headline already carries a live clock.
                 if (!status.running && status.publishedSpanMillis >= 1_000L) {
-                    Detail("Ran for", duration(status.publishedSpanMillis))
+                    Detail("Ran for", formatElapsed(status.publishedSpanMillis))
                 }
                 Detail("Free space", formatBytes(freeBytes))
                 // The rate the capacity above divides by. Off the resting card because it is an input
@@ -1213,19 +1214,7 @@ private fun endingOf(limit: RuntimeLimit): String = when (limit) {
 /** `00:12:34` — how long this recording has been going, which is what a log entry wants. */
 internal fun elapsed(startedAtMillis: Long, nowMillis: Long): String {
     if (startedAtMillis <= 0L) return "00:00:00"
-    return duration(nowMillis - startedAtMillis)
-}
-
-/**
- * The same clock, for a span that has already finished.
- *
- * Not [formatRuntimeLeft], which rounds to the minute because an estimate off a fuel gauge has no
- * business claiming seconds. This is a measurement, and it should read the way the live clock beside
- * it reads — a run that says `00:12:34` while going should not become "13 min" the moment it stops.
- */
-internal fun duration(millis: Long): String {
-    val seconds = (millis / 1000L).coerceAtLeast(0L)
-    return "%02d:%02d:%02d".fmt(seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+    return formatElapsed(nowMillis - startedAtMillis)
 }
 
 /**

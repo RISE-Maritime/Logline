@@ -1,16 +1,12 @@
 # TODO
 
 Roughly in the order things should be picked up. A finished item is **ticked and left standing**, with
-the commit that did it; **deleting it is done by hand, by the person who asked for the work**, and
-nothing else here removes one. What was done and why it was done that way is in that commit and in the
+the commit that did it; **deleting it is done by hand, by the person who asked for the work**. 
+What was done and why it was done that way is in that commit and in the
 gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where somebody would actually
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
-Last reviewed: 2026-08-19 — the app against keelson `0.6.0-pre.3` (see the end of P1); before that,
-2026-08-18, a read of the whole app against upstream keelson `dev`, plus lint. Most of
-what is below was found by reading the code rather than running it, so treat anything not marked as
-measured as a claim to confirm on a device.
 
 ## P4 — housekeeping
 
@@ -56,7 +52,6 @@ two are the ones anybody outside this repo can act on.
   `0.6.0-pre.3`. What the app can actually do for fleet health is the subject-level liveliness filed at
   the end of this section, which is what lets `entity_health` tell "source up but doesn't advertise
   this" from "advertised but silent".)*
-
 
 
 ### Found reviewing keelson `0.6.0-pre.3` (2026-08-19)

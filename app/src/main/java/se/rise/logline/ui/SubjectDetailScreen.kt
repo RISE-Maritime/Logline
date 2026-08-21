@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.publish.SampleWindow
+import se.rise.logline.publish.formatElapsed
 import se.rise.logline.publish.TextHistory
 import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.ScreenScaffold
@@ -425,7 +426,7 @@ private fun DetailTimeline(entry: PublishedSubject, window: SampleWindow, nowMil
                         // The newest segment is still running, so it is measured to *now* rather than
                         // to its last sample — otherwise a state that has held for ten minutes reads
                         // as however long ago its last republish was.
-                        duration(
+                        formatElapsed(
                             if (last) nowMillis - seg.startMillis else seg.durationMillis
                         ) + if (last) " (now)" else "",
                         style = MaterialTheme.typography.bodySmall,
@@ -516,5 +517,5 @@ private val SEGMENT_FILL = Color(0xFF6F8FD8)
 /** How long a window covers, on the same clock the run's elapsed time uses. */
 private fun spanOf(window: SampleWindow): String? {
     if (window.size < 2) return null
-    return duration(window.timesMillis.last() - window.timesMillis.first())
+    return formatElapsed(window.timesMillis.last() - window.timesMillis.first())
 }

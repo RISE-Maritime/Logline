@@ -258,6 +258,12 @@ class SensorPublisher(private val appContext: Context) {
     /** The marks made this run, for the annotation screen. Pulled on a ticker, never pushed. */
     private val annotations = AnnotationLog()
 
+    /** Quick-mark timers still running. Run-scoped like [annotations] — see [TimedMarks]. */
+    private val timers = TimedMarks()
+
+    /** Which timers are going and when each started. Pulled on the screen's ticker, never pushed. */
+    fun runningTimers(): Map<String, Long> = timers.running()
+
     fun recentAnnotations(): List<Annotation> = annotations.recent()
 
     fun annotationCount(): Int = annotations.count()
@@ -314,6 +320,33 @@ class SensorPublisher(private val appContext: Context) {
         return true
     }
 
+    /**
+     * Begin timing an event, and say so on the bus.
+     *
+     * The pair of marks is the point: a `started` now and an `ended` when it closes, so a reader sees
+     * the event's *extent* rather than a point at its end — and a run killed mid-timer still has the
+     * start on record, which one mark at the end would not give.
+     *
+     * Returns false when there is nothing for it to land in, or when this label is already running: a
+     * second start would put a second `started` on the bus and silently move the origin, so the
+     * duration would come out short.
+     */
+    fun startTimed(label: String, severity: AnnotationSeverity, category: String): Boolean {
+        val text = label.trim()
+        if (text.isEmpty()) return false
+        // The mark first, and only record the start if it actually went out — a timer whose `started`
+        // never reached the bus would close against an origin nothing else knows about.
+        if (!mark("$text started", severity, category)) return false
+        return timers.start(text, System.currentTimeMillis())
+    }
+
+    /** Close a running timer, publishing how long it ran. False when it was not running. */
+    fun stopTimed(label: String, severity: AnnotationSeverity, category: String): Boolean {
+        val text = label.trim()
+        val elapsed = timers.stop(text, System.currentTimeMillis()) ?: return false
+        return mark("$text ended, ${formatElapsed(elapsed)}", severity, category)
+    }
+
     /** Outlives a run, because tearing one down cannot be hosted by the scope being cancelled. */
     private val closeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -340,6 +373,7 @@ class SensorPublisher(private val appContext: Context) {
                 liveStore.clear()
                 outbox.clear()
                 annotations.clear()
+                timers.clear()
                 backfillEnabled = settings.backfillEnabled
                 publishEnabled = settings.publishEnabled
                 publishIntervalsNanos = publishIntervals(settings)
@@ -520,6 +554,43 @@ class SensorPublisher(private val appContext: Context) {
         }
 
         closeScope.launch {
+            // **Any timer the operator left running is closed first**, because the note below is the
+            // last word about the run and an interval that ended at the same instant should read as
+            // having ended before it. `(run stopped)` is not decoration: it is what distinguishes an
+            // interval somebody ended from one the teardown ended for them, which is the difference
+            // between a measurement and a guess about when the event really finished.
+            //
+            // Same conditions and the same publish path as the note — see the comment below for why
+            // this cannot go through `mark()`.
+            if (openSession != null && logPublisher != null &&
+                PublishedSubject.LOG_MESSAGE !in offSubjects.value
+            ) {
+                val stoppedAt = java.time.Instant.now()
+                timers.closeAll(stoppedAt.toEpochMilli()).forEach { (label, elapsed) ->
+                    val text = "$label ended, ${formatElapsed(elapsed)} (run stopped)"
+                    val payload = FoxgloveLog.newBuilder()
+                        .setTimestamp(protoTimestamp(stoppedAt))
+                        .setLevel(AnnotationSeverity.Info.toLogLevel())
+                        .setMessage(text)
+                        .setName(SYSTEM_CATEGORY)
+                        .build()
+                    val sink = SubjectSink(PublishedSubject.LOG_MESSAGE, openSession)
+                    if (sink.emit(logPublisher, payload.toByteArray())?.isSuccess == true) {
+                        annotations.add(
+                            Annotation(
+                                atEpochMillis = stoppedAt.toEpochMilli(),
+                                message = text,
+                                severity = AnnotationSeverity.Info,
+                                category = SYSTEM_CATEGORY,
+                            )
+                        )
+                    }
+                }
+            } else {
+                // No session to say it on, but the timers must not survive into the next run.
+                timers.clear()
+            }
+
             // **The closing note goes out here, before anything is torn down, and that ordering is the
             // whole reason the publisher takes it rather than the caller marking and then stopping.**
             // `mark()` launches on the run scope, and the very next thing below cancels that scope —

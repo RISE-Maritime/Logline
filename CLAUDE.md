@@ -1437,7 +1437,30 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   and left the note field and the buttons only just on screen, where a third shows six and the whole
   screen still fits with sixteen marks expanded — which is what keeps the buttons reachable in *both*
   states rather than only the collapsed one.
-  **The quick buttons are last, which on a phone is nearest the thumb.** They were first on the argument
+  **A quick button is tap for an instant, hold for an interval.** Some of what gets marked on a boat —
+  a manoeuvre, a leg, an engine run — is not a point in time, and recording it as one loses the half
+  that matters. A long press arms a timer and the button's face counts; a tap closes it. The gesture was
+  chosen over "the hold *is* the duration" because the finger is free while it runs, so the event's
+  length is not bounded by how long somebody can hold a phone on a moving deck.
+  **Two marks go out, one at each end**, the second carrying the duration — so a reader sees the event's
+  extent rather than a point at its end, and a run killed mid-timer still has the start on record. The
+  timers live on `SensorPublisher` (`TimedMarks`, pure and testable) rather than the screen, for three
+  reasons that all matter: one has to survive leaving the Events tab, it is run-scoped like the
+  annotation log, and **the teardown is the only place that can close one somebody forgot** — which it
+  does beside the closing note, marked `(run stopped)` so an interval the operator ended is
+  distinguishable from one the teardown ended for them.
+  Two traps. **A second start must not move the origin**: holding an already-running button would
+  restart it silently and the duration would come out short, so `start()` refuses and the caller reads
+  that as "no mark to publish". And **the timer is keyed on the button's label**, because that is what
+  `mark()` already receives — keying on the whole `AnnotationButton` would have `publish` reach into
+  `config` and invert the dependency. Two buttons sharing a label therefore share a timer.
+  `formatElapsed()` moved from `ui/MainScreen.kt` into `publish/` for this: the screen prints it beside a
+  running timer and the publisher puts it in the mark's message, and `publish` cannot reach into `ui`.
+  One implementation rather than two, which is the rule this codebase keeps restating.
+  **The quick buttons are last, which on a phone is nearest the thumb.** They are squares now rather
+  than pills — a pill sized to its text is as small as its shortest label, and this is the control the
+  screen exists for. The long press fires a haptic, which is not a nicety: the whole purpose is arming a
+  timer without looking, and the snackbar confirms it a moment later than the finger needs. They were first on the argument
   that the moment being marked is passing while you look for them; that argument is right and the bottom
   of the screen serves it better than the top did. The note field is what you reach for deliberately.
   Two details. The collapsed header's **count carries the worst severity in the whole list**, not the

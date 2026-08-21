@@ -38,6 +38,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.contentColorFor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Surface
+import se.rise.logline.publish.formatElapsed
 import androidx.compose.ui.unit.dp
 import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
@@ -75,6 +87,18 @@ fun AnnotationScreen(
      * `SensorPublisher.mark`, which is where that decision is made.
      */
     onMark: (AnnotationButton) -> Boolean,
+    /**
+     * Timers still running, label to start time.
+     *
+     * Held by the publisher rather than this screen: a timer has to survive leaving the tab, and the
+     * run's teardown is the only place that can close one somebody forgot. Pulled on the caller's
+     * ticker like the marks beside it.
+     */
+    runningTimers: Map<String, Long>,
+    /** Hold a button: begin timing. Publishes a `started` mark — see `SensorPublisher.startTimed`. */
+    onStartTimed: (AnnotationButton) -> Boolean,
+    /** Tap a running button: close it, publishing how long it ran. */
+    onStopTimed: (AnnotationButton) -> Boolean,
     onNote: (String, AnnotationSeverity) -> Boolean,
     onEditButtons: () -> Unit,
     onStart: () -> Unit,
@@ -262,16 +286,21 @@ fun AnnotationScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     buttons.forEach { button ->
-                        Button(
-                            onClick = { confirm(onMark(button), button.label) },
+                        MarkButton(
+                            button = button,
                             enabled = running,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = severityColor(button.severity),
-                            ),
-                            contentPadding = ButtonDefaults.ContentPadding,
-                        ) {
-                            Text(button.label)
-                        }
+                            startedAtMillis = runningTimers[button.label],
+                            nowMillis = nowMillis,
+                            onTap = {
+                                val startedAt = runningTimers[button.label]
+                                if (startedAt == null) {
+                                    confirm(onMark(button), button.label)
+                                } else {
+                                    confirm(onStopTimed(button), "${button.label} ended")
+                                }
+                            },
+                            onHold = { confirm(onStartTimed(button), "${button.label} started") },
+                        )
                     }
                 }
             }
@@ -294,6 +323,90 @@ fun AnnotationScreen(
  */
 @Composable
 private fun markListMaxHeight(): Dp = (LocalConfiguration.current.screenHeightDp * 0.33f).dp
+
+/** Big enough for a thumb that is not looking at it, and square so the label has two lines to use. */
+private val MARK_BUTTON_SIDE = 104.dp
+
+/**
+ * One quick mark: tap for the instant, hold to time an interval.
+ *
+ * A square rather than the pill it was, because this is the control the screen exists for and a pill
+ * sized to its text is as small as its shortest label. Three fit across a Pixel 6 at the page's own
+ * padding.
+ *
+ * **Holding arms a timer and the face starts counting**, which is what turns a mark from an instant into
+ * an interval — a manoeuvre or an engine run is not a point in time, and recording it as one loses the
+ * half that matters. A tap then closes it. The haptic on the long press is not a nicety: the whole
+ * purpose is arming it without looking, and the snackbar that follows confirms it a moment later than
+ * the finger needs.
+ *
+ * While it runs the elapsed figure is the state — a ticking clock cannot be mistaken for anything else —
+ * and the outline is reinforcement, not the signal.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MarkButton(
+    button: AnnotationButton,
+    enabled: Boolean,
+    /** Non-null while this button is timing something. */
+    startedAtMillis: Long?,
+    nowMillis: Long,
+    onTap: () -> Unit,
+    onHold: () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+    val timing = startedAtMillis != null
+    val fill = severityColor(button.severity)
+    Surface(
+        color = if (enabled) fill else fill.copy(alpha = 0.30f),
+        contentColor = if (enabled) contentColorFor(fill) else MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(16.dp),
+        border = if (timing) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null,
+        modifier = Modifier
+            .size(MARK_BUTTON_SIDE)
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onTap,
+                onLongClick = {
+                    // Only when there is nothing to close: holding a running button would otherwise
+                    // read as "restart", which would move the origin and shorten the interval.
+                    if (!timing) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onHold()
+                    }
+                },
+            )
+            .readAsOneItem(
+                when {
+                    !enabled -> "${button.label}, nothing is running"
+                    timing -> "${button.label}, running for " +
+                        formatAge(startedAtMillis!!, nowMillis) + ", tap to stop"
+                    else -> "${button.label}, tap to mark, hold to time"
+                }
+            ),
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(8.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                button.label,
+                style = MaterialTheme.typography.labelLarge,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (timing) {
+                Text(
+                    formatElapsed(nowMillis - startedAtMillis!!),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+}
 
 /**
  * The compact form of the list: the newest mark, on one line.

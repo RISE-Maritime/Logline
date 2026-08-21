@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.SavedRecording
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.ScreenScaffold
@@ -131,6 +132,6 @@ private fun detailOf(file: SavedRecording): String = buildString {
     append(formatCounted(summary.messages, "message"))
     if (summary.durationMillis >= 1_000L) {
         append(" over ")
-        append(duration(summary.durationMillis))
+        append(formatElapsed(summary.durationMillis))
     }
 }

@@ -971,6 +971,15 @@ private fun App(
                     delay(1_000)
                 }
             }
+            // On its own ticker rather than folded into `marks` above: a timer's face has to tick every
+            // second whether or not anything was marked, and the marks poll is about a list that
+            // usually has not changed.
+            val timers by produceState(emptyMap<String, Long>(), app) {
+                while (true) {
+                    value = app.publisher.runningTimers()
+                    delay(1_000)
+                }
+            }
             AnnotationScreen(
                 buttons = current.annotationButtons,
                 running = status.running,
@@ -978,6 +987,9 @@ private fun App(
                 totalMarks = marks.second,
                 nowMillis = nowMillis,
                 onMark = { button -> app.publisher.mark(button.label, button.severity, button.category) },
+                runningTimers = timers,
+                onStartTimed = { b -> app.publisher.startTimed(b.label, b.severity, b.category) },
+                onStopTimed = { b -> app.publisher.stopTimed(b.label, b.severity, b.category) },
                 onNote = { text, severity -> app.publisher.mark(text, severity, NOTE_CATEGORY) },
                 onEditButtons = { nav.navigate(Routes.ANNOTATION_BUTTONS) },
                 onStart = startPublishing,
