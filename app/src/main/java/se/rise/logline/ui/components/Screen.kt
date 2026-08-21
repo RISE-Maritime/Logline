@@ -8,6 +8,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Badge
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -496,12 +498,39 @@ enum class TopLevel(val route: String, val label: String, val icon: ImageVector)
  */
 @Composable
 fun LoglineNavBar(current: String?, onSelect: (TopLevel) -> Unit) {
+    // Read from the ambient rather than taken as a parameter, for the same reason the top bar's lamps
+    // are: this is shared chrome, and threading the publisher's state through every caller of the bar
+    // to reach one badge is what `LocalRunState` exists to avoid.
+    val timers = LocalRunState.current.runningTimers
     NavigationBar {
         TopLevel.entries.forEach { dest ->
+            // **Only Events, and only while something is timing.** A timer armed by a long press is
+            // otherwise invisible from every other tab — somebody starts one, goes back to the chart,
+            // and finds out at the end of the run that the teardown closed it for them. The count is
+            // the badge's content rather than a bare dot: two timers running is a different situation
+            // from one, and a dot cannot say so.
+            val badged = dest == TopLevel.Events && timers > 0
             NavigationBarItem(
                 selected = current == dest.route,
                 onClick = { onSelect(dest) },
-                icon = { Icon(dest.icon, contentDescription = null) },
+                icon = {
+                    if (badged) {
+                        BadgedBox(badge = { Badge { Text(timers.toString()) } }) {
+                            // Described here rather than left null: the label beside it already says
+                            // "Events", so what a screen reader is missing is the badge.
+                            Icon(
+                                dest.icon,
+                                contentDescription = if (timers == 1) {
+                                    "1 timer running"
+                                } else {
+                                    "$timers timers running"
+                                },
+                            )
+                        }
+                    } else {
+                        Icon(dest.icon, contentDescription = null)
+                    }
+                },
                 label = { Text(dest.label) },
             )
         }
@@ -528,6 +557,14 @@ data class RunState(
      * told not to — precisely the kind of readout the colour rules exist to prevent.
      */
     val publishing: Boolean = true,
+    /**
+     * How many quick-mark timers are running, for the badge on the Events tab.
+     *
+     * Here rather than passed to the navigation bar because the bar is shared chrome and every screen
+     * draws it — the same argument the fields above make. Zero whenever nothing is running, since the
+     * publisher clears its timers at both ends of a run.
+     */
+    val runningTimers: Int = 0,
 )
 
 val LocalRunState = compositionLocalOf { RunState() }

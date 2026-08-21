@@ -1442,6 +1442,15 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   that matters. A long press arms a timer and the button's face counts; a tap closes it. The gesture was
   chosen over "the hold *is* the duration" because the finger is free while it runs, so the event's
   length is not bounded by how long somebody can hold a phone on a moving deck.
+  **The Events tab carries a badge with the count while any timer runs**, because a timer armed by a
+  long press is otherwise invisible from every other tab — somebody starts one, goes back to the chart,
+  and finds out at the end of the run that the teardown closed it for them. The count rather than a bare
+  dot: two running is a different situation from one and a dot cannot say so. It reads
+  `RunState.runningTimers`, the same ambient the top bar's lamps use, for the same reason — the
+  navigation bar is shared chrome and threading the publisher's state through every caller of it to
+  reach one badge is what that `CompositionLocal` exists to avoid. The count is polled in `App()` rather
+  than in the Events route, since the one screen that could read it cheaply is the only screen that does
+  not need it.
   **Two marks go out, one at each end**, the second carrying the duration — so a reader sees the event's
   extent rather than a point at its end, and a run killed mid-timer still has the start on record. The
   timers live on `SensorPublisher` (`TimedMarks`, pure and testable) rather than the screen, for three

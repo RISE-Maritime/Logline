@@ -638,6 +638,16 @@ private fun App(
         LoglineNavBar(current = currentRoute) { dest -> goToTab(nav, dest) }
     }
 
+    // Polled here rather than inside the Events route: the badge is on a bar every screen draws, so the
+    // one screen that could read this cheaply is the only screen that does not need it. Empty whenever
+    // nothing is running, since the publisher clears its timers at both ends of a run.
+    val runningTimerCount by produceState(0, app) {
+        while (true) {
+            value = app.publisher.runningTimers().size
+            delay(1_000)
+        }
+    }
+
     // Provided once, for every screen's top bar. Ambient rather than threaded: the bar is shared
     // chrome, and passing the publisher's state through fourteen screen signatures to reach it would
     // put a run's connection state into the argument list of the rig editor.
@@ -647,6 +657,7 @@ private fun App(
             connection = status.connection,
             recording = recording.recording,
             publishing = current.publishEnabled,
+            runningTimers = runningTimerCount,
         )
     ) {
     NavHost(navController = nav, startDestination = Routes.MAIN, modifier = modifier) {
