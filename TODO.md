@@ -253,3 +253,32 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       a file count taken ~2 s after confirming still showed all 221 files, and the sweep completed
       minutes later. Any check that a delete did nothing has to wait for the coroutine, not the dialog.
       Until this is explained the button should be treated as untrustworthy.
+
+      **Investigated 2026-08-21. The button is not the cause.** Four things were established on the
+      device, none of them by reading the code:
+
+      * *The delete-all submits exactly the shown set.* A build that logged instead of deleting was
+        given a corpus of two throwaway incomplete recordings, one freshly exported settings profile
+        and sixty-seven complete recordings. It logged `asked for 2 files` and named exactly those two,
+        with the right kind and completeness. The export and the complete recordings were never
+        submitted.
+      * *The tap in the incident hit Keep, not Delete.* Tapping the identical coordinate (x=580) on the
+        same dialog dismissed it and logged nothing at all. The confirm sits at x≈797.
+      * *A real delete is visible in 0.25 s.* Measured by polling `ls` on the device across a confirm:
+        171 files → 169 within a quarter of a second. So the file count taken ~2 s after the incident
+        tap, which showed all 221 files present, is real evidence that no bulk delete had run — not a
+        race, as was first assumed.
+      * *Nothing deletes spontaneously.* Four minutes idle on the same screen, with logcat capturing:
+        no change.
+
+      So the app's only MediaStore delete path — `deleteSavedRecording`, reached from the row button or
+      the sweep — did not run, and there is no other. What removed those 53 files in the window between
+      the count of 221 and the next query is still unknown, and the logcat from that window had rotated
+      before any of this was looked at. Worth noting the phone was left unlocked with the
+      `Delete all 50 · 542 MB` button on screen for several minutes.
+
+- [x] **Verify the bulk delete end-to-end.** Never done for `e95ed93`, which stopped at the confirm
+      dialog rather than destroy 542 MB of the user's recordings. Done on throwaway data: two
+      deliberately-interrupted runs were created, the sweep removed exactly those two, and the settings
+      profile and the newest complete recording both survived. Done in the commit that follows this
+      note.
