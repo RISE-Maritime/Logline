@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -201,10 +202,26 @@ private fun DetailPlot(entry: PublishedSubject, window: SampleWindow) {
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth().height(PLOT_HEIGHT)) {
+            // **The gutter sizes to its labels, and the time axis lives inside the plot column.**
+            //
+            // A fixed gutter has to be wide enough for the longest value any subject can print, so on
+            // every subject that prints a short one it is mostly empty — a band of dead card between
+            // the edge and the number. `IntrinsicSize.Min` makes it exactly as wide as the widest of
+            // the three labels and no wider.
+            //
+            // That forces the shape below: the start and end times cannot sit in a sibling row with a
+            // hardcoded leading pad, because there is no longer a constant to hardcode. Putting them in
+            // the same column as the canvas is what keeps them aligned to it by construction.
+            // No height modifier: the row wraps its tallest child, which is the plot column. Asking for
+            // `IntrinsicSize.Min` here would force an extra measurement pass over a canvas whose height
+            // is already fixed, and buy nothing.
+            Row(Modifier.fillMaxWidth()) {
                 // The value axis, outside the canvas so the labels cannot overlap the trace.
                 Column(
-                    Modifier.width(72.dp).fillMaxSize().padding(end = 6.dp),
+                    Modifier
+                        .width(IntrinsicSize.Min)
+                        .height(PLOT_HEIGHT)
+                        .padding(end = 6.dp),
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -212,43 +229,45 @@ private fun DetailPlot(entry: PublishedSubject, window: SampleWindow) {
                     AxisLabel(formatLiveValue(entry, (axis.min + axis.max) / 2f))
                     AxisLabel(formatLiveValue(entry, axis.min))
                 }
-                Canvas(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .readAsOneItem(
-                            "${labelOf(entry).name} over the window, between " +
-                                "${formatLiveValue(entry, bounds.min)} and " +
-                                "${formatLiveValue(entry, bounds.max)}, ${window.size} samples"
-                        ),
-                ) {
-                    fun y(v: Float) = size.height * (1f - normalise(v, axis))
-                    listOf(axis.max, (axis.min + axis.max) / 2f, axis.min).forEach {
-                        drawLine(grid, androidx.compose.ui.geometry.Offset(0f, y(it)),
-                            androidx.compose.ui.geometry.Offset(size.width, y(it)), strokeWidth = 1f)
+                Column(Modifier.weight(1f)) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(PLOT_HEIGHT)
+                            .readAsOneItem(
+                                "${labelOf(entry).name} over the window, between " +
+                                    "${formatLiveValue(entry, bounds.min)} and " +
+                                    "${formatLiveValue(entry, bounds.max)}, ${window.size} samples"
+                            ),
+                    ) {
+                        fun y(v: Float) = size.height * (1f - normalise(v, axis))
+                        listOf(axis.max, (axis.min + axis.max) / 2f, axis.min).forEach {
+                            drawLine(grid, androidx.compose.ui.geometry.Offset(0f, y(it)),
+                                androidx.compose.ui.geometry.Offset(size.width, y(it)), strokeWidth = 1f)
+                        }
+                        val bins = envelope(plotted, size.width.toInt().coerceAtLeast(2)) ?: return@Canvas
+                        val stepX = size.width / (bins.size - 1).coerceAtLeast(1)
+                        // The band is every sample in the window, so a spike survives even where hundreds
+                        // share a pixel column; the mean through it is what makes a trend readable at 55 Hz.
+                        val band = Path().apply {
+                            moveTo(0f, y(bins.maxs[0]))
+                            for (i in 1 until bins.size) lineTo(i * stepX, y(bins.maxs[i]))
+                            for (i in bins.size - 1 downTo 0) lineTo(i * stepX, y(bins.mins[i]))
+                            close()
+                        }
+                        drawPath(band, color = line.copy(alpha = 0.30f))
+                        val trend = Path().apply {
+                            moveTo(0f, y(bins.means[0]))
+                            for (i in 1 until bins.size) lineTo(i * stepX, y(bins.means[i]))
+                        }
+                        drawPath(trend, color = line, style = Stroke(width = 2.5f))
                     }
-                    val bins = envelope(plotted, size.width.toInt().coerceAtLeast(2)) ?: return@Canvas
-                    val stepX = size.width / (bins.size - 1).coerceAtLeast(1)
-                    // The band is every sample in the window, so a spike survives even where hundreds
-                    // share a pixel column; the mean through it is what makes a trend readable at 55 Hz.
-                    val band = Path().apply {
-                        moveTo(0f, y(bins.maxs[0]))
-                        for (i in 1 until bins.size) lineTo(i * stepX, y(bins.maxs[i]))
-                        for (i in bins.size - 1 downTo 0) lineTo(i * stepX, y(bins.mins[i]))
-                        close()
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                        AxisLabel(formatClock(window.timesMillis.first()))
+                        Box(Modifier.weight(1f))
+                        AxisLabel(formatClock(window.timesMillis.last()))
                     }
-                    drawPath(band, color = line.copy(alpha = 0.30f))
-                    val trend = Path().apply {
-                        moveTo(0f, y(bins.means[0]))
-                        for (i in 1 until bins.size) lineTo(i * stepX, y(bins.means[i]))
-                    }
-                    drawPath(trend, color = line, style = Stroke(width = 2.5f))
                 }
-            }
-            Row(Modifier.fillMaxWidth().padding(start = 72.dp, top = 4.dp)) {
-                AxisLabel(formatClock(window.timesMillis.first()))
-                Box(Modifier.weight(1f))
-                AxisLabel(formatClock(window.timesMillis.last()))
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             // The three facts a plot cannot show about itself. The range is the *data's*, not the
