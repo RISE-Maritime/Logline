@@ -1420,6 +1420,19 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   free space by up to a file's worth while `publish()` copies to Downloads before deleting — the trailing
   window is what absorbs that. A charging phone still fills its disk, so `Charging` does not suppress the
   storage half.
+- **The Events tab leads with its history, collapsed to one line.** That is what somebody opens the tab
+  for when they are *not* marking something — "what have I logged, and did that press register" — and it
+  used to sit below the buttons and the note field, further still once the keyboard was up. Collapsed is
+  what lets it come first **without contradicting the reason the buttons are near the top**: the moment
+  being marked is passing while you look for them, and an expanded list above would put the one control
+  that screen exists for out of a thumb's reach. A header and a line does not, which is why the default
+  is collapsed rather than a matter of taste.
+  Two details. The collapsed header's **count carries the worst severity in the whole list**, not the
+  newest mark's — a fault five marks ago is still the thing somebody must not miss, and collapsed the
+  newest line is all they would otherwise see. And the compact form drops the `EmptyState` card for a
+  single line: the explanation of what a mark *is* belongs on the expanded path, where there is room.
+  The flag is hoisted in `MainActivity` with the live view's own preferences, for the reason stated
+  there — a `remember` inside a route dies with the composable when it is popped.
 - **`log_message` is the one subject with no collector, and the registry says so.** Annotations are
   published by `SensorPublisher.mark()` when a person presses a button, so the entry carries
   `eventDriven = true` and is deliberately **absent from `COLLECTOR_GROUPS`** — there is no listener for

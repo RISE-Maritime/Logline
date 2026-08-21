@@ -118,16 +118,11 @@ turned up rather than what it did — the *what* is in the commit and in
 
 - [ ] **Mark Events**
   - Move the historcal events to the top, allow user to hide or show the events like compact just summary line or expand to show individual events
-  - that was quick an attention of buttons should be larger squares 
+    Done in the events pass: collapsed by default so the buttons stay in reach, a summary line
+    naming the newest mark, and the header count coloured by the worst severity in the list.
+  - that was quick an annotaion of buttons should be larger squares 
   - if an qucik annotaion button is PressAndHold it shoud workm like a timer with start and stop time + duration 
 
-- [x] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
-      allocations a second on the one coroutine that must not fall behind. Left alone when the queue
-      instrumentation went in (which is why the new depth counters are atomics read by a UI ticker
-      rather than another field on that flow), but it is pure overhead on the hot path. Done in the status-throttle pass: capped at four
-      pushes a second, forced when the loop ends so the count still matches the file, and forced
-      *after* `close()` — which turned out to fix a pre-existing understatement of the file size,
-      1.4 MB reported for a 1.51 MB file, since closing is what writes the summary and footer.
 
 - [ ] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
       `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run

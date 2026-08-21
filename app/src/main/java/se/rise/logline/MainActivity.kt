@@ -367,6 +367,10 @@ private fun App(
     // plots is a page nobody scrolls during a run, and `PublishedSubject.featured` names the few that
     // answer "is this going well". Hoisted with the rest so it survives leaving the tab.
     var liveBasicOnly by rememberSaveable { mutableStateOf(true) }
+    // Whether the Events tab lists every mark or shows one summary line. Hoisted with the rest of the
+    // per-tab preferences, and collapsed by default: that screen's job is *marking*, and an expanded
+    // list above the buttons would put them out of a thumb's reach on a moving boat.
+    var eventsExpanded by rememberSaveable { mutableStateOf(false) }
 
     // Which sensors this device simply does not have, so a row that will never publish can say so
     // rather than looking broken. Resolved here because it needs a Context; screens take data.
@@ -977,6 +981,8 @@ private fun App(
                 onNote = { text, severity -> app.publisher.mark(text, severity, NOTE_CATEGORY) },
                 onEditButtons = { nav.navigate(Routes.ANNOTATION_BUTTONS) },
                 onStart = startPublishing,
+                expanded = eventsExpanded,
+                onExpandedChange = { eventsExpanded = it },
                 bottomBar = navBar,
             )
         }

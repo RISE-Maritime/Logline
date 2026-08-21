@@ -75,6 +75,15 @@ fun AnnotationScreen(
     onNote: (String, AnnotationSeverity) -> Boolean,
     onEditButtons: () -> Unit,
     onStart: () -> Unit,
+    /**
+     * Whether the history shows every mark or one summary line.
+     *
+     * Hoisted by the caller like the live view's own preferences: a `remember` inside a route dies with
+     * the composable when it is popped, and this is a choice somebody makes once rather than every time
+     * they open the tab.
+     */
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     /** Null while this is a tab — see the note on `LiveScreen`. */
     onBack: (() -> Unit)? = null,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
@@ -133,6 +142,49 @@ fun AnnotationScreen(
                         )
                     }
                 }
+            }
+
+            // **The history first, and collapsed by default.** It is what somebody opens this tab for
+            // when they are not marking anything — "what have I logged, and did that press register" —
+            // and it used to sit below the buttons and the note field, further still once the keyboard
+            // was up.
+            //
+            // Collapsed is what lets it come first without contradicting the note at the top of this
+            // file: the buttons are near the top because the moment being marked is passing while you
+            // look for them, and an expanded list above them would put the one control this screen
+            // exists for out of a thumb's reach. One header and one line does not.
+            SectionHeader(
+                title = "Marked this run",
+                trailing = if (totalMarks > 0) totalMarks.toString() else null,
+                // The count carries the warning, so a fault is visible without expanding — the same
+                // shape `groupBadge` uses to say "look in here" without spelling it out.
+                trailingColor = worstSeverity(recent)?.let { severityColor(it) },
+                expanded = expanded,
+                onToggle = { onExpandedChange(!expanded) },
+            )
+            if (expanded) {
+                if (recent.isEmpty()) {
+                    EmptyState(
+                        title = if (running) "Nothing marked yet" else "Nothing marked",
+                        body = if (running) {
+                            "Tap a button below the moment something happens — it goes onto the bus " +
+                                "and into the recording, stamped with the time of the press."
+                        } else {
+                            "Marks belong to a run. Start one and the buttons below become live."
+                        },
+                    )
+                } else {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(vertical = 4.dp)) {
+                            recent.asReversed().forEachIndexed { index, annotation ->
+                                if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
+                                MarkRow(annotation, nowMillis)
+                            }
+                        }
+                    }
+                }
+            } else {
+                MarkSummary(recent.lastOrNull(), running, nowMillis)
             }
 
             if (buttons.isEmpty()) {
@@ -203,32 +255,71 @@ fun AnnotationScreen(
                 }
             }
 
-            SectionHeader(
-                title = "Marked this run",
-                trailing = if (totalMarks > 0) totalMarks.toString() else null,
-            )
-            if (recent.isEmpty()) {
-                EmptyState(
-                    title = if (running) "Nothing marked yet" else "Nothing marked",
-                    body = if (running) {
-                        "Tap a button above the moment something happens — it goes onto the bus and " +
-                            "into the recording, stamped with the time of the press."
-                    } else {
-                        "Marks belong to a run. Start one and the buttons above become live."
-                    },
-                )
-            } else {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(vertical = 4.dp)) {
-                        recent.asReversed().forEachIndexed { index, annotation ->
-                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
-                            MarkRow(annotation, nowMillis)
-                        }
-                    }
-                }
-            }
         }
     }
+}
+
+/**
+ * The compact form of the list: the newest mark, on one line.
+ *
+ * Enough to answer the question the list is there for — did that register, and what was it — without
+ * the buttons moving down the screen. The snackbar already confirms the press itself; this is what
+ * survives it.
+ *
+ * A burst of marks leaves this naming only the last of them. The count in the header beside it is what
+ * says there were others.
+ */
+@Composable
+private fun MarkSummary(newest: Annotation?, running: Boolean, nowMillis: Long) {
+    if (newest == null) {
+        // One line rather than the `EmptyState` card: the explanation of what a mark is belongs on the
+        // expanded path, where there is room for it.
+        Text(
+            if (running) "Nothing marked yet" else "Nothing marked",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    val time = clock.format(Date(newest.atEpochMillis))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .readAsOneItem(
+                "Latest mark: ${newest.message}, $time, ${formatAge(newest.atEpochMillis, nowMillis)}"
+            ),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "${newest.message} · $time · ${formatAge(newest.atEpochMillis, nowMillis)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        // Same exception-based rule the rows follow: only a non-routine mark is coloured, so colour
+        // still means "look at this".
+        if (newest.severity != AnnotationSeverity.Info) {
+            Text(
+                newest.severity.label,
+                style = MaterialTheme.typography.labelMedium,
+                color = severityColor(newest.severity),
+            )
+        }
+    }
+}
+
+/**
+ * The most serious severity in the list, or null when everything in it is routine.
+ *
+ * What colours the collapsed header's count. Reads the whole list rather than the newest mark, because
+ * a fault five marks ago is still the thing somebody must not miss — and collapsed, the newest line is
+ * all they would otherwise see.
+ */
+private fun worstSeverity(marks: List<Annotation>): AnnotationSeverity? = when {
+    marks.any { it.severity == AnnotationSeverity.Error } -> AnnotationSeverity.Error
+    marks.any { it.severity == AnnotationSeverity.Warning } -> AnnotationSeverity.Warning
+    else -> null
 }
 
 @Composable
