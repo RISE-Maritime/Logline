@@ -111,10 +111,11 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
-- [ ] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
+- [x] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
       `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run
       to write settings that did not change. Pre-existing, unrelated to the regroup, and visible on
       every screenshot of that screen. `CalibrationScreen` gets this right (`dirty && …`).
+      Done in the commit that follows this note.
 
 - [ ] **"Find a router" is filed under Advanced, which is a judgement call.** The plan's six-group
       table had it under Connection and put the scout multicast address in Advanced on its own —

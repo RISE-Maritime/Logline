@@ -1152,9 +1152,14 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   and **not** a `putUInt32` before it — writing the length twice produced a file that parsed perfectly
   and carried no tags. And the metadata count in Statistics has to move with the record, or the figures
   describe a file that is not there.
-- **A tag is a state, not an event, which is why it lives on the Events tab as switches.** A quick mark
-  says something happened at a moment; a tag says what the whole run *is*. The vocabulary and which of
-  them are on both persist in `Settings`, like the annotation buttons — a boat that is always "harbour
+- **A tag is a state, not an event, which is why it lives on the Session tab as switches.** A quick mark
+  says something happened at a moment; a tag says what the whole run *is*. It began on Events and moved:
+  Events is for marking moments as they pass, and what the run *is* belongs with the other things chosen
+  before Start — directly above **Sampling rates**, which is the same kind of decision one step less
+  fundamental (the rates say how much of the run there will be; the tags say what it was). The gear in
+  the section header turns the chips into an editor rather than opening a screen: the chips *are* the
+  control, and this is the control for them.
+  The vocabulary and which of them are on both persist in `Settings`, like the annotation buttons — a boat that is always "harbour
   trial" should not have to be told twice — and toggling one goes through **`update()`, never
   `saveSettings()`**, the same rule the per-subject switches follow: tearing down the Zenoh session and
   the open MCAP file to record a word would end the very run being labelled. `PublisherService.watchTags`

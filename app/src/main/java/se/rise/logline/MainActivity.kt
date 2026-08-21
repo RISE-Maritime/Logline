@@ -749,6 +749,46 @@ private fun App(
                 onSetRecordingEnabled = { on ->
                     scope.launch { app.settingsRepository.update(current.copy(recordingEnabled = on)) }
                 },
+                // **`update()`, never `saveSettings()`** — the same rule the per-subject switches and
+                // the annotation buttons follow. Toggling a tag must not tear down the Zenoh session
+                // and close the MCAP file: that would end the very run somebody is labelling.
+                tags = current.tags,
+                activeTags = current.activeTags,
+                onToggleTag = { tag ->
+                    scope.launch {
+                        app.settingsRepository.update(
+                            current.copy(
+                                activeTags = if (tag in current.activeTags) {
+                                    current.activeTags - tag
+                                } else {
+                                    current.activeTags + tag
+                                }
+                            )
+                        )
+                    }
+                },
+                onAddTag = { tag ->
+                    scope.launch {
+                        // Switched on as it is added: somebody typing a tag during a run wants it on
+                        // that run, and having to tap it again is a step that only ever gets missed.
+                        app.settingsRepository.update(
+                            current.copy(
+                                tags = (current.tags + tag).distinct(),
+                                activeTags = current.activeTags + tag,
+                            )
+                        )
+                    }
+                },
+                onRemoveTag = { tag ->
+                    scope.launch {
+                        app.settingsRepository.update(
+                            current.copy(
+                                tags = current.tags - tag,
+                                activeTags = current.activeTags - tag,
+                            )
+                        )
+                    }
+                },
                 onSetPublishAllMax = { on ->
                     scope.launch { saveSettings(app, current.copy(publishAllMax = on)) }
                 },
@@ -1184,46 +1224,6 @@ private fun App(
                 onColumnsChange = { eventsColumns = it },
                 noteShown = eventsNoteShown,
                 onNoteShownChange = { eventsNoteShown = it },
-                // **`update()`, never `saveSettings()`** — the same rule the per-subject switches and
-                // the annotation buttons follow. Toggling a tag must not tear down the Zenoh session
-                // and close the MCAP file: that would end the very run somebody is labelling.
-                tags = current.tags,
-                activeTags = current.activeTags,
-                onToggleTag = { tag ->
-                    scope.launch {
-                        app.settingsRepository.update(
-                            current.copy(
-                                activeTags = if (tag in current.activeTags) {
-                                    current.activeTags - tag
-                                } else {
-                                    current.activeTags + tag
-                                }
-                            )
-                        )
-                    }
-                },
-                onAddTag = { tag ->
-                    scope.launch {
-                        // Switched on as it is added: somebody typing a tag during a run wants it on
-                        // that run, and having to tap it again is a step that only ever gets missed.
-                        app.settingsRepository.update(
-                            current.copy(
-                                tags = (current.tags + tag).distinct(),
-                                activeTags = current.activeTags + tag,
-                            )
-                        )
-                    }
-                },
-                onRemoveTag = { tag ->
-                    scope.launch {
-                        app.settingsRepository.update(
-                            current.copy(
-                                tags = current.tags - tag,
-                                activeTags = current.activeTags - tag,
-                            )
-                        )
-                    }
-                },
                 bottomBar = navBar,
             )
         }

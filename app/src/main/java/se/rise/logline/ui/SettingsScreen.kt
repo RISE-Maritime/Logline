@@ -209,7 +209,11 @@ fun SettingsScreen(
             FormActions(
                 onSave = { onSave(edited) },
                 onCancel = leave,
-                saveEnabled = saveable,
+                // **`dirty` as well as `saveable`**, the same pair `CalibrationScreen` uses. Enabled on
+                // a freshly opened screen, Save is an invitation to restart the run — dropping the
+                // Zenoh session and closing the MCAP file — in order to write settings that have not
+                // changed.
+                saveEnabled = dirty && saveable,
                 hint = when {
                     !saveable -> "Realm, entity and at least one endpoint are required."
                     dirty -> "Saving restarts the session if a run is going."

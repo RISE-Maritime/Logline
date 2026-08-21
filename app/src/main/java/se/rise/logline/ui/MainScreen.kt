@@ -156,6 +156,12 @@ fun MainScreen(
     /** Flip every subject to full rate, or back to the tuned profile. Restarts the run. */
     onSetRecordAllMax: (Boolean) -> Unit,
     onSetPublishAllMax: (Boolean) -> Unit,
+    /** The tag vocabulary and which of them are switched on — see [TagsSection]. */
+    tags: List<String>,
+    activeTags: Set<String>,
+    onToggleTag: (String) -> Unit,
+    onAddTag: (String) -> Unit,
+    onRemoveTag: (String) -> Unit,
     onGrantLocation: () -> Unit,
     /** The recorder's backlog, pulled on the caller's ticker — never pushed from the publish path. */
     load: RecordingLoad = RecordingLoad(),
@@ -275,6 +281,16 @@ fun MainScreen(
                     }
                 }
             }
+
+            // Above the rates, because both are choices made before Start and this is the one that
+            // says what the run *is* — the rates only say how much of it there will be.
+            TagsSection(
+                tags = tags,
+                activeTags = activeTags,
+                onToggleTag = onToggleTag,
+                onAddTag = onAddTag,
+                onRemoveTag = onRemoveTag,
+            )
 
             RateModeCard(
                 settings = settings,
