@@ -175,6 +175,8 @@ fun TrackMap(
             // Dark on map tiles, light on imagery. The library paints it black whatever is underneath,
             // and black on a night-time satellite tile is not attribution, it is a smudge.
             copyright.value?.setTextColor(attributionColour(layer))
+            // The heading line takes the same ink at full strength — see `FixOverlay.inkColor`.
+            fixOverlay.inkColor = chartInk(layer)
             map.setUseDataConnection(!offlineOnly)
             val marks = seaMarkOverlay.value ?: TilesOverlay(
                 MapTileProviderBasic(map.context, TileSourceFactory.OPEN_SEAMAP),
@@ -297,8 +299,18 @@ private class FixOverlay : Overlay() {
         strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
     }
+    /**
+     * The heading line's ink, set from the base layer — see `chartInk`.
+     *
+     * White over imagery, near-black over map tiles. It carries **no halo**, unlike everything else
+     * drawn here: a halo exists to give a *coloured* line contrast it cannot get from its own hue, and
+     * this line has no hue to keep — it is simply the opposite of whatever is underneath. Adding one
+     * would mean outlining white in white.
+     */
+    var inkColor: Int = Color.WHITE
+
     private val headingPaint = Paint().apply {
-        color = Color.rgb(0xC8, 0x7A, 0x1E)
+        color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = HEADING_PX
         strokeCap = Paint.Cap.ROUND
@@ -350,10 +362,10 @@ private class FixOverlay : Overlay() {
             }
         }
 
-        // **Both halos before either line.** The two vectors share an origin, so they always overlap
-        // near the dot — drawing halo-then-line twice would have the heading's white stroke painted
-        // across the course line it was meant to sit under, leaving a notch in it at exactly the point
-        // the eye starts reading from.
+        // The course vector keeps its halo; the heading line has none — it is the layer's own ink and
+        // has nothing to be outlined against. Its halo used to be drawn *before* the course line for a
+        // reason that no longer applies: the two share an origin, so a halo painted after would have
+        // notched the course line at exactly the point the eye starts reading from.
         val course = current.bearingDegrees
         // **A real distance, so it scales with the chart** — the same conversion the accuracy circle
         // uses, and for the same reason: a fixed pixel length means a different distance at every zoom,
@@ -369,9 +381,8 @@ private class FixOverlay : Overlay() {
             .coerceAtMost(hypot(canvas.width.toFloat(), canvas.height.toFloat()))
         halo.strokeWidth = COURSE_PX + HALO_PX
         course?.let { canvas.drawVector(x, y, it, VECTOR_PX, halo) }
-        halo.strokeWidth = HEADING_PX + HALO_PX
-        headingDegrees?.let { canvas.drawVector(x, y, it, headingLength, halo) }
 
+        headingPaint.color = inkColor
         course?.let { canvas.drawVector(x, y, it, VECTOR_PX, coursePaint) }
         headingDegrees?.let { canvas.drawVector(x, y, it, headingLength, headingPaint) }
 
@@ -437,13 +448,24 @@ private const val TRACK_HALO_PX = 4f
 private const val ATTRIBUTION_TEXT_DP = 9
 
 /**
- * The notice's ink, per base layer.
+ * Ink that reads on whatever the base layer is drawing.
  *
- * Both are held back to about 70% opacity — present, checkable, and not competing with the position
- * readout. Satellite imagery is dark far more often than it is light (water, shadow, night passes), so
- * it takes white; the standard map's tiles are pale everywhere and take near-black.
+ * Satellite imagery is dark far more often than it is light — water, forest, shadow — so it takes
+ * white; the standard map's tiles are pale everywhere and take black. One function because two things
+ * now depend on it and they must not disagree about which layer is which.
  */
-private fun attributionColour(layer: MapLayer): Int = when (layer) {
-    MapLayer.Satellite -> Color.argb(0xB3, 0xFF, 0xFF, 0xFF)
-    MapLayer.Standard -> Color.argb(0xB3, 0x00, 0x00, 0x00)
+private fun chartInk(layer: MapLayer): Int = when (layer) {
+    MapLayer.Satellite -> Color.WHITE
+    MapLayer.Standard -> Color.BLACK
+}
+
+/**
+ * The notice's ink: the same choice, held back to about 70% opacity.
+ *
+ * Present and checkable, and not competing with the position readout — attribution is a condition of
+ * use rather than a design element.
+ */
+private fun attributionColour(layer: MapLayer): Int {
+    val ink = chartInk(layer)
+    return Color.argb(0xB3, Color.red(ink), Color.green(ink), Color.blue(ink))
 }

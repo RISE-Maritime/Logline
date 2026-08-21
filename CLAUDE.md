@@ -342,6 +342,14 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
 - **The live view is an instrument, not a control panel, and the hierarchy is deliberate**: chart →
   the three navigation values → data quality → the sensor groups. Four decisions hold it together and
   each has a failure it exists to prevent.
+  **The heading line takes the layer's own ink and has no halo** — white over imagery, black over map
+  tiles, from `chartInk()`, which the attribution also reads at 70% alpha so the two cannot disagree
+  about which layer is which. It is the one thing drawn here without a white under-stroke, and that
+  follows: a halo gives a *coloured* line contrast its hue cannot provide, and this line has no hue to
+  keep — it is simply the opposite of whatever is underneath, so a halo would be outlining white in
+  white. The course vector keeps its halo, being blue on both layers. Note the halos used to be drawn
+  before *both* lines for a reason that has gone with it: the two share an origin, and a heading halo
+  painted afterwards notched the course line exactly where the eye starts reading.
   **The heading line is twelve nautical miles, and therefore scales with the chart.** A fixed pixel
   length is a different distance at every zoom, which is the one thing a heading line must not be, so it
   goes through the same `metersToPixels` the accuracy circle uses. At working zoom the twelve miles run
