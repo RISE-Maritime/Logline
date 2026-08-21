@@ -232,6 +232,7 @@ private fun App(
     val settings by app.settingsRepository.settings.collectAsState(initial = null)
     val status by app.publisher.status.collectAsState()
     val recording by app.publisher.recording.collectAsState()
+    val recordingTags by app.recordingTags.tags.collectAsState(initial = emptyMap())
     val scope = rememberCoroutineScope()
     val nav = rememberNavController()
 
@@ -798,8 +799,22 @@ private fun App(
                     }
                 }
             }
+            // A run that finishes while this tab is on screen should appear without having to leave
+            // and come back. The listing is otherwise read once per composition and after a delete,
+            // and nothing else tells it a recording has arrived.
+            var wasRecording by remember { mutableStateOf(recording.recording) }
+            LaunchedEffect(recording.recording) {
+                if (wasRecording && !recording.recording) recordingsRevision++
+                wasRecording = recording.recording
+            }
+            LaunchedEffect(recordings) {
+                recordings?.let { listed ->
+                    app.recordingTags.prune(listed.map { it.name }.toSet())
+                }
+            }
             RecordingsScreen(
                 files = recordings.orEmpty(),
+                tagsOf = { name -> recordingTags[name].orEmpty() },
                 onLoadTrack = { file ->
                     val id = ContentUris.parseId(file.uri)
                     val stamp = TrackCache.Stamp(file.sizeBytes, file.savedAtMillis)
@@ -977,7 +992,16 @@ private fun App(
                 }
             }
 
+            // **Null until the row is read, and the editor is hidden until then.** Tags are keyed on
+            // the file name; `uri.lastPathSegment` is the MediaStore id, so tagging before the name
+            // arrives would file the words under a number the list never looks up — silently, and for
+            // good.
+            val name = listed?.name
             RecordingDetailScreen(
+                tags = name?.let { recordingTags[it].orEmpty() },
+                onTagsChange = { updated ->
+                    name?.let { known -> scope.launch { app.recordingTags.set(known, updated) } }
+                },
                 chart = { fixes, m ->
                     RecordingChart(
                         fixes = fixes,

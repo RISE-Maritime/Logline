@@ -283,7 +283,7 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       profile and the newest complete recording both survived. Done in the commit that follows this
       note.
 
-- [ ] **The recordings list is read once and never refreshed while you are looking at it.**
+- [x] **The recordings list is read once and never refreshed while you are looking at it.**
       `produceState(null, recordingsRevision)` re-runs when the screen is composed or after a delete,
       and nothing else. Leaving the tab and coming back does re-read, because the route's composable is
       disposed and recreated — but a run that finishes while the Files tab is on screen does not appear
@@ -291,3 +291,7 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       Found while answering "why do I not see the latest recording?", where the actual cause turned out
       to be different (an interrupted run only reaches Downloads at the *next* app start, through
       `publishOrphans`), but the gap is real and would produce the same complaint.
+      Done in the commit that follows this note: the revision is bumped when `recording.recording` goes
+      false. Note the gap was narrower than feared — leaving the tab and returning *does* re-read,
+      verified by deleting a file behind the app's back and watching the count go 7 to 6 — so only a run
+      ended from the notification while the tab is on screen was ever affected.

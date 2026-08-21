@@ -1139,6 +1139,29 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   sets `Configuration.userAgentValue` to the package name and calls `MapView.onResume()` — `AndroidView`
   does not forward lifecycle, and osmdroid starts its tile threads there. Both were needed before a
   single tile appeared.
+- **Tags are the only thing on a recording that a person chose.** A file name is a timestamp: it answers
+  "when" and nothing else, which is why a list of them is hard to read. `RecordingTags` stores free text
+  per recording and the search matches it, so "quay trial" finds the run somebody labelled that.
+  **Keyed on the file name, never on the MediaStore id.** The name is the run's start time and is what
+  the file is actually called; the id is a row number in a database this app does not own, and on the
+  dev phone alone it has been seen to go missing for files an earlier install wrote. A tag surviving
+  that is the point of writing it down. The consequence is that the editor is **hidden until the name is
+  known** — `listed` is read asynchronously and `uri.lastPathSegment` is the *id*, so tagging in that
+  window would file somebody's words under a number nothing looks up, silently and for good.
+  Its **own DataStore**, not a corner of `Settings`: these belong to files rather than to the phone, and
+  in `Settings` they would ride into every exported profile and onto every phone that imported one.
+  The separator is a newline and `normaliseTag` guarantees no tag contains one — a delimiter that cannot
+  appear in a value needs no escaping, which is where round trips go wrong. `RecordingTagsTest` pins
+  that, because the failure is quiet: a tag that splits in two on the way back out is a tag nobody typed.
+- **"Why do I not see the latest recording?" has three answers and none of them is a stale list.**
+  Measured rather than assumed — deleting a file behind the app's back and returning to the tab takes
+  the count from 7 to 6, so navigation genuinely re-reads. What does explain it: a run **in progress** is
+  deliberately absent, living in app-private storage until it closes; a run that was **interrupted**
+  rather than stopped only reaches Downloads at the *next* app launch, through `publishOrphans`, and
+  arrives labelled "incomplete, never closed"; and a run that ends **while the Files tab is on screen**
+  — which only the notification's stop action can do — used to need a trip away and back, since the
+  listing is otherwise read once per composition and after a delete. That last one is now handled by
+  bumping the revision when `recording.recording` goes false.
 - **The Files list is searched, ordered and filtered, and all three read a recording's *name*.** With 119
   recordings on the dev phone whose names differ only by a timestamp, the list was unusable without them.
   **Search ignores separators on both sides**, so `2026-08-21`, `20260821` and `0821` all find

@@ -97,6 +97,8 @@ fun RecordingsScreen(
      * once; see `MainActivity`.
      */
     onLoadTrack: suspend (SavedRecording) -> List<TrackFix>?,
+    /** A recording's tags, by file name. Shown on the row and searched. */
+    tagsOf: (String) -> Set<String>,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -104,8 +106,8 @@ fun RecordingsScreen(
     var confirmDeleteAll by remember { mutableStateOf(false) }
     val snackbars = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val shown = remember(files, query, sort, filter) {
-        visibleRecordings(files, query, sort, filter)
+    val shown = remember(files, query, sort, filter, tagsOf) {
+        visibleRecordings(files, query, sort, filter, tagsOf)
     }
     val listState = rememberLazyListState()
     // **A reorder has to bring the top of the list with it.**
@@ -245,8 +247,8 @@ fun RecordingsScreen(
                     EmptyState(
                         title = "No recordings match",
                         body = if (filter == RecordingFilter.All) {
-                            "Nothing here is named like that. A recording's name is the date and time " +
-                                "it started, so 2026-08-21 or 0821 will find one."
+                            "Nothing here is named or tagged like that. A recording's name is the date " +
+                                "and time it started, so 2026-08-21 or 0821 will find one."
                         } else {
                             "Nothing matches with the list set to ${filter.label.lowercase()}."
                         },
@@ -280,6 +282,18 @@ fun RecordingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            // The words somebody put on this run, which is the thing a list of
+                            // timestamps cannot otherwise tell you.
+                            val tags = tagsOf(file.name)
+                            if (tags.isNotEmpty()) {
+                                Text(
+                                    tags.joinToString(" · "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onOpen(file) }) { Text("Details") }
                                 OutlinedButton(onClick = { onShare(file) }) { Text("Share…") }
@@ -328,7 +342,7 @@ private fun RecordingsToolbar(
             value = query,
             onValueChange = onQueryChange,
             singleLine = true,
-            placeholder = { Text("Search by date or name") },
+            placeholder = { Text("Search by date, name or tag") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) {

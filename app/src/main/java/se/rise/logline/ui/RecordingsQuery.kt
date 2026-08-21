@@ -55,9 +55,13 @@ enum class RecordingFilter(val label: String) {
  * A query that is nothing but punctuation normalises to empty and therefore matches everything, which
  * is the same answer an empty box gives and the only sensible one: it expresses no constraint.
  */
-fun matchesQuery(name: String, query: String): Boolean {
+fun matchesQuery(name: String, query: String, tags: Set<String> = emptySet()): Boolean {
     val wanted = normalise(query)
-    return wanted.isEmpty() || normalise(name).contains(wanted)
+    if (wanted.isEmpty()) return true
+    if (normalise(name).contains(wanted)) return true
+    // Tags are searched too, which is most of why they are worth typing: a name is a timestamp and a
+    // tag is what the run *was*, so "quay trial" has to find the recording somebody labelled that.
+    return tags.any { normalise(it).contains(wanted) }
 }
 
 /** The list as the screen should show it: filtered, searched, then ordered. */
@@ -66,6 +70,8 @@ fun <T : RecordingFacts> visibleRecordings(
     query: String,
     sort: RecordingSort,
     filter: RecordingFilter,
+    /** A recording's tags, by name. Searched alongside the name — see [matchesQuery]. */
+    tagsOf: (String) -> Set<String> = { emptySet() },
 ): List<T> {
     val kept = all.filter { recording ->
         val passesFilter = when (filter) {
@@ -77,7 +83,7 @@ fun <T : RecordingFacts> visibleRecordings(
             RecordingFilter.Complete -> recording.isComplete == true
             RecordingFilter.Incomplete -> recording.isComplete == false
         }
-        passesFilter && matchesQuery(recording.name, query)
+        passesFilter && matchesQuery(recording.name, query, tagsOf(recording.name))
     }
     // Every order breaks its ties by newest, so two files of the same size do not swap places between
     // recompositions — a list that reshuffles under the thumb is one nobody trusts.

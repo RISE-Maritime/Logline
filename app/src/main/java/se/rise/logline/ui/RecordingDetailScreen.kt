@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,7 +14,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -27,10 +37,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.McapDetails
 import se.rise.logline.record.TrackFix
+import se.rise.logline.record.normaliseTag
 import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
@@ -82,6 +94,15 @@ fun RecordingDetailScreen(
      * lifecycle, none of which a screen may hold. The same slot `LiveScreen` takes its map through.
      */
     chart: @Composable (List<TrackFix>, Modifier) -> Unit,
+    /**
+     * The words on this recording, or **null while the file name is still being read**.
+     *
+     * Tags are keyed on that name, so an editor offered before it is known would file somebody's words
+     * under a MediaStore id nothing looks up. Hidden rather than disabled: there is nothing useful to
+     * say about a wait of a few milliseconds.
+     */
+    tags: Set<String>?,
+    onTagsChange: (Set<String>) -> Unit,
     onBack: () -> Unit,
 ) {
     // Not hoisted: expanding the chart is something you do for a minute while looking at it, the same
@@ -147,6 +168,11 @@ fun RecordingDetailScreen(
                         )
                     }
                 }
+            }
+
+            tags?.let {
+                SectionHeader(title = "Tags")
+                TagEditor(tags = it, onTagsChange = onTagsChange)
             }
 
             SectionHeader(title = "Track")
@@ -326,5 +352,64 @@ private fun ChartExpandButton(
             description = if (expanded) "Shrink the chart" else "Expand the chart",
             onClick = { onExpandedChange(!expanded) },
         )
+    }
+}
+
+/**
+ * The words on a recording.
+ *
+ * A file name is a timestamp, which says when a run happened and nothing about what it was. A tag is
+ * the part a person can search for later — and it is searched, so "quay trial" finds the run somebody
+ * labelled that rather than only a date they have to remember.
+ *
+ * Free text rather than a fixed vocabulary: what is worth writing down differs per trial, and a list
+ * to pick from would have to be maintained by somebody who is not on the boat.
+ */
+@Composable
+private fun TagEditor(tags: Set<String>, onTagsChange: (Set<String>) -> Unit) {
+    var draft by rememberSaveable { mutableStateOf("") }
+    val add = {
+        // Normalised here as well as on the way into the store, so what appears as a chip is exactly
+        // what was kept — a tag that silently changed shape on save would look like a typo.
+        normaliseTag(draft)?.let { onTagsChange(tags + it) }
+        draft = ""
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (tags.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                tags.forEach { tag ->
+                    InputChip(
+                        selected = false,
+                        onClick = { onTagsChange(tags - tag) },
+                        label = { Text(tag) },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Remove the tag $tag",
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                    )
+                }
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = draft,
+                // A tag is one word or a short phrase; a newline would split it into two on the way
+                // back out of the store, which is a quiet way to invent a tag nobody typed.
+                onValueChange = { draft = it.replace('\n', ' ') },
+                label = { Text("Add a tag") },
+                singleLine = true,
+                keyboardActions = KeyboardActions(onDone = { add() }),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = add, enabled = normaliseTag(draft) != null) { Text("Add") }
+        }
     }
 }
