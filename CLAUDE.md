@@ -1139,20 +1139,42 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   sets `Configuration.userAgentValue` to the package name and calls `MapView.onResume()` — `AndroidView`
   does not forward lifecycle, and osmdroid starts its tile threads there. Both were needed before a
   single tile appeared.
+- **Tags travel in the recording, as an MCAP Metadata record.** `McapWriter` writes one named `tags`
+  holding a single entry, `tags`, newline-separated — verified with the real `mcap` Python library,
+  which reads it back as `tags {'tags': 'quay trial\nengine run'}`, so any MCAP tool can see them.
+  A **MetadataIndex** goes in the summary beside Statistics, so a reader finds them in one seek rather
+  than the full scan the track needs; `readMcapDetails` follows it.
+  **Written at close, never at open.** `RecordingSession.close(tags)` takes them as an argument for
+  exactly that reason — "the configuration at the end of the run" is what gets stored — and it has a
+  consequence worth stating: a run that **rotates** at 512 MB gives each file the tags that were on as
+  *it* closed, not the run's final set.
+  Two traps. `putBytes` already writes the uint32 length prefix, so the map needs `putBytes(encoded)`
+  and **not** a `putUInt32` before it — writing the length twice produced a file that parsed perfectly
+  and carried no tags. And the metadata count in Statistics has to move with the record, or the figures
+  describe a file that is not there.
+- **A tag is a state, not an event, which is why it lives on the Events tab as switches.** A quick mark
+  says something happened at a moment; a tag says what the whole run *is*. The vocabulary and which of
+  them are on both persist in `Settings`, like the annotation buttons — a boat that is always "harbour
+  trial" should not have to be told twice — and toggling one goes through **`update()`, never
+  `saveSettings()`**, the same rule the per-subject switches follow: tearing down the Zenoh session and
+  the open MCAP file to record a word would end the very run being labelled. `PublisherService.watchTags`
+  pushes the set into the running recorder, exactly as `watchOffSubjects` does.
+  **A settings profile carries the vocabulary but not the selection.** The words are fleet
+  configuration; which are switched on is the state of one run on one phone, and importing somebody
+  else's would quietly label this phone's next recording with their afternoon — a label that then goes
+  into the file. Anything active but missing from an imported vocabulary is dropped, or a phone stays
+  switched on for a tag it cannot see.
+  The Files detail screen shows a recording's tags **read-only**: a closed MCAP file is not rewritten to
+  change its mind about what the run was.
 - **Tags are the only thing on a recording that a person chose.** A file name is a timestamp: it answers
   "when" and nothing else, which is why a list of them is hard to read. `RecordingTags` stores free text
   per recording and the search matches it, so "quay trial" finds the run somebody labelled that.
-  **Keyed on the file name, never on the MediaStore id.** The name is the run's start time and is what
-  the file is actually called; the id is a row number in a database this app does not own, and on the
-  dev phone alone it has been seen to go missing for files an earlier install wrote. A tag surviving
-  that is the point of writing it down. The consequence is that the editor is **hidden until the name is
-  known** — `listed` is read asynchronously and `uri.lastPathSegment` is the *id*, so tagging in that
-  window would file somebody's words under a number nothing looks up, silently and for good.
-  Its **own DataStore**, not a corner of `Settings`: these belong to files rather than to the phone, and
-  in `Settings` they would ride into every exported profile and onto every phone that imported one.
   The separator is a newline and `normaliseTag` guarantees no tag contains one — a delimiter that cannot
   appear in a value needs no escaping, which is where round trips go wrong. `RecordingTagsTest` pins
   that, because the failure is quiet: a tag that splits in two on the way back out is a tag nobody typed.
+  This began as a per-recording DataStore keyed on the file name, edited from the Files detail screen.
+  That is gone: a tag that does not travel with the file is a note about somebody's phone, not about the
+  recording, and the first thing anybody does with a recording is copy it off.
 - **"Why do I not see the latest recording?" has three answers and none of them is a stale list.**
   Measured rather than assumed — deleting a file behind the app's back and returning to the tab takes
   the count from 7 to 6, so navigation genuinely re-reads. What does explain it: a run **in progress** is

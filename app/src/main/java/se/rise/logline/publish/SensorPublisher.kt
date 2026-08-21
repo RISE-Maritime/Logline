@@ -251,6 +251,11 @@ class SensorPublisher(private val appContext: Context) {
     private val offSubjects = MutableStateFlow<Set<PublishedSubject>>(emptySet())
 
     /** Apply the switches. Safe before, during and after a run; a run in progress picks them up at once. */
+    /** The tags a finished recording will carry. Pushed into the run, never a reason to restart it. */
+    fun setTags(tags: Set<String>) {
+        recorder.setTags(tags)
+    }
+
     fun setOffSubjects(subjects: Set<PublishedSubject>) {
         offSubjects.value = subjects
     }
@@ -380,6 +385,7 @@ class SensorPublisher(private val appContext: Context) {
                 // Before any collector is supervised, so a subject that starts switched off never
                 // registers its listener in the first place.
                 setOffSubjects(settings.offSubjects())
+                recorder.setTags(settings.activeTags)
                 if (settings.recordingEnabled) recorder.start()
 
                 // One publisher per registry entry, so adding a subject to PublishedSubject is all it

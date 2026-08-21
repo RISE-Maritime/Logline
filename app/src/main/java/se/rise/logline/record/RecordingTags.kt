@@ -1,62 +1,12 @@
 package se.rise.logline.record
 
-import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-
-private val Context.tagStore: DataStore<Preferences> by preferencesDataStore(name = "logline_recording_tags")
-
 /**
- * Words the operator put on a recording, so a list of timestamps can be read as a list of runs.
+ * What a tag is, on the way into a recording and back out of it.
  *
- * **Keyed on the recording's name, never on its MediaStore id.** The name is the run's start time and
- * is what the file is actually called; the id is a row number in a database this app does not own, and
- * on this phone alone it has been observed to change under a reinstall and to go missing entirely for
- * files an earlier install wrote. A tag surviving that is the whole point of writing it down.
- *
- * Its own DataStore rather than a corner of the settings, because these are not settings: they belong
- * to files rather than to the phone, and putting them in `Settings` would carry them into every
- * exported profile and onto every phone that imported one.
+ * The words themselves live in `Settings` — they are a configuration, like the annotation buttons, and
+ * persist between runs — and the set that was switched on when a file closed is written into that file
+ * as an MCAP Metadata record. These are the rules both ends agree on.
  */
-class RecordingTags(private val context: Context) {
-
-    /** Every tagged recording, by file name. Recordings with no tags are simply absent. */
-    val tags: Flow<Map<String, Set<String>>> = context.tagStore.data.map { prefs ->
-        prefs.asMap().mapNotNull { (key, value) ->
-            val stored = value as? String ?: return@mapNotNull null
-            val parsed = parseTags(stored)
-            if (parsed.isEmpty()) null else key.name to parsed
-        }.toMap()
-    }
-
-    /** Replace a recording's tags. An empty set removes the entry rather than storing a blank. */
-    suspend fun set(recordingName: String, tags: Set<String>) {
-        val key = stringPreferencesKey(recordingName)
-        context.tagStore.edit { prefs ->
-            if (tags.isEmpty()) prefs.remove(key) else prefs[key] = encodeTags(tags)
-        }
-    }
-
-    /**
-     * Forget tags for recordings that are no longer there.
-     *
-     * Cheap to skip and cheap to do — a tag is a few bytes — but a deleted run's words reappearing on a
-     * later recording that happened to reuse its name would be worse than either.
-     */
-    suspend fun prune(keep: Set<String>) {
-        context.tagStore.edit { prefs ->
-            prefs.asMap().keys.map { it.name }.filterNot { it in keep }.forEach {
-                prefs.remove(stringPreferencesKey(it))
-            }
-        }
-    }
-}
-
 /**
  * A tag as it will be stored, or null if there is nothing left of it.
  *

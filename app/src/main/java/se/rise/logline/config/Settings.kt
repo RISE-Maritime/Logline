@@ -218,6 +218,23 @@ data class Settings(
      * regardless — so editing these does **not** restart the publisher. See `MainActivity`.
      */
     val annotationButtons: List<AnnotationButton> = DEFAULT_ANNOTATION_BUTTONS,
+    /**
+     * The tag vocabulary, in the order it is shown on the Events screen.
+     *
+     * A *configuration*, like [annotationButtons] — the words this phone or this fleet uses — which is
+     * why it lives here and travels in a settings profile, rather than beside the recordings it ends up
+     * describing.
+     */
+    val tags: List<String> = emptyList(),
+    /**
+     * Which of [tags] are switched on.
+     *
+     * Whatever is on when a file closes is written into it, so this is a live control rather than a
+     * preference: toggling one goes through `update()` and is pushed into the running recorder, never
+     * through `saveSettings()`, which would tear down the run to record a word. It persists between
+     * runs on purpose — a rig that is always "harbour" should not have to be told twice.
+     */
+    val activeTags: Set<String> = emptySet(),
     /** Multicast socket used by the router scan. Only ever used for scanning, never for the session. */
     val scoutAddress: String = DEFAULT_SCOUT_ADDRESS,
     /**

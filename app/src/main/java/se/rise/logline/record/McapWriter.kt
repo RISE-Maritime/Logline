@@ -143,6 +143,17 @@ class McapWriter(private val sink: OutputStream) {
         // Before DataEnd: anything still buffered belongs in the data section.
         flushChunk()
 
+        // **The tags, written at the last possible moment.** They are what the operator had switched on
+        // when this file closed, which is why they cannot be written at `start()` — and why a run that
+        // rotates gives each file the tags that were active as *it* closed rather than the run's final
+        // set. A Metadata record lives in the data section by the spec; the summary gets a
+        // MetadataIndex pointing at it, so a reader finds it in one seek rather than a scan.
+        val metadataOffset = bytes
+        val metadataLength = if (tags.isEmpty()) 0L else {
+            writeMetadata(tags)
+            bytes - metadataOffset
+        }
+
         writeRecord(OP_DATA_END) { putUInt32(0) } // 0 = CRC not computed
 
         val summaryStart = bytes
@@ -152,11 +163,20 @@ class McapWriter(private val sink: OutputStream) {
         channels.forEach { writeChannel(it) }
         val statisticsOffset = bytes
         writeStatistics()
+        val metadataIndexOffset = bytes
+        if (metadataLength > 0L) writeMetadataIndex(metadataOffset, metadataLength)
 
         val summaryOffsetStart = bytes
         writeSummaryOffset(OP_SCHEMA, schemaOffset, channelOffset - schemaOffset)
         writeSummaryOffset(OP_CHANNEL, channelOffset, statisticsOffset - channelOffset)
-        writeSummaryOffset(OP_STATISTICS, statisticsOffset, summaryOffsetStart - statisticsOffset)
+        writeSummaryOffset(OP_STATISTICS, statisticsOffset, metadataIndexOffset - statisticsOffset)
+        if (metadataLength > 0L) {
+            writeSummaryOffset(
+                OP_METADATA_INDEX,
+                metadataIndexOffset,
+                summaryOffsetStart - metadataIndexOffset,
+            )
+        }
 
         writeRecord(OP_FOOTER) {
             putUInt64(summaryStart)
@@ -196,6 +216,41 @@ class McapWriter(private val sink: OutputStream) {
         chunkLatest = Long.MIN_VALUE
     }
 
+    /**
+     * What the operator had switched on, written into the file when it closes.
+     *
+     * Set rather than passed to [finish] because a rotation closes a file without anybody asking it to,
+     * and the recorder pushes the current set in as it changes — see `Recorder.setTags`.
+     */
+    @Volatile
+    var tags: Set<String> = emptySet()
+
+    /**
+     * `metadata` with one entry, `tags`, holding them newline-separated.
+     *
+     * One entry rather than one per tag because the value is a plain string either way and a reader
+     * that knows nothing about this app still sees something legible. The separator is the same one
+     * `RecordingTags` uses, and `normaliseTag` guarantees no tag contains it.
+     */
+    private fun writeMetadata(tags: Set<String>) = writeRecord(OP_METADATA) {
+        putString(METADATA_TAGS)
+        // map<string, string>: a byte length, then the pairs.
+        val entries = Buffer()
+        entries.putString(METADATA_TAGS)
+        entries.putString(tags.joinToString("\n"))
+        // `putBytes` writes the uint32 length and then the bytes, which *is* the map's encoding — a
+        // separate `putUInt32` here wrote the length twice and the reader found nothing.
+        putBytes(entries.toByteArray())
+    }
+
+    /** Offset and length of the Metadata record, so it is one seek from the summary. */
+    private fun writeMetadataIndex(offset: Long, length: Long) = writeRecord(OP_METADATA_INDEX) {
+        putUInt64(offset)
+        // The spec counts the opcode and the length prefix in this, not just the body.
+        putUInt64(length)
+        putString(METADATA_TAGS)
+    }
+
     private fun writeSchema(record: SchemaRecord) = writeRecord(OP_SCHEMA) {
         putUInt16(record.id)
         putString(record.name)
@@ -216,7 +271,7 @@ class McapWriter(private val sink: OutputStream) {
         putUInt16(schemas.size)
         putUInt32(channels.size.toLong())
         putUInt32(0) // attachment count
-        putUInt32(0) // metadata count
+        putUInt32(if (tags.isEmpty()) 0L else 1L) // metadata count
         putUInt32(chunks)
         putUInt64(if (messages == 0L) 0L else earliest)
         putUInt64(if (messages == 0L) 0L else latest)
@@ -319,12 +374,17 @@ class McapWriter(private val sink: OutputStream) {
         const val OP_CHANNEL = 0x04
         const val OP_MESSAGE = 0x05
         const val OP_CHUNK = 0x06
+        const val OP_METADATA = 0x0C
+        const val OP_METADATA_INDEX = 0x0D
         const val OP_DATA_END = 0x0F
         const val OP_STATISTICS = 0x0B
         const val OP_SUMMARY_OFFSET = 0x0E
 
         /** What keelson's tooling expects on every channel and protobuf schema. */
         const val ENCODING_PROTOBUF = "protobuf"
+
+        /** The Metadata record's name, and the key inside it. */
+        const val METADATA_TAGS = "tags"
 
         /** One of MCAP's two well-known compressions. The other is lz4; `Deflater` is not legal here. */
         const val COMPRESSION_ZSTD = "zstd"

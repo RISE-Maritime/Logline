@@ -97,8 +97,6 @@ fun RecordingsScreen(
      * once; see `MainActivity`.
      */
     onLoadTrack: suspend (SavedRecording) -> List<TrackFix>?,
-    /** A recording's tags, by file name. Shown on the row and searched. */
-    tagsOf: (String) -> Set<String>,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -106,8 +104,8 @@ fun RecordingsScreen(
     var confirmDeleteAll by remember { mutableStateOf(false) }
     val snackbars = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val shown = remember(files, query, sort, filter, tagsOf) {
-        visibleRecordings(files, query, sort, filter, tagsOf)
+    val shown = remember(files, query, sort, filter) {
+        visibleRecordings(files, query, sort, filter)
     }
     val listState = rememberLazyListState()
     // **A reorder has to bring the top of the list with it.**
@@ -284,10 +282,9 @@ fun RecordingsScreen(
                             )
                             // The words somebody put on this run, which is the thing a list of
                             // timestamps cannot otherwise tell you.
-                            val tags = tagsOf(file.name)
-                            if (tags.isNotEmpty()) {
+                            if (file.tags.isNotEmpty()) {
                                 Text(
-                                    tags.joinToString(" · "),
+                                    file.tags.joinToString(" · "),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     maxLines = 2,

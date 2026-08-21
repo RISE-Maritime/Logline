@@ -72,8 +72,16 @@ class RecordingSession(
         return writer.addChannel(sample.key, schemaId, McapWriter.ENCODING_PROTOBUF)
     }
 
-    /** Finish the file. Safe to call twice. */
-    fun close() {
+    /**
+     * Finish the file, stamping it with the tags that were switched on at this moment. Safe to call
+     * twice.
+     *
+     * Taken here rather than set when the file was opened, because that is what "the configuration at
+     * the end of the run" means — and a rotation closes a file without anybody asking it to, so each
+     * file gets what was on as *it* closed.
+     */
+    fun close(tags: Set<String> = emptySet()) {
+        writer.tags = tags
         writer.finish()
         stream.close()
     }

@@ -39,6 +39,7 @@ class RecordingsQueryTest {
         override val durationMillis: Long? = 0L,
         override val isComplete: Boolean? = durationMillis != null,
         private val messagesOverride: Long? = null,
+        override val tags: Set<String> = emptySet(),
     ) : RecordingFacts {
         override val messages: Long? get() = messagesOverride ?: durationMillis?.let { 1L }
     }

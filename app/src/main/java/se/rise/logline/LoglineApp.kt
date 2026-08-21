@@ -6,7 +6,6 @@ import se.rise.logline.checklist.ChecklistSync
 import se.rise.logline.platform.PlatformSync
 import se.rise.logline.config.SettingsRepository
 import se.rise.logline.publish.SensorPublisher
-import se.rise.logline.record.RecordingTags
 
 /**
  * Process-scoped owner of the publisher and the settings repository.
@@ -18,11 +17,6 @@ class LoglineApp : Application() {
 
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
 
-    /**
-     * Tags on saved recordings. Its own store rather than a corner of the settings: these belong to
-     * files, not to the phone, and in `Settings` they would ride into every exported profile.
-     */
-    val recordingTags: RecordingTags by lazy { RecordingTags(this) }
 
     val publisher: SensorPublisher by lazy { SensorPublisher(this) }
 

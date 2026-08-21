@@ -27,6 +27,8 @@ import se.rise.logline.calibrate.toStoredJson
 import se.rise.logline.calibrate.Vec3M
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.SubjectQos
+import se.rise.logline.record.encodeTags
+import se.rise.logline.record.parseTags
 import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.parseSensorRate
 import se.rise.logline.sensors.serialise
@@ -101,6 +103,8 @@ internal object Keys {
      * time the app restarted, which is a setting that will not stay set.
      */
     val ANNOTATION_BUTTONS = stringPreferencesKey("annotation_buttons")
+    val TAGS = stringPreferencesKey("tags")
+    val ACTIVE_TAGS = stringPreferencesKey("active_tags")
 
     // Four keys per subject, e.g. `qos_location_fix_priority`. All four absent means "follow
     // qos.yaml"; a partial set is treated the same way, so a half-written override cannot produce
@@ -260,6 +264,10 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
             ?: Settings.DEFAULT_VIDEO_KEYFRAME_SECONDS,
         disabledSubjects = parseDisabledSubjects(prefs[Keys.DISABLED_SUBJECTS]),
         annotationButtons = readAnnotationButtons(prefs),
+        // Absent and empty mean the same for tags, unlike the annotation buttons: there is no default
+        // vocabulary to fall back to, so nothing has to tell them apart.
+        tags = prefs[Keys.TAGS]?.let(::parseTags)?.toList().orEmpty(),
+        activeTags = prefs[Keys.ACTIVE_TAGS]?.let(::parseTags).orEmpty(),
         qosOverrides = readQosOverrides(prefs),
         sensorRates = readSensorRates(prefs),
         recordRates = readRecordRates(prefs),
@@ -323,6 +331,9 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.VIDEO_KEYFRAME_SECONDS] = settings.videoKeyframeSeconds.toString()
     prefs[Keys.DISABLED_SUBJECTS] = settings.disabledSubjects.serialiseDisabledSubjects()
     prefs[Keys.ANNOTATION_BUTTONS] = settings.annotationButtons.serialiseAnnotationButtons()
+    prefs[Keys.TAGS] = encodeTags(settings.tags.toSet())
+    // Only tags that still exist can be active, or removing one would leave it switched on for ever.
+    prefs[Keys.ACTIVE_TAGS] = encodeTags(settings.activeTags.filter { it in settings.tags }.toSet())
     overridableSubjects.forEach { subject ->
         val override = settings.qosOverrides[subject]
         if (override == null) {

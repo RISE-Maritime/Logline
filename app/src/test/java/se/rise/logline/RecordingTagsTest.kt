@@ -12,6 +12,9 @@ import se.rise.logline.ui.matchesQuery
 /**
  * Tags on a recording: what survives being written down, and what a search finds.
  *
+ * The words live in `Settings` and are written into the recording at close — see [McapTagsTest] for
+ * that round trip. These are the rules that decide what a tag *is*.
+ *
  * The store itself is DataStore and needs a device; everything that decides what a tag *is* is pure and
  * lives here, because the failure mode is quiet — a tag that changes shape between the chip and the
  * file reads as a typo, and one that splits in two on the way back out is a tag nobody typed.

@@ -97,7 +97,12 @@ data class TopicCount(val channelId: Int, val topic: String, val messages: Long)
  * `writeChannel()` and `writeStatistics()` read backwards, and only a test that writes a file and reads
  * it back will catch them drifting apart.
  */
-data class McapDetails(val summary: McapSummary, val topics: List<TopicCount>)
+data class McapDetails(
+    val summary: McapSummary,
+    val topics: List<TopicCount>,
+    /** What the operator had switched on when the file closed. Empty when it carries none. */
+    val tags: Set<String> = emptySet(),
+)
 
 fun readMcapDetails(channel: FileChannel): McapDetails? = try {
     val size = channel.size()
@@ -111,6 +116,7 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
     val topics = LinkedHashMap<Int, String>()
     var counts: Map<Int, Long> = emptyMap()
     var summary: McapSummary? = null
+    var tags: Set<String> = emptySet()
 
     var offset = from
     while (offset + RECORD_HEADER_SIZE <= size) {
@@ -122,6 +128,13 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
         when (opcode) {
             McapWriter.OP_CHANNEL -> channel.read(length.toInt(), body).readChannel()
                 ?.let { (id, topic) -> topics[id] = topic }
+            // The summary holds only an *index* to the metadata; the record itself lives in the data
+            // section, one seek back. Cheap, and it keeps the tags out of the scan the track needs.
+            McapWriter.OP_METADATA_INDEX -> {
+                channel.read(length.toInt(), body).readMetadataIndex()?.let { at ->
+                    tags = readTagsAt(channel, at, size)
+                }
+            }
             McapWriter.OP_STATISTICS -> {
                 val bytes = channel.read(length.toInt(), body)
                 summary = bytes.readStatistics()
@@ -137,6 +150,7 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
         // Busiest first: on a run with forty subjects the question is which of them dominates the file.
         topics = topics.map { (id, topic) -> TopicCount(id, topic, counts[id] ?: 0L) }
             .sortedByDescending { it.messages },
+        tags = tags,
     )
 }
 
@@ -238,4 +252,59 @@ private fun ByteBuffer.matchesMagic(): Boolean {
     val bytes = ByteArray(remaining())
     get(bytes)
     return bytes.contentEquals(McapWriter.MAGIC)
+}
+
+/** A MetadataIndex's offset, if it names the record this app writes. */
+private fun ByteBuffer.readMetadataIndex(): Long? {
+    if (remaining() < 8 + 8 + 4) return null
+    val offset = long
+    long // record length, which is not needed: the record states its own
+    val nameLength = int
+    if (nameLength < 0 || nameLength > remaining()) return null
+    val name = ByteArray(nameLength).also { get(it) }.toString(Charsets.UTF_8)
+    return offset.takeIf { name == McapWriter.METADATA_TAGS && it >= 0 }
+}
+
+/**
+ * The tags out of a Metadata record at a known offset.
+ *
+ * Tolerant throughout: a file whose index points somewhere unhelpful loses its tags and keeps
+ * everything else, which is the right trade for a decoration on a recording.
+ */
+private fun readTagsAt(channel: FileChannel, at: Long, size: Long): Set<String> = try {
+    if (at + RECORD_HEADER_SIZE > size) emptySet() else {
+        val header = channel.read(RECORD_HEADER_SIZE, at)
+        val opcode = header.get().toInt() and 0xFF
+        val length = header.long
+        if (opcode != McapWriter.OP_METADATA || length <= 0 || at + RECORD_HEADER_SIZE + length > size) {
+            emptySet()
+        } else {
+            channel.read(length.toInt(), at + RECORD_HEADER_SIZE).readMetadataTags()
+        }
+    }
+} catch (t: Throwable) {
+    emptySet()
+}
+
+/** `name`, then a length-prefixed `map<string, string>` in which `tags` is the entry wanted. */
+private fun ByteBuffer.readMetadataTags(): Set<String> {
+    if (remaining() < 4) return emptySet()
+    val nameLength = int
+    if (nameLength < 0 || nameLength > remaining()) return emptySet()
+    position(position() + nameLength)
+    if (remaining() < 4) return emptySet()
+    val mapBytes = int
+    if (mapBytes < 0 || mapBytes > remaining()) return emptySet()
+    val end = position() + mapBytes
+    while (position() + 4 <= end) {
+        val keyLength = int
+        if (keyLength < 0 || position() + keyLength > end) return emptySet()
+        val key = ByteArray(keyLength).also { get(it) }.toString(Charsets.UTF_8)
+        if (position() + 4 > end) return emptySet()
+        val valueLength = int
+        if (valueLength < 0 || position() + valueLength > end) return emptySet()
+        val value = ByteArray(valueLength).also { get(it) }.toString(Charsets.UTF_8)
+        if (key == McapWriter.METADATA_TAGS) return parseTags(value)
+    }
+    return emptySet()
 }

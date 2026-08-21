@@ -155,6 +155,7 @@ class PublisherService : Service() {
         }
 
         watchOffSubjects()
+        watchTags()
         refreshNotificationPeriodically()
     }
 
@@ -210,6 +211,22 @@ class PublisherService : Service() {
                 .map { it.offSubjects() }
                 .distinctUntilChanged()
                 .collect { app.publisher.setOffSubjects(it) }
+        }
+    }
+
+    /**
+     * The tags the recording will carry, pushed in as they are toggled.
+     *
+     * The same shape as [watchOffSubjects] and for the same reason: a tag is written straight to
+     * DataStore rather than through `saveSettings()`, because tearing down a Zenoh session and the open
+     * MCAP file to record a word would lose the run somebody was labelling.
+     */
+    private fun watchTags() {
+        scope.launch {
+            app.settingsRepository.settings
+                .map { it.activeTags }
+                .distinctUntilChanged()
+                .collect { app.publisher.setTags(it) }
         }
     }
 

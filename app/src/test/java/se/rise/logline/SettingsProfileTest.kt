@@ -64,6 +64,8 @@ class SettingsProfileTest {
         annotationButtons = listOf(
             AnnotationButton("Man overboard", AnnotationSeverity.Error, "incident"),
         ),
+        tags = listOf("quay trial", "engine run"),
+        activeTags = setOf("quay trial"),
         scoutAddress = "224.0.0.224:7446",
         qosOverrides = mapOf(
             Subjects.ANGULAR_VELOCITY_RADPS to
@@ -90,6 +92,44 @@ class SettingsProfileTest {
         rigRegistryOrigin = "b7c1-origin-of-this-install",
         batteryExemptionAsked = true,
     )
+
+    /**
+     * **The vocabulary travels; which tags are switched on does not.**
+     *
+     * The words are a configuration, like the annotation buttons, and provisioning a fleet by hand is
+     * how two phones end up filing the same trial under different names. *Active* is the state of one
+     * run on one phone — importing somebody else's would quietly label this phone's next recording with
+     * their afternoon, and that label is written into the file.
+     */
+    @Test
+    fun `a profile carries the tag vocabulary but not the selection`() {
+        val thisPhone = configured().copy(tags = listOf("mine"), activeTags = setOf("mine"))
+        val fromElsewhere = requireNotNull(
+            parseSettingsProfile(
+                configured().copy(tags = listOf("theirs", "mine"), activeTags = setOf("theirs"))
+                    .toProfile().encode()
+            )
+        )
+
+        val out = thisPhone.applyProfile(fromElsewhere)
+
+        assertEquals(listOf("theirs", "mine"), out.tags)
+        assertEquals("their selection did not come with it", setOf("mine"), out.activeTags)
+    }
+
+    /** A tag switched on here but dropped from an imported vocabulary cannot stay on. */
+    @Test
+    fun `an active tag the imported vocabulary does not have is dropped`() {
+        val thisPhone = configured().copy(tags = listOf("gone"), activeTags = setOf("gone"))
+        val fromElsewhere = requireNotNull(
+            parseSettingsProfile(configured().copy(tags = listOf("kept")).toProfile().encode())
+        )
+
+        val out = thisPhone.applyProfile(fromElsewhere)
+
+        assertEquals(listOf("kept"), out.tags)
+        assertEquals(emptySet<String>(), out.activeTags)
+    }
 
     private fun roundTrip(settings: Settings): Settings {
         val text = settings.toProfile().encode()
@@ -149,6 +189,8 @@ class SettingsProfileTest {
         assertEquals(original.publishAllMax, out.publishAllMax)
         assertEquals(original.qosOverrides, out.qosOverrides)
         assertEquals(original.annotationButtons, out.annotationButtons)
+        assertEquals("the vocabulary travels, like the annotation buttons", original.tags, out.tags)
+        assertEquals("and a phone's own selection is left alone", original.activeTags, out.activeTags)
         assertEquals(original.checklistEnabled, out.checklistEnabled)
         assertEquals(original.checklistRealm, out.checklistRealm)
         assertEquals(original.checklistEntityId, out.checklistEntityId)

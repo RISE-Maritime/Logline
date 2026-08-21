@@ -232,7 +232,6 @@ private fun App(
     val settings by app.settingsRepository.settings.collectAsState(initial = null)
     val status by app.publisher.status.collectAsState()
     val recording by app.publisher.recording.collectAsState()
-    val recordingTags by app.recordingTags.tags.collectAsState(initial = emptyMap())
     val scope = rememberCoroutineScope()
     val nav = rememberNavController()
 
@@ -807,14 +806,8 @@ private fun App(
                 if (wasRecording && !recording.recording) recordingsRevision++
                 wasRecording = recording.recording
             }
-            LaunchedEffect(recordings) {
-                recordings?.let { listed ->
-                    app.recordingTags.prune(listed.map { it.name }.toSet())
-                }
-            }
             RecordingsScreen(
                 files = recordings.orEmpty(),
-                tagsOf = { name -> recordingTags[name].orEmpty() },
                 onLoadTrack = { file ->
                     val id = ContentUris.parseId(file.uri)
                     val stamp = TrackCache.Stamp(file.sizeBytes, file.savedAtMillis)
@@ -996,12 +989,10 @@ private fun App(
             // the file name; `uri.lastPathSegment` is the MediaStore id, so tagging before the name
             // arrives would file the words under a number the list never looks up — silently, and for
             // good.
-            val name = listed?.name
             RecordingDetailScreen(
-                tags = name?.let { recordingTags[it].orEmpty() },
-                onTagsChange = { updated ->
-                    name?.let { known -> scope.launch { app.recordingTags.set(known, updated) } }
-                },
+                // From the file, not from this phone: a recording carries its own tags now, so there
+                // is nothing here to edit and nothing to lose when it is copied somewhere else.
+                tags = listed?.tags.orEmpty(),
                 chart = { fixes, m ->
                     RecordingChart(
                         fixes = fixes,
@@ -1193,6 +1184,46 @@ private fun App(
                 onColumnsChange = { eventsColumns = it },
                 noteShown = eventsNoteShown,
                 onNoteShownChange = { eventsNoteShown = it },
+                // **`update()`, never `saveSettings()`** — the same rule the per-subject switches and
+                // the annotation buttons follow. Toggling a tag must not tear down the Zenoh session
+                // and close the MCAP file: that would end the very run somebody is labelling.
+                tags = current.tags,
+                activeTags = current.activeTags,
+                onToggleTag = { tag ->
+                    scope.launch {
+                        app.settingsRepository.update(
+                            current.copy(
+                                activeTags = if (tag in current.activeTags) {
+                                    current.activeTags - tag
+                                } else {
+                                    current.activeTags + tag
+                                }
+                            )
+                        )
+                    }
+                },
+                onAddTag = { tag ->
+                    scope.launch {
+                        // Switched on as it is added: somebody typing a tag during a run wants it on
+                        // that run, and having to tap it again is a step that only ever gets missed.
+                        app.settingsRepository.update(
+                            current.copy(
+                                tags = (current.tags + tag).distinct(),
+                                activeTags = current.activeTags + tag,
+                            )
+                        )
+                    }
+                },
+                onRemoveTag = { tag ->
+                    scope.launch {
+                        app.settingsRepository.update(
+                            current.copy(
+                                tags = current.tags - tag,
+                                activeTags = current.activeTags - tag,
+                            )
+                        )
+                    }
+                },
                 bottomBar = navBar,
             )
         }

@@ -70,8 +70,6 @@ fun <T : RecordingFacts> visibleRecordings(
     query: String,
     sort: RecordingSort,
     filter: RecordingFilter,
-    /** A recording's tags, by name. Searched alongside the name — see [matchesQuery]. */
-    tagsOf: (String) -> Set<String> = { emptySet() },
 ): List<T> {
     val kept = all.filter { recording ->
         val passesFilter = when (filter) {
@@ -83,7 +81,7 @@ fun <T : RecordingFacts> visibleRecordings(
             RecordingFilter.Complete -> recording.isComplete == true
             RecordingFilter.Incomplete -> recording.isComplete == false
         }
-        passesFilter && matchesQuery(recording.name, query, tagsOf(recording.name))
+        passesFilter && matchesQuery(recording.name, query, recording.tags)
     }
     // Every order breaks its ties by newest, so two files of the same size do not swap places between
     // recompositions — a list that reshuffles under the thumb is one nobody trusts.

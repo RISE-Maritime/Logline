@@ -12,6 +12,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import se.rise.logline.keelson.SubjectQos
+import se.rise.logline.record.parseTags
 import se.rise.logline.sensors.parseSensorRate
 import se.rise.logline.sensors.serialise
 
@@ -89,6 +90,16 @@ data class SettingsProfile(
     val qosOverrides: Map<String, QosProfileEntry>? = null,
     /** One serialised button per line, as `serialiseAnnotationButtons` writes them. */
     val annotationButtons: String? = null,
+    /**
+     * The tag vocabulary, one per line — carried for the same reason the annotation buttons are: it is
+     * the words a fleet has agreed on, and provisioning a second phone by hand is how two of them end
+     * up filing the same trial under different names.
+     *
+     * Which tags are *active* is deliberately not carried. That is the state of a run on one phone, not
+     * a configuration, and importing somebody else's would quietly label this phone's next recording
+     * with their afternoon.
+     */
+    val tags: String? = null,
 
     // ---- the operator, minus the id ---------------------------------------------------------------
     val checklistEnabled: Boolean? = null,
@@ -193,6 +204,7 @@ fun SettingsProfile.encode(pretty: Boolean = true): String {
             )
         }
         putIfPresent("annotation_buttons", annotationButtons)
+        putIfPresent("tags", tags)
         putIfPresent("checklist_enabled", checklistEnabled)
         putIfPresent("checklist_realm", checklistRealm)
         putIfPresent("checklist_entity_id", checklistEntityId)
@@ -260,6 +272,7 @@ fun parseSettingsProfile(text: String): SettingsProfile? {
             }
             ?.toMap(),
         annotationButtons = root.string("annotation_buttons"),
+        tags = root.string("tags"),
         checklistEnabled = root.bool("checklist_enabled"),
         checklistRealm = root.string("checklist_realm"),
         checklistEntityId = root.string("checklist_entity_id"),
@@ -331,6 +344,7 @@ fun Settings.toProfile(): SettingsProfile = SettingsProfile(
         )
     }.ifEmpty { null },
     annotationButtons = annotationButtons.serialiseAnnotationButtons(),
+    tags = tags.joinToString("\n"),
     checklistEnabled = checklistEnabled,
     checklistRealm = checklistRealm,
     checklistEntityId = checklistEntityId,
@@ -413,6 +427,11 @@ fun Settings.applyProfile(profile: SettingsProfile, withOperator: Boolean = true
         ?.split('\n')
         ?.mapNotNull { parseAnnotationButton(it) }
         ?: annotationButtons,
+    tags = profile.tags?.let { parseTags(it).toList() } ?: tags,
+    // Not taken from the profile — see [SettingsProfile.tags]. Anything no longer in the vocabulary is
+    // dropped, or an imported list would leave this phone switched on for a tag it cannot see.
+    activeTags = activeTags.filter { it in (profile.tags?.let { raw -> parseTags(raw) } ?: tags.toSet()) }
+        .toSet(),
     checklistEnabled = profile.checklistEnabled ?: checklistEnabled,
     checklistRealm = profile.checklistRealm?.takeIf { it.isNotBlank() } ?: checklistRealm,
     checklistEntityId = profile.checklistEntityId?.takeIf { it.isNotBlank() } ?: checklistEntityId,

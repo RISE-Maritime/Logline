@@ -38,6 +38,9 @@ interface RecordingFacts {
     /** Null for anything that is not a recording — see [isComplete]. */
     val messages: Long?
 
+    /** The words the operator had switched on when the file closed. Read from the file itself. */
+    val tags: Set<String>
+
     /**
      * Whether the recording closed properly, or **null when the question does not apply**.
      *
@@ -102,6 +105,7 @@ data class SavedRecording(
      * discovers the channel itself when handed null.
      */
     val fixChannelId: Int? = null,
+    override val tags: Set<String> = emptySet(),
 ) : RecordingFacts {
     val kind: RecordingKind get() = recordingKindOf(name)
     override val durationMillis: Long? get() = summary?.durationMillis
@@ -177,6 +181,9 @@ fun savedRecordings(context: Context): List<SavedRecording> {
                             // a recording with no fix channel never starts a track scan at all.
                             fixChannelId = details?.topics
                                 ?.let(McapTrack::fixChannel)?.channelId,
+                            // From the file, so they travel with it: a recording copied to a laptop
+                            // still says what it was.
+                            tags = details?.tags.orEmpty(),
                         )
                     )
                 }

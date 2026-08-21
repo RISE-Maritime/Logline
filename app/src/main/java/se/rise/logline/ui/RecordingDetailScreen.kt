@@ -21,7 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
-import androidx.compose.material3.InputChip
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
@@ -95,14 +95,13 @@ fun RecordingDetailScreen(
      */
     chart: @Composable (List<TrackFix>, Modifier) -> Unit,
     /**
-     * The words on this recording, or **null while the file name is still being read**.
+     * The words the operator had switched on when this file closed, read out of the file itself.
      *
-     * Tags are keyed on that name, so an editor offered before it is known would file somebody's words
-     * under a MediaStore id nothing looks up. Hidden rather than disabled: there is nothing useful to
-     * say about a wait of a few milliseconds.
+     * Not editable here, and that is the design rather than an omission: a tag describes what the run
+     * *was*, it is decided while the run is happening on the Events screen, and it is written into the
+     * recording at close. A closed MCAP file is not rewritten to change its mind.
      */
-    tags: Set<String>?,
-    onTagsChange: (Set<String>) -> Unit,
+    tags: Set<String>,
     onBack: () -> Unit,
 ) {
     // Not hoisted: expanding the chart is something you do for a minute while looking at it, the same
@@ -170,9 +169,11 @@ fun RecordingDetailScreen(
                 }
             }
 
-            tags?.let {
+            if (tags.isNotEmpty()) {
                 SectionHeader(title = "Tags")
-                TagEditor(tags = it, onTagsChange = onTagsChange)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tags.forEach { AssistChip(onClick = {}, enabled = false, label = { Text(it) }) }
+                }
             }
 
             SectionHeader(title = "Track")
@@ -352,64 +353,5 @@ private fun ChartExpandButton(
             description = if (expanded) "Shrink the chart" else "Expand the chart",
             onClick = { onExpandedChange(!expanded) },
         )
-    }
-}
-
-/**
- * The words on a recording.
- *
- * A file name is a timestamp, which says when a run happened and nothing about what it was. A tag is
- * the part a person can search for later — and it is searched, so "quay trial" finds the run somebody
- * labelled that rather than only a date they have to remember.
- *
- * Free text rather than a fixed vocabulary: what is worth writing down differs per trial, and a list
- * to pick from would have to be maintained by somebody who is not on the boat.
- */
-@Composable
-private fun TagEditor(tags: Set<String>, onTagsChange: (Set<String>) -> Unit) {
-    var draft by rememberSaveable { mutableStateOf("") }
-    val add = {
-        // Normalised here as well as on the way into the store, so what appears as a chip is exactly
-        // what was kept — a tag that silently changed shape on save would look like a typo.
-        normaliseTag(draft)?.let { onTagsChange(tags + it) }
-        draft = ""
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (tags.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                tags.forEach { tag ->
-                    InputChip(
-                        selected = false,
-                        onClick = { onTagsChange(tags - tag) },
-                        label = { Text(tag) },
-                        trailingIcon = {
-                            Icon(
-                                Icons.Default.Clear,
-                                contentDescription = "Remove the tag $tag",
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                    )
-                }
-            }
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = draft,
-                // A tag is one word or a short phrase; a newline would split it into two on the way
-                // back out of the store, which is a quiet way to invent a tag nobody typed.
-                onValueChange = { draft = it.replace('\n', ' ') },
-                label = { Text("Add a tag") },
-                singleLine = true,
-                keyboardActions = KeyboardActions(onDone = { add() }),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = add, enabled = normaliseTag(draft) != null) { Text("Add") }
-        }
     }
 }

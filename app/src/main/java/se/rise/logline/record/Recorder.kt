@@ -265,7 +265,7 @@ class Recorder(private val appContext: Context) {
                 queueLoad.drained()
                 pushFileStatus(session)
                 if (session.shouldRotate()) {
-                    session.close()
+                    session.close(activeTags)
                     // **After the close, not before.** `bytesWritten` reads through to the writer, and
                     // closing is what emits the summary section and the footer — pushed first, the
                     // figure on screen would be short by everything the close writes.
@@ -309,7 +309,7 @@ class Recorder(private val appContext: Context) {
             // racing the cancellation that follows its own join. There is nothing left to stall here
             // either — the queue is closed and empty by the time the `finally` runs, so a slow copy
             // costs no samples.
-            runCatching { session.close() }
+            runCatching { session.close(activeTags) }
             // **Anything written since the last throttled push**, or the figures on screen settle a
             // fraction of a second short of the file's own — and after the close, because that is what
             // emits the summary section and the footer. Measured before this moved: a 1.51 MB file
@@ -356,6 +356,20 @@ class Recorder(private val appContext: Context) {
      * second run in a process record nothing at all.
      */
     fun runToken(): Any? = scope
+
+    /**
+     * The tags to write into whatever file is open, and into every file this run opens after it.
+     *
+     * Pushed in as they change rather than read at stop, because a rotation closes a file without
+     * anybody asking it to — so each file carries what was switched on as *it* closed.
+     */
+    fun setTags(tags: Set<String>) {
+        activeTags = tags
+    }
+
+    /** What is switched on right now, read at each file's close. */
+    @Volatile
+    private var activeTags: Set<String> = emptySet()
 
     fun stop(token: Any? = null) {
         val runScope = scope ?: return

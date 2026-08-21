@@ -20,8 +20,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.publish.Annotation
+import se.rise.logline.record.normaliseTag
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.EmptyState
 import se.rise.logline.ui.components.SectionHeader
@@ -101,6 +105,15 @@ fun AnnotationScreen(
     runningTimers: Map<String, Long>,
     /** Hold a button: begin timing. Publishes a `started` mark — see `SensorPublisher.startTimed`. */
     onStartTimed: (AnnotationButton) -> Boolean,
+    /** The tag vocabulary, in the order it is shown, and which of them are switched on. */
+    tags: List<String>,
+    activeTags: Set<String>,
+    /** Switch a tag on or off. Written straight to DataStore — it must not restart the run. */
+    onToggleTag: (String) -> Unit,
+    /** Add a word to the vocabulary. Already normalised by the caller of [normaliseTag]. */
+    onAddTag: (String) -> Unit,
+    /** Take a word out of the vocabulary altogether. */
+    onRemoveTag: (String) -> Unit,
     /** Tap a running button: close it, publishing how long it ran. */
     onStopTimed: (AnnotationButton) -> Boolean,
     onNote: (String, AnnotationSeverity) -> Boolean,
@@ -281,6 +294,18 @@ fun AnnotationScreen(
                     onHold = { button -> confirm(onStartTimed(button), "${button.label} started") },
                 )
             }
+
+            // **Between the buttons and the history**, because a tag is neither: it is not a moment
+            // being marked, and it is not a record of one. It is the state the run is in, which is why
+            // it sits with the controls rather than under them.
+            SectionHeader(title = "Tags")
+            TagBar(
+                tags = tags,
+                active = activeTags,
+                onToggle = onToggleTag,
+                onAdd = onAddTag,
+                onRemove = onRemoveTag,
+            )
 
             // **Last, below the buttons.** It led the screen for a while, on the argument that it is
             // what somebody opens this tab for when they are not marking anything — but it is also
@@ -636,4 +661,89 @@ private fun severityColor(severity: AnnotationSeverity): Color = when (severity)
     AnnotationSeverity.Info -> MaterialTheme.colorScheme.primary
     AnnotationSeverity.Warning -> MaterialTheme.colorScheme.tertiary
     AnnotationSeverity.Error -> MaterialTheme.colorScheme.error
+}
+
+/**
+ * The tags this run will be filed under.
+ *
+ * **A tag is a state, not an event**, which is what makes this a row of switches rather than more
+ * buttons: a quick mark says something happened at a moment, a tag says what the whole run *is*. What
+ * is switched on when a file closes is written into it, so this is the label being composed while the
+ * run happens rather than remembered afterwards.
+ *
+ * The vocabulary persists between runs and so does which ones are on — a boat that is always "harbour
+ * trial" should not have to be told twice — and both live in `Settings`, like the annotation buttons,
+ * because they are a configuration of the phone rather than a property of any one recording.
+ */
+@Composable
+private fun TagBar(
+    tags: List<String>,
+    active: Set<String>,
+    onToggle: (String) -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (tags.isEmpty()) {
+            Text(
+                "No tags yet. A tag is written into the recording when it closes, so it travels with " +
+                    "the file — add one below and switch it on for the runs it describes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                tags.forEach { tag ->
+                    FilterChip(
+                        selected = tag in active,
+                        // While editing, the chip removes rather than toggles — one control, and the
+                        // trailing cross says which job it is doing.
+                        onClick = { if (editing) onRemove(tag) else onToggle(tag) },
+                        label = { Text(tag) },
+                        trailingIcon = if (editing) {
+                            {
+                                Icon(
+                                    Icons.Default.Clear,
+                                    contentDescription = "Remove the tag $tag",
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                }
+            }
+        }
+
+        if (editing) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    // A newline would split one tag into two on the way out of the file, which is a
+                    // quiet way to invent a tag nobody typed.
+                    onValueChange = { draft = it.replace('\n', ' ') },
+                    label = { Text("New tag") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = {
+                        normaliseTag(draft)?.let(onAdd)
+                        draft = ""
+                    },
+                    enabled = normaliseTag(draft) != null,
+                ) { Text("Add") }
+            }
+        }
+        TextButton(onClick = { editing = !editing }) {
+            Text(if (editing) "Done" else "Edit tags")
+        }
+    }
 }
