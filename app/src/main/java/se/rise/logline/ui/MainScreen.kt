@@ -198,6 +198,7 @@ fun MainScreen(
         StopDialog(
             status = status,
             recording = recording,
+            publishing = settings.publishEnabled,
             nowMillis = nowMillis,
             onConfirm = { note ->
                 confirmStop = false
@@ -835,6 +836,8 @@ private fun Detail(label: String, value: String, dot: Color? = null) {
 private fun StopDialog(
     status: PublisherStatus,
     recording: RecordingStatus,
+    /** Whether this run is putting anything on the bus — `Settings.publishEnabled`. */
+    publishing: Boolean,
     nowMillis: Long,
     onConfirm: (String?) -> Unit,
     onDismiss: () -> Unit,
@@ -846,17 +849,13 @@ private fun StopDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    buildString {
-                        append(formatCounted(status.totalSamplesPublished, "sample"))
-                        append(" published over ")
-                        append(elapsed(recording.startedAtEpochMillis, nowMillis))
-                        if (recording.recording) {
-                            append(", ")
-                            append(formatBytes(recording.bytesWritten))
-                            append(" recorded")
-                        }
-                        append(".")
-                    },
+                    stopFigures(
+                        samples = status.totalSamplesPublished,
+                        publishing = publishing,
+                        elapsed = elapsed(recording.startedAtEpochMillis, nowMillis),
+                        recording = recording.recording,
+                        bytesWritten = recording.bytesWritten,
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(
@@ -869,7 +868,7 @@ private fun StopDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Marked against the run, on the bus and in the recording. The file keeps its name.",
+                    stopNoteHint(publishing = publishing, recording = recording.recording),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1386,4 +1385,61 @@ private fun readingOf(entry: PublishedSubject, value: Float?, fix: TrackPoint?):
     entry == PublishedSubject.LOCATION_FIX -> fix?.let { formatPosition(it.latitude, it.longitude) }
     value != null -> formatLiveValue(entry, value)
     else -> null
+}
+
+/**
+ * The run's figures, in the words that are true of *this* run.
+ *
+ * **`totalSamplesPublished` is a count of samples that reached [SubjectSink.emit], not of puts.** On a
+ * record-only run nothing goes on the wire and the counter means "samples produced" — which is the
+ * honest reading, since it is what reached the file — so calling them *published* there stated
+ * something the run had deliberately not done. Silence about the verb is better than the wrong one: on
+ * such a run the sentence simply reads "95 317 samples over 00:01:58, 2 MB recorded."
+ */
+internal fun stopFigures(
+    samples: Long,
+    publishing: Boolean,
+    elapsed: String,
+    recording: Boolean,
+    bytesWritten: Long,
+): String = buildString {
+    append(formatCounted(samples, "sample"))
+    if (publishing) append(" published")
+    append(" over ")
+    append(elapsed)
+    if (recording) {
+        append(", ")
+        append(formatBytes(bytesWritten))
+        append(" recorded")
+    }
+    append(".")
+}
+
+/**
+ * Where the closing note will end up.
+ *
+ * The same correction as [stopFigures], for the same reason: a note is a `log_message` through
+ * `SubjectSink.emit`, so on a record-only run it reaches the file and **not** the bus. Promising both
+ * was a claim about where somebody's words had gone.
+ *
+ * "The file keeps its name" only belongs where there is a file — and only there could anybody have
+ * expected the note to rename one.
+ */
+internal fun stopNoteHint(publishing: Boolean, recording: Boolean): String {
+    val destinations = listOfNotNull(
+        "on the bus".takeIf { publishing },
+        "in the recording".takeIf { recording },
+    )
+    return buildString {
+        append("Marked against the run")
+        // A comma before a list of two, "and" before a single one — "the run and on the bus and in the
+        // recording" is the shape a naive join gives and nobody writes.
+        when (destinations.size) {
+            0 -> Unit
+            1 -> append(" and ${destinations.single()}")
+            else -> append(", ${destinations.joinToString(" and ")}")
+        }
+        append(".")
+        if (recording) append(" The file keeps its name.")
+    }
 }

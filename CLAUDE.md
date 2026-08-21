@@ -500,6 +500,11 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `setup` collides with neither prefix. Anything that renames a route has to be re-checked on a device
   against those two, because a broken prefix match fails *silently*: the screen still opens and simply
   never finds anything on the bus.
+- **`formatCount` groups digits with U+202F, a narrow no-break space**, so a figure never wraps
+  mid-number. It bites when writing tests: an expected `"95 317"` typed with an ordinary space fails
+  against a real `"95\u202F317"`, and the two are indistinguishable in the failure message — JUnit
+  prints `expected:<95[ ]317> but was:<95[ ]317>`. Spell it `\u202F` in a test literal rather than
+  pasting the character, or pick a figure under five digits, which `formatCount` leaves ungrouped.
 - **Numbers are formatted with `.fmt()`**, the `Locale.ROOT` helper in `ui/Format.kt` — never Kotlin's
   bare `"%.1f".format(x)`, which uses `Locale.getDefault()` and prints `55,3` on a Swedish phone. The
   same rule is why `Double.json()` in `calibrate/PlatformGeometryJson.kt` goes through `BigDecimal`.
@@ -1467,6 +1472,17 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   That per-file rule is also why the start screen's "Last run" line counts *files* rather than
   megabytes once `filesCompleted > 1` (`lastRecordingOf()`): a size beside a whole-run sample count
   would silently be describing the last file of several.
+- **The Stop dialog describes the run that actually happened, not the one the code was written for.**
+  `stopFigures()` and `stopNoteHint()` in `ui/MainScreen.kt` are pure and pinned by
+  `StopDialogTextTest` because a run does two independent things and either can be off, so there are
+  four combinations to be right about. Written when publishing was the only thing a run did, the dialog
+  told a record-only run that its samples had been **published** and that a closing note would go **on
+  the bus** — two statements about a run that had deliberately done neither.
+  `totalSamplesPublished` counts samples reaching `SubjectSink.emit`, not puts, so with publishing off
+  it means *samples produced*; the sentence therefore drops the verb rather than choosing a wrong one —
+  `19 358 samples over 00:00:24, 485 kB recorded.` A closing note is a `log_message` through the same
+  sink, so it too reaches the file and not the wire. And "The file keeps its name" is only said where
+  there is a file, since only there could anybody have expected a note to rename one.
 - **A run does two independent things, and the start row is where you choose which.** `PUB` and `REC`
   chips *before* a narrowed `START`, both on by default — the chips qualify the button and English reads
   left to right, so `PUB REC ▶ START` is the sentence and the other order is the same words shuffled.
