@@ -88,6 +88,19 @@ data class Settings(
      */
     val recordingEnabled: Boolean = true,
     /**
+     * Whether a run puts anything on the wire.
+     *
+     * On by default: publishing is what this app is for, and the pair of switches on the start screen
+     * defaults to both. Off gives a record-only run — the session is still opened and the phone is
+     * still visible on the bus, it simply says nothing. That is a deliberate choice over going dark:
+     * a phone that vanishes from a fleet's liveliness while it is in fact running is worse to diagnose
+     * than one that is present and quiet.
+     *
+     * Note the counters mean "samples produced" on such a run rather than "samples published" — see
+     * `SubjectSink.emit`, which is where the distinction is made and explained.
+     */
+    val publishEnabled: Boolean = true,
+    /**
      * Hold recent samples and replay them when a dropped router link comes back.
      *
      * On by default. Backfilled messages carry their original `enclosed_at` but arrive after live

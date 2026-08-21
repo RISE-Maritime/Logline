@@ -519,6 +519,15 @@ data class RunState(
     val running: Boolean = false,
     val connection: ConnectionState = ConnectionState.Idle,
     val recording: Boolean = false,
+    /**
+     * Whether this run is putting anything on the wire.
+     *
+     * Separate from [connection], and that separation is the point: a record-only run still opens a
+     * session and still reaches the router, so the link is genuinely up while nothing is being sent.
+     * A `PUB` lamp lit off connection alone would be claiming the phone is publishing when it has been
+     * told not to — precisely the kind of readout the colour rules exist to prevent.
+     */
+    val publishing: Boolean = true,
 )
 
 val LocalRunState = compositionLocalOf { RunState() }
@@ -549,12 +558,18 @@ private fun RunStatus() {
     ) {
         StatusLamp(
             label = "PUB",
-            color = connectionColor(state.running, state.connection),
+            // Grey when publishing is switched off, whatever the link is doing — see [RunState.publishing].
+            color = if (state.running && !state.publishing) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                connectionColor(state.running, state.connection)
+            },
             // Blinking would be wrong here: publishing is a steady condition, and a pulse should mean
             // something is happening right now.
             blinking = false,
             described = when {
                 !state.running -> "Not publishing"
+                !state.publishing -> "Publishing switched off for this run"
                 state.connection == ConnectionState.Disconnected -> "Publishing, no router"
                 state.connection == ConnectionState.Connected -> "Publishing"
                 else -> "Connecting"

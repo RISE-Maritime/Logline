@@ -642,6 +642,7 @@ private fun App(
             running = status.running,
             connection = status.connection,
             recording = recording.recording,
+            publishing = current.publishEnabled,
         )
     ) {
     NavHost(navController = nav, startDestination = Routes.MAIN, modifier = modifier) {
@@ -691,6 +692,15 @@ private fun App(
                 // change what the sensors are registered at, so the run has to be redeclared.
                 onSetRecordAllMax = { on ->
                     scope.launch { saveSettings(app, current.copy(recordAllMax = on)) }
+                },
+                // `update`, not `saveSettings`: the chips only exist while nothing is running, so
+                // there are no publishers to redeclare — and `saveSettings` would stop and start the
+                // foreground service to record a choice about a run that has not begun.
+                onSetPublishEnabled = { on ->
+                    scope.launch { app.settingsRepository.update(current.copy(publishEnabled = on)) }
+                },
+                onSetRecordingEnabled = { on ->
+                    scope.launch { app.settingsRepository.update(current.copy(recordingEnabled = on)) }
                 },
                 onSetPublishAllMax = { on ->
                     scope.launch { saveSettings(app, current.copy(publishAllMax = on)) }

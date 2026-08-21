@@ -1259,6 +1259,28 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   That per-file rule is also why the start screen's "Last run" line counts *files* rather than
   megabytes once `filesCompleted > 1` (`lastRecordingOf()`): a size beside a whole-run sample count
   would silently be describing the last file of several.
+- **A run does two independent things, and the start row is where you choose which.** `PUB` and `REC`
+  chips beside a narrowed `START`, both on by default. The button used to carry the choice in its label
+  — `START Publish & REC` — which made the label the only place it was visible and the *settings screen*
+  the only place it could be changed. Neither chip on disables Start, with a line saying why: a run that
+  neither publishes nor records is a foreground service holding a wake lock to achieve nothing.
+  **A record-only run keeps its link.** `Settings.publishEnabled` gates one branch in `SubjectSink.emit`
+  — the session still opens, the publishers are still declared and the liveliness tokens still stand, so
+  the phone is present on the bus and simply says nothing. A phone that vanished from a fleet's
+  liveliness while in fact running is worse to diagnose than one that is present and quiet. Three things
+  follow from that branch and each is load-bearing: **the decimator is skipped**, because it is a
+  *publish* rate limiter and thinning with nothing on the wire would make the counters describe a stream
+  that does not exist; **the outbox is skipped**, because replay fills a gap in what a consumer received
+  and there is no consumer; and **the sample is still counted**, because the counters drive the health
+  checks and the live view, so a recording run whose every subject read `Stalled` would be a healthy run
+  reporting itself broken. On such a run the counters mean *samples produced* rather than *published*,
+  which is the honest reading — it is what reached the file.
+  Three readouts had to stop claiming otherwise: the top bar's `PUB` lamp goes grey rather than taking
+  its colour from the link (`RunState.publishing` is separate from `connection` for exactly this — the
+  link is genuinely up), the status card reads **Recording only**, and an unreachable router stops being
+  an error, since on a record-only run it is expected and very often the reason the run is record-only.
+  Verified by counting the actual `session.publish` calls: ~758/s with PUB on, and frozen at zero with
+  it off while the file kept growing.
 - **The start screen's card is a session summary, and an icon on it means attention.** It says what
   the last run left behind, whether there is room for another, and where this one will connect — and
   deliberately **no longer says "Not publishing"**, which the `Idle` chip in the app bar and the

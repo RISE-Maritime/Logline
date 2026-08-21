@@ -132,6 +132,11 @@ turned up rather than what it did — the *what* is in the commit and in
       no key must still draw something rather than opening on a blank grid. The key is a
       per-phone setting, never in the repo or the APK.
 
+- [x] the start button decrease its size in widthwise and make publish and REC chips that can be toggled on or off so user can select if they want to publish or only rec or combinatoin, the combination of both on is deaflult
+      Done in the run-mode pass. PUB and REC chips beside a narrowed START, both on by default;
+      neither on disables Start with a line saying why. A record-only run keeps its Zenoh session
+      and its liveliness — it says nothing rather than going dark — which was the user's call.
+
 - [ ] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
       allocations a second on the one coroutine that must not fall behind. Left alone when the queue
       instrumentation went in (which is why the new depth counters are atomics read by a UI ticker

@@ -47,6 +47,7 @@ class SettingsProfileTest {
         startOnBoot = true,
         offlineTilesOnly = true,
         mapTilerKey = "test-key-abc123",
+        publishEnabled = false,
         audioEnabled = true,
         audioSampleRateHz = 44_100,
         audioChannels = 2,
@@ -123,6 +124,9 @@ class SettingsProfileTest {
         // travels — with the consequence, stated on the settings screen, that a profile you share
         // carries your key.
         assertEquals(original.mapTilerKey, out.mapTilerKey)
+        // Added by hand, because this test does not catch a new field on its own — the assertions are
+        // a list, not a reflection over the data class. See the note in TODO.md.
+        assertEquals(original.publishEnabled, out.publishEnabled)
         assertEquals(original.audioEnabled, out.audioEnabled)
         assertEquals(original.audioSampleRateHz, out.audioSampleRateHz)
         assertEquals(original.audioChannels, out.audioChannels)

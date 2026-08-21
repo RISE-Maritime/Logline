@@ -219,6 +219,15 @@ class SensorPublisher(private val appContext: Context) {
     private var backfillEnabled = true
 
     /**
+     * Whether this run puts anything on the wire.
+     *
+     * A plain field read on the publish path, the same shape [backfillEnabled] takes, and set once in
+     * [start] from the run's settings. The session is still opened and the liveliness tokens still
+     * declared — a record-only run is one that says nothing, not one that hides. See `SubjectSink.emit`.
+     */
+    private var publishEnabled = true
+
+    /**
      * How far apart this run's publishes must be, per subject, in nanoseconds.
      *
      * Present only for subjects whose publish rate is genuinely slower than their record rate —
@@ -332,6 +341,7 @@ class SensorPublisher(private val appContext: Context) {
                 outbox.clear()
                 annotations.clear()
                 backfillEnabled = settings.backfillEnabled
+                publishEnabled = settings.publishEnabled
                 publishIntervalsNanos = publishIntervals(settings)
                 // Before any collector is supervised, so a subject that starts switched off never
                 // registers its listener in the first place.
@@ -2112,6 +2122,27 @@ class SensorPublisher(private val appContext: Context) {
             if (subject in offSubjects.value) return null
             // Always: this is the file's copy, and the file is what analysis is run against.
             val enveloped = wrap(payload)
+
+            // **A record-only run: nothing goes out, and three things follow from that.**
+            //
+            // The decimator is skipped, because it is a *publish* rate limiter — with nothing on the
+            // wire there is nothing to thin, and thinning here would make the counters describe a
+            // stream that does not exist. The outbox is skipped, because replay exists to fill a gap
+            // in what a consumer received and there is no consumer. And the sample is still *counted*:
+            // the counters drive the health checks and the live view, so a recording run whose every
+            // subject read "Stalled" would be a healthy run reporting itself broken.
+            //
+            // The counters therefore mean "samples produced" on such a run rather than "samples
+            // published", which is the honest reading — it is what reached the file.
+            if (!publishEnabled) {
+                when {
+                    value != null && text != null -> record(Result.success(Unit), value, text)
+                    value != null -> record(Result.success(Unit), value)
+                    else -> record(Result.success(Unit))
+                }
+                return Result.success(Unit)
+            }
+
             if (decimator?.due(System.nanoTime()) == false) return Result.success(Unit)
             buffer(payload)
             val result = session.publish(publisher, enveloped)

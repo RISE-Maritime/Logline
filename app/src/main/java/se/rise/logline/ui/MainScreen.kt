@@ -142,6 +142,15 @@ fun MainScreen(
     onStart: () -> Unit,
     /** Stop the run, optionally marking it with a closing note. */
     onStop: (String?) -> Unit,
+    /**
+     * What the *next* run will do — the two chips beside Start.
+     *
+     * Only reachable while nothing is running, so these are plain settings writes: there are no
+     * publishers to redeclare and no session to cycle, which is why `MainActivity` sends them through
+     * `update()` rather than the `saveSettings()` that stops and restarts the service.
+     */
+    onSetPublishEnabled: (Boolean) -> Unit,
+    onSetRecordingEnabled: (Boolean) -> Unit,
     /** Flip every subject to full rate, or back to the tuned profile. Restarts the run. */
     onSetRecordAllMax: (Boolean) -> Unit,
     onSetPublishAllMax: (Boolean) -> Unit,
@@ -212,6 +221,9 @@ fun MainScreen(
                     running = status.running,
                     recording = recording.recording,
                     willRecord = settings.recordingEnabled,
+                    willPublish = settings.publishEnabled,
+                    onWillPublishChange = onSetPublishEnabled,
+                    onWillRecordChange = onSetRecordingEnabled,
                     onStart = onStart,
                     onStop = { confirmStop = true },
                 )
@@ -389,7 +401,10 @@ private fun StatusCard(
     Card(modifier = Modifier.fillMaxWidth().clickable { showDetail = !showDetail }) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (status.running) {
-                if (status.connection == ConnectionState.Disconnected) {
+                // An unreachable router is only a fault for a run that is *trying* to publish. On a
+                // record-only run it is expected — very often the reason the run is record-only — and
+                // an error there would have the app reporting a fault it was told to cause.
+                if (status.connection == ConnectionState.Disconnected && settings.publishEnabled) {
                     StatusLine(
                         text = "Publishing to nothing",
                         tone = StatusTone.Error,
@@ -398,7 +413,9 @@ private fun StatusCard(
                     )
                 } else {
                     CardHeadline(
-                        text = "Publishing",
+                        // A record-only run is not publishing, and a card that said so anyway would be
+                        // the loudest wrong thing on the screen.
+                        text = if (settings.publishEnabled) "Publishing" else "Recording only",
                         color = if (summary.needsAttention) {
                             MaterialTheme.colorScheme.tertiary
                         } else {
@@ -1005,6 +1022,10 @@ private fun Actions(
      * false until a file is open and therefore always false on the button this labels.
      */
     willRecord: Boolean,
+    /** Whether the *next* run will publish, i.e. `Settings.publishEnabled`. */
+    willPublish: Boolean,
+    onWillPublishChange: (Boolean) -> Unit,
+    onWillRecordChange: (Boolean) -> Unit,
     /**
      * Whether a file is actually being written — **not** the same question as [running].
      *
@@ -1022,21 +1043,48 @@ private fun Actions(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (!running) {
-                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        // The word beside it says what this does; naming the glyph too would only
-                        // repeat it to a screen reader.
-                        contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                // **The button says START and the chips say what of.** It used to carry both facts in
+                // its label — `START Publish & REC` — which made the label the only place the choice
+                // was visible and the *settings screen* the only place it could be changed. Two chips
+                // beside a shorter button state the same thing and are the control as well.
+                //
+                // Both on is the default, and the pair is not exclusive: publish and record are
+                // genuinely independent — a trial with no router still wants the file, and a quick
+                // look at the bus does not need one.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = onStart,
+                        // Neither chip on means a run that would do nothing at all: no file, nothing
+                        // on the wire, and a foreground service holding a wake lock to achieve it.
+                        // Disabled rather than hidden, so the reason is a glance away rather than a
+                        // control that vanished.
+                        enabled = willPublish || willRecord,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            // The word beside it says what this does; naming the glyph too would only
+                            // repeat it to a screen reader.
+                            contentDescription = null,
+                            modifier = Modifier.size(ButtonDefaults.IconSize),
+                        )
+                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                        Text("START")
+                    }
+                    ModeChip("PUB", willPublish, onWillPublishChange)
+                    ModeChip("REC", willRecord, onWillRecordChange)
+                }
+                if (!willPublish && !willRecord) {
+                    // State, not documentation: the only thing saying why the button will not press.
+                    Text(
+                        "Switch on PUB, REC or both — a run with neither does nothing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    // Both halves of what one press does, because they are two facts and only one of
-                    // them is recoverable afterwards — a run publishes to the bus whether or not a
-                    // file is being kept. `& REC` is dropped rather than shown when recording is
-                    // switched off in Settings: a button promising a recording nobody is writing is
-                    // the one thing worse than not mentioning it at all.
-                    Text(if (willRecord) "START Publish & REC" else "START Publish")
                 }
             } else {
                 // Just Stop. Three things have been removed from beside it, all for one reason.
@@ -1094,6 +1142,27 @@ private fun Actions(
             }
         }
     }
+}
+
+/**
+ * One of the two things a run can do, as a chip that is also the switch for it.
+ *
+ * `FilterChip` rather than a `Switch`: these sit in a row beside a button, and what is being chosen is
+ * *which of two independent things this run does* rather than a setting being turned up or down. The
+ * selected fill is the state and the word is the label, which is the same shape the sampling-rate
+ * selector on this screen uses.
+ *
+ * They read the same `PUB` and `REC` the top bar's lamps do, deliberately: the bar says what a run **is**
+ * doing and these say what the next one **will**, and using two vocabularies for that would be two
+ * things to learn.
+ */
+@Composable
+private fun ModeChip(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    FilterChip(
+        selected = on,
+        onClick = { onChange(!on) },
+        label = { Text(label) },
+    )
 }
 
 /**
