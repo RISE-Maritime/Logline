@@ -3,6 +3,7 @@ package se.rise.logline.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1056,6 +1057,11 @@ private fun Actions(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Chips first, then the button: they qualify it, and English reads left to right,
+                    // so `PUB REC ▶ START` is the sentence and `START PUB REC` is the same words in the
+                    // wrong order.
+                    ModeChip("PUB", willPublish, onWillPublishChange)
+                    ModeChip("REC", willRecord, onWillRecordChange)
                     Button(
                         onClick = onStart,
                         // Neither chip on means a run that would do nothing at all: no file, nothing
@@ -1075,8 +1081,6 @@ private fun Actions(
                         Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                         Text("START")
                     }
-                    ModeChip("PUB", willPublish, onWillPublishChange)
-                    ModeChip("REC", willRecord, onWillRecordChange)
                 }
                 if (!willPublish && !willRecord) {
                     // State, not documentation: the only thing saying why the button will not press.
@@ -1162,6 +1166,15 @@ private fun ModeChip(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
         selected = on,
         onClick = { onChange(!on) },
         label = { Text(label) },
+        // **The button's own colours, not the chip default.** These are not a setting sitting near a
+        // button; they are two thirds of what pressing it will do, and `PUB REC ▶ START` reads as one
+        // control when the three share a fill and as a control beside two unrelated ones when they do
+        // not. That is why this deviates from the `Configured | Maximum` selectors further up the
+        // screen, which are a genuine standalone setting and keep the chip default.
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primary,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+        ),
     )
 }
 

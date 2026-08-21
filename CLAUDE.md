@@ -1260,7 +1260,13 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   megabytes once `filesCompleted > 1` (`lastRecordingOf()`): a size beside a whole-run sample count
   would silently be describing the last file of several.
 - **A run does two independent things, and the start row is where you choose which.** `PUB` and `REC`
-  chips beside a narrowed `START`, both on by default. The button used to carry the choice in its label
+  chips *before* a narrowed `START`, both on by default — the chips qualify the button and English reads
+  left to right, so `PUB REC ▶ START` is the sentence and the other order is the same words shuffled.
+  Selected, they take the **button's** fill rather than the chip default: they are not a setting sitting
+  near a button, they are two thirds of what pressing it does, and three shared fills read as one
+  control where two containers and a button read as three. That is a deliberate deviation from the
+  `Configured | Maximum` selectors further up the same screen, which *are* a standalone setting and keep
+  the default. The button used to carry the choice in its label
   — `START Publish & REC` — which made the label the only place it was visible and the *settings screen*
   the only place it could be changed. Neither chip on disables Start, with a line saying why: a run that
   neither publishes nor records is a foreground service holding a wake lock to achieve nothing.
