@@ -987,6 +987,20 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   the three radio identifiers are **Timeline**; everything else plots. The identifiers are there because
   a cell id is a *name* that happens to be a number: the difference between two of them is not seven of
   anything, and what one is read for on a moving vessel is handovers.
+  **A circular subject is labelled in bearings and summarised as a turn, never as a range.**
+  `unwrapAngles` has to run before binning — mixing 359° and 1° into one bin gives a band spanning the
+  whole circle — and it deliberately leaves 0-360, so *its* extremes are not directions: a phone turned
+  round and round read `135 – 638 °`, which is neither a bearing nor a range of them. The fix is at the
+  labels, not the geometry. Axis ticks go through `formatBearing` (mod 360, zero-padded, which is itself
+  the tell that it is a bearing), and the footer states `circularTurn()` — where it started, where it
+  ended, how far it turned, with the direction as a **word**: `-225°` is a turn to port to anyone who
+  reads the minus and a mystery to anyone who does not. The turn is *net*, so swinging out and back is
+  `steady` rather than a distance travelled. A window spanning more than a full turn can label two
+  gridlines the same, which is true rather than confusing — the vessel did pass that bearing twice, and
+  the footer says how far it went.
+  Note the constraint the unwrap rests on: **consecutive compass readings never jump 180°**. A test
+  written with a synthetic 198° step had it read as -162° and reported a 495° turn as 135° — the code
+  was right and the data was not.
   **The detail plot draws against the data's true range, deliberately not `plotBounds`.** That floor
   exists because a 34dp sparkline has no axis, so a full-height wobble is indistinguishable from a real
   swing and a barometer varying 0.002% has to render flat. A labelled axis removes the ambiguity — and

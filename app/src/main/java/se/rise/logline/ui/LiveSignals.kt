@@ -52,6 +52,52 @@ fun unwrapAngles(values: FloatArray): FloatArray {
 }
 
 /**
+ * What a circular series did, in terms that are all compass bearings.
+ *
+ * A min and a max are the wrong summary for a heading. [unwrapAngles] is required before binning — see
+ * its note — and it deliberately leaves 0-360, so the extremes of what it produces are not bearings at
+ * all: a phone turned round and round reported "143 - 638 °", which is neither a range nor a direction.
+ *
+ * These three are: where it pointed at the start of the window, where it pointed at the end, and how
+ * far it turned to get there. [netDegrees] is signed — positive clockwise — and is the *net* turn, so a
+ * swing out and back reads as the small number it is rather than the distance travelled.
+ */
+data class CircularTurn(val fromDegrees: Float, val toDegrees: Float, val netDegrees: Float) {
+
+    /**
+     * `143° → 278°, turned 135° right`, and every figure in it is a bearing or a turn.
+     *
+     * The direction is a word rather than a sign: "-225°" is a turn to port to anyone who reads the
+     * minus and a mystery to anyone who does not, and this sits on a card being scanned rather than
+     * read. Below a degree it says so instead of printing `0° right`, which reads as a measurement of
+     * nothing.
+     */
+    fun describe(): String {
+        val from = formatBearing(fromDegrees)
+        val to = formatBearing(toDegrees)
+        val turn = kotlin.math.abs(netDegrees)
+        return when {
+            turn < 1f -> "$from° → $to°, steady"
+            netDegrees > 0 -> "$from° → $to°, turned ${turn.roundToInt()}° right"
+            else -> "$from° → $to°, turned ${turn.roundToInt()}° left"
+        }
+    }
+}
+
+fun circularTurn(values: FloatArray): CircularTurn? {
+    if (values.isEmpty()) return null
+    val unwrapped = unwrapAngles(values)
+    return CircularTurn(
+        // From the *raw* values, which are already bearings, rather than from the unwrapped copy —
+        // its first element happens to equal the raw one today, and relying on that would make this
+        // wrong the moment anybody re-anchors the unwrap.
+        fromDegrees = values.first(),
+        toDegrees = values.last(),
+        netDegrees = unwrapped.last() - unwrapped.first(),
+    )
+}
+
+/**
  * The last [seconds] of a window.
  *
  * Binary search rather than a scan: this runs for every subject on every frame, and the arrays hold

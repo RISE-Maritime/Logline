@@ -225,9 +225,18 @@ private fun DetailPlot(entry: PublishedSubject, window: SampleWindow) {
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    AxisLabel(formatLiveValue(entry, axis.max))
-                    AxisLabel(formatLiveValue(entry, (axis.min + axis.max) / 2f))
-                    AxisLabel(formatLiveValue(entry, axis.min))
+                    // **Labelled modulo a turn for a circular subject**, so every number on the axis
+                    // is a bearing somebody could steer. The geometry is still the unwrapped series —
+                    // it has to be, or a crossing of north draws a cliff — but its *numbers* run away
+                    // from the compass: a phone turned twice reached 638, which is not a direction.
+                    // Zero-padded to three digits, which is itself the tell that it is a bearing.
+                    //
+                    // A window spanning more than a full turn can therefore label two gridlines the
+                    // same. That is true rather than confusing: the vessel really did pass that
+                    // bearing twice, and the row below says how far it turned in total.
+                    AxisLabel(axisLabel(entry, axis.max))
+                    AxisLabel(axisLabel(entry, (axis.min + axis.max) / 2f))
+                    AxisLabel(axisLabel(entry, axis.min))
                 }
                 Column(Modifier.weight(1f)) {
                     Canvas(
@@ -271,17 +280,32 @@ private fun DetailPlot(entry: PublishedSubject, window: SampleWindow) {
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             // The three facts a plot cannot show about itself. The range is the *data's*, not the
-            // drawn axis, so a flat trace still says how flat.
-            Detail("Range", buildString {
-                append("${formatLiveValue(entry, bounds.min)} – ${formatLiveValue(entry, bounds.max)}")
-                labelOf(entry).unit?.let { append(" $it") }
-            })
+            // drawn axis, so a flat trace still says how flat — and for a circular subject it is a
+            // turn instead, because the extremes of an unwrapped heading are not bearings.
+            val turn = if (isCircularDegrees(entry)) circularTurn(window.values) else null
+            if (turn != null) {
+                Detail("Turn", turn.describe())
+            } else {
+                Detail("Range", buildString {
+                    append("${formatLiveValue(entry, bounds.min)} – ${formatLiveValue(entry, bounds.max)}")
+                    labelOf(entry).unit?.let { append(" $it") }
+                })
+            }
             Detail("Samples", formatCount(window.size.toLong()))
             windowRateHz(window)?.let { Detail("Rate", "${formatRate(it)} Hz") }
             spanOf(window)?.let { Detail("Span", it) }
         }
     }
 }
+
+/**
+ * One tick on the value axis.
+ *
+ * Circular subjects are labelled through [formatBearing] rather than [formatLiveValue] — see the note
+ * at the call site. Everything else prints exactly as it does on its card.
+ */
+private fun axisLabel(entry: PublishedSubject, value: Float): String =
+    if (isCircularDegrees(entry)) formatBearing(value) else formatLiveValue(entry, value)
 
 @Composable
 private fun AxisLabel(text: String) {

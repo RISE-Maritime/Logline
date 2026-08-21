@@ -832,13 +832,24 @@ private fun SparklineCard(
                 }
                 Text(
                     buildString {
-                        // The range of what is drawn: for a circular subject that is the unwrapped
-                        // series, so a turn through north reads as 350–370 rather than 0–360.
-                        append("${formatLiveValue(entry, bounds.min)} – ${formatLiveValue(entry, bounds.max)}")
-                        // The unit belongs here as well as in the header: the footer is read on its
-                        // own while scanning down a column of cards, and a bare "12 – 18" says
-                        // nothing about what it is 12 of. Empty for the enum-valued subjects.
-                        label.unit?.let { append(" $it") }
+                        // **A circular subject gets a turn, not a range.** The plotted series is the
+                        // unwrapped one, so its extremes are not bearings — a phone turned round and
+                        // round read "135 – 638 °", which is neither a direction nor a range. Where it
+                        // started, where it ended and how far it turned are all things a compass can
+                        // say.
+                        val turn = if (isCircularDegrees(entry)) circularTurn(window.values) else null
+                        if (turn != null) {
+                            append(turn.describe())
+                        } else {
+                            append(
+                                "${formatLiveValue(entry, bounds.min)} – " +
+                                    formatLiveValue(entry, bounds.max)
+                            )
+                            // The unit belongs here as well as in the header: the footer is read on
+                            // its own while scanning down a column of cards, and a bare "12 – 18" says
+                            // nothing about what it is 12 of. Empty for the enum-valued subjects.
+                            label.unit?.let { append(" $it") }
+                        }
                         rate?.let { append(" · ${formatRate(it)} Hz") }
                     },
                     style = MaterialTheme.typography.labelSmall,

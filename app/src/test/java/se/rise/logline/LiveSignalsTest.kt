@@ -13,6 +13,7 @@ import se.rise.logline.ui.fixKindQuality
 import se.rise.logline.sensors.FixKind
 import se.rise.logline.ui.isCircularDegrees
 import se.rise.logline.ui.subjectGroups
+import se.rise.logline.ui.circularTurn
 import se.rise.logline.ui.unwrapAngles
 import se.rise.logline.ui.windowRateHz
 import se.rise.logline.ui.windowedTo
@@ -289,5 +290,67 @@ class LiveSignalsTest {
     private fun assertArrayEqualsF(expected: FloatArray, actual: FloatArray) {
         assertEquals(expected.size, actual.size)
         expected.indices.forEach { assertEquals(expected[it], actual[it], 1e-3f) }
+    }
+
+    /**
+     * **The extremes of an unwrapped heading are not bearings, which is what this replaces.**
+     *
+     * `unwrapAngles` has to run before binning — the test above pins why — and it deliberately leaves
+     * 0-360. A phone turned round and round therefore reported a "range" of `135 – 638 °`, which is
+     * neither a direction nor a range of them. Where it started, where it ended and how far it turned
+     * are all things a compass can say.
+     */
+    @Test
+    fun `a turn is described in bearings, not in the unwrapped extremes`() {
+        // Steps under 180° throughout, which is the constraint the unwrap relies on and which a real
+        // compass satisfies. Written with a coarser series first, and the test caught it: a synthetic
+        // step of 198° is read as -162°, correctly, and the "turn" came out as 135 instead of 495.
+        val turn = circularTurn(floatArrayOf(143f, 250f, 350f, 90f, 190f, 278f))!!
+
+        assertEquals(143f, turn.fromDegrees, 0.01f)
+        assertEquals(278f, turn.toDegrees, 0.01f)
+        // Right round through north and on: a full turn plus 135, not the 135 a bare subtraction gives.
+        assertEquals(495f, turn.netDegrees, 0.01f)
+        assertEquals("143° → 278°, turned 495° right", turn.describe())
+    }
+
+    /** Anticlockwise is a word, not a minus sign — see [CircularTurn.describe]. */
+    @Test
+    fun `a turn to port says so`() {
+        val turn = circularTurn(floatArrayOf(90f, 45f, 10f, 350f))!!
+
+        assertEquals(-100f, turn.netDegrees, 0.01f)
+        assertEquals("090° → 350°, turned 100° left", turn.describe())
+    }
+
+    /**
+     * A boat holding course has not turned, and `0° right` reads as a measurement of nothing.
+     *
+     * Note the *net* is what matters: swinging out and back is steady even though the series covered
+     * ground, which is the difference between a turn and an excursion.
+     */
+    @Test
+    fun `holding a course reads as steady`() {
+        assertEquals("090° → 090°, steady", circularTurn(floatArrayOf(90f, 90f, 90f))!!.describe())
+        assertEquals(
+            "090° → 090°, steady",
+            circularTurn(floatArrayOf(90f, 120f, 60f, 90f))!!.describe(),
+        )
+    }
+
+    /** Crossing north is a small turn, which is the whole reason the unwrap exists. */
+    @Test
+    fun `crossing north is a small turn`() {
+        val turn = circularTurn(floatArrayOf(357f, 359f, 1f, 3f))!!
+
+        assertEquals(6f, turn.netDegrees, 0.01f)
+        assertEquals("357° → 003°, turned 6° right", turn.describe())
+    }
+
+    @Test
+    fun `an empty series has no turn to describe`() {
+        assertNull(circularTurn(FloatArray(0)))
+        // One sample is a bearing but not a turn; it still describes, as steady.
+        assertEquals("045° → 045°, steady", circularTurn(floatArrayOf(45f))!!.describe())
     }
 }
