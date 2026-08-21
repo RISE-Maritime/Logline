@@ -377,6 +377,9 @@ private fun App(
     // How many quick buttons sit across the Events tab. Three is the middle of the three choices and
     // what the screen has always drawn on a Pixel 6.
     var eventsColumns by rememberSaveable { mutableIntStateOf(3) }
+    // Whether the typed-note section shows. On by default — it is the only way to mark something no
+    // button covers — but hideable, because a phone whose operator never types gets the space back.
+    var eventsNoteShown by rememberSaveable { mutableStateOf(true) }
 
     // Which sensors this device simply does not have, so a row that will never publish can say so
     // rather than looking broken. Resolved here because it needs a Context; screens take data.
@@ -1014,6 +1017,8 @@ private fun App(
                 onExpandedChange = { eventsExpanded = it },
                 columns = eventsColumns,
                 onColumnsChange = { eventsColumns = it },
+                noteShown = eventsNoteShown,
+                onNoteShownChange = { eventsNoteShown = it },
                 bottomBar = navBar,
             )
         }

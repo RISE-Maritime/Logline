@@ -1431,6 +1431,13 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   square rather than a fixed side, so four across a narrow phone are simply smaller instead of
   overflowing, and a short last row keeps its cells the same size as the rest — stretching one across
   the gap would make it look more important than its neighbours.
+  **The note section collapses like the history does**, for the phone whose operator never types one:
+  hiding it gives the buttons and the list the whole page. Collapsed rather than switched off from
+  somewhere else, which is what keeps the control reachable — the header and its chevron stay, so the
+  way back is where the way out was, and no other screen has to hint that a hidden section exists.
+  **Editing the buttons is a plain "Edit" on the Quick marks header**, beside the width chips. It read
+  "Edit buttons" while it lived on the *Note* header, where the word was the only thing distinguishing
+  the two; on the header of the section it edits, the position says it.
   A full-screen mode for the buttons was built and removed: with the note above and the history below,
   the buttons already have the middle of the screen, and the mode added a state to leave rather than
   room to press.

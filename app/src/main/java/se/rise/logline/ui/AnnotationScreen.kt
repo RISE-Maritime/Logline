@@ -125,6 +125,15 @@ fun AnnotationScreen(
      */
     columns: Int,
     onColumnsChange: (Int) -> Unit,
+    /**
+     * Whether the typed-note section is showing.
+     *
+     * A section somebody may never use — the quick buttons are the point of this screen — and hiding it
+     * gives the buttons and the history the whole page. Collapsed rather than removed, so the header
+     * and its chevron stay and the way back is where the way out was.
+     */
+    noteShown: Boolean,
+    onNoteShownChange: (Boolean) -> Unit,
     /** Null while this is a tab — see the note on `LiveScreen`. */
     onBack: (() -> Unit)? = null,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
@@ -191,16 +200,16 @@ fun AnnotationScreen(
             // file: the buttons are near the top because the moment being marked is passing while you
             // look for them, and an expanded list above them would put the one control this screen
             // exists for out of a thumb's reach. One header and one line does not.
+            // **Collapsible rather than switchable elsewhere**, which is what keeps the control
+            // reachable: hiding the card leaves the header and its chevron, so the way back is where
+            // the way out was. A toggle on some other screen would hide a section from a place that
+            // gives no hint the section exists.
             SectionHeader(
                 title = "Note",
-                // **"Edit buttons", not "Edit."** This sits on the *Note* header while editing the
-                // quick buttons further down, so the word is the only thing saying which — a bare
-                // "Edit" here would read as editing the note beside it.
-                action = {
-                    TextButton(onClick = onEditButtons) { Text("Edit buttons") }
-                },
+                expanded = noteShown,
+                onToggle = { onNoteShownChange(!noteShown) },
             )
-            NoteCard(
+            if (noteShown) NoteCard(
                 note = note,
                 onNoteChange = { note = it },
                 severity = noteSeverity,
@@ -237,7 +246,10 @@ fun AnnotationScreen(
                 SectionHeader(
                     title = "Quick marks",
                     action = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             COLUMN_CHOICES.forEach { choice ->
                                 FilterChip(
                                     selected = columns == choice,
@@ -246,6 +258,10 @@ fun AnnotationScreen(
                                     modifier = Modifier.readAsOneItem("$choice buttons across"),
                                 )
                             }
+                            // Plain "Edit" now that it sits on the header of the section it edits —
+                            // it needed to say "Edit buttons" while it was on the Note header, where
+                            // the word was the only thing distinguishing the two.
+                            TextButton(onClick = onEditButtons) { Text("Edit") }
                         }
                     },
                 )
