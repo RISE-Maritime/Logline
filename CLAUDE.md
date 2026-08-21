@@ -1466,12 +1466,13 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   `formatElapsed()` moved from `ui/MainScreen.kt` into `publish/` for this: the screen prints it beside a
   running timer and the publisher puts it in the mark's message, and `publish` cannot reach into `ui`.
   One implementation rather than two, which is the rule this codebase keeps restating.
-  **Editing the buttons is a smaller outlined square at the end of the row, not an icon in the top bar.**
-  In the bar it was as far from the thing it edits as the screen allows, and it competed for the one
-  place a glance goes for the run's status. Two thirds the side and no fill, because it is *not* one of
-  them: same size and same fill would make a control that opens a settings screen look like one that
-  publishes, which matters more now that a long press on a real one arms a timer. Still well over a 48dp
-  target — subordinate is not the same as hard to hit.
+  **Editing the buttons is a text action on the Note section header, not an icon in the top bar and not
+  a square in the row.** In the bar it was as far from the thing it edits as the screen allows and
+  competed for the one place a glance goes for the run's status; as a square among the marks it took a
+  slot in the grid and had to work to *not* look like one, which matters when a long press on a real one
+  arms a timer. `SectionHeader`'s `action` slot already exists for a control that governs a section.
+  It reads **"Edit buttons", not "Edit"** — it sits on the header of a section called *Note* while
+  editing the quick marks further down, so the word is the only thing saying which of the two it means.
   **The quick buttons are last, which on a phone is nearest the thumb.** They are squares now rather
   than pills — a pill sized to its text is as small as its shortest label, and this is the control the
   screen exists for. The long press fires a haptic, which is not a nicety: the whole purpose is arming a

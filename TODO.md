@@ -111,10 +111,7 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
-- [ ] **Mark Events**
-  - that was quick an annotaion of buttons should be larger squares with round corners 
-  - if an qucik annotaion button is PressAndHold it shoud workm like a timer with start and stop time + duration 
-
+- [ ] add so user can open quick annotation buttons in full screen and have a toggle for if the note section should be included or hidden
 
 - [ ] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
       `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run
