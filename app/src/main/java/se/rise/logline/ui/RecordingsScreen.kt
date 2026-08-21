@@ -47,6 +47,8 @@ fun RecordingsScreen(
     loaded: Boolean,
     onShare: (SavedRecording) -> Unit,
     onDelete: (SavedRecording) -> Unit,
+    /** Open the recording's own page: its topics, its figures and its track. */
+    onOpen: (SavedRecording) -> Unit,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -92,7 +94,10 @@ fun RecordingsScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
         ) {
             items(files, key = { it.uri.toString() }) { file ->
-                Card(modifier = Modifier.fillMaxWidth()) {
+                // The whole card opens it, with Details spelled out as well: a tappable card gives no
+                // sign it is tappable, and a row whose only controls send a file away or destroy it
+                // should not have a third, safer action hidden in the background.
+                Card(modifier = Modifier.fillMaxWidth(), onClick = { onOpen(file) }) {
                     Column(
                         Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -104,6 +109,7 @@ fun RecordingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { onOpen(file) }) { Text("Details") }
                             OutlinedButton(onClick = { onShare(file) }) { Text("Share…") }
                             TextButton(onClick = { confirmDelete = file }) { Text("Delete") }
                         }

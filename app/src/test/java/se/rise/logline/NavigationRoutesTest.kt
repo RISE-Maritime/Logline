@@ -180,6 +180,14 @@ class NavigationRoutesTest {
         // The detail route must miss both session prefixes, or opening a plot would tear down a
         // checklist or platform session — silently, since a broken prefix match still opens the screen.
         assertEquals("plot/AIR_PRESSURE", Routes.subjectDetail("AIR_PRESSURE"))
+        // Percent-encoded by the caller — a content:// URI is full of slashes, and an unencoded one
+        // would be read as extra path segments and match no route at all.
+        assertEquals(
+            "recording/content%3A%2F%2Fmedia%2F42",
+            Routes.recordingDetail("content%3A%2F%2Fmedia%2F42"),
+        )
+        assertFalse(Routes.inChecklists(Routes.recordingDetail("x")))
+        assertFalse(Routes.inRigScreens(Routes.recordingDetail("x")))
         assertFalse(Routes.inChecklists(Routes.subjectDetail("AIR_PRESSURE")))
         assertFalse(Routes.inRigScreens(Routes.subjectDetail("AIR_PRESSURE")))
     }

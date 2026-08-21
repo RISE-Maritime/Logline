@@ -1134,6 +1134,24 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   sets `Configuration.userAgentValue` to the package name and calls `MapView.onResume()` — `AndroidView`
   does not forward lifecycle, and osmdroid starts its tile threads there. Both were needed before a
   single tile appeared.
+- **A recording's figures are free; its track is not, and the Files tab is built around that split.**
+  `McapWriter.finish` puts the Schema and Channel records in the summary section beside Statistics, and
+  `writeStatistics()` already emits `channelMessageCounts` — so `readMcapDetails()` gets every topic and
+  its own message count for the same few seeks `readMcapSummary` pays, whatever the file's size. The
+  **track** is the opposite: the writer emits no ChunkIndex, so `McapTrack` has to decompress every chunk
+  to find the fixes. That is why the track is on the detail screen and not a thumbnail in every row, and
+  why the two are loaded separately — the figures must never wait for the picture.
+  Three things in `McapTrack` are load-bearing. **It picks the fix channel by source and excludes
+  `calibration`**: two registry entries publish `location_fix`, and a rig's surveyed zero point is a
+  jetty somebody stood on with a tape measure — including it draws a line from the boat to the shore and
+  calls it a track. **No fix channel means the scan never starts**, which is what makes an IMU-only run
+  free rather than a full decompress that finds nothing. And **`0, 0` is dropped**, because proto3 cannot
+  tell an absent double from a zero one and a single fix in the Gulf of Guinea rescales the whole chart
+  to the Atlantic.
+  The chart scales longitude by **`cos(latitude)`** — 0.54 at 57°N — or a track drawn on raw degrees comes
+  out nearly twice as wide as it was sailed. Same correction, same reason, as the accuracy circle's
+  `metersToPixels`. And the screen distinguishes **no GNSS channel** from **a channel with no fixes**:
+  the first is a Tuesday, the second is a fault.
 - **`readMcapSummary` is the deliberate mirror of `McapWriter.writeStatistics()`, and only a test holds
   them together.** It steps over four fields it does not want to reach the four it does, in the right
   widths, so a wrong width produces a plausible number rather than an error — `McapSummaryTest` writes

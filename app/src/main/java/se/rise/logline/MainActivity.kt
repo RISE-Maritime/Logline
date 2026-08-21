@@ -131,6 +131,13 @@ import se.rise.logline.ui.ImportProfileDialog
 import se.rise.logline.ui.MainScreen
 import se.rise.logline.ui.QrScannerScreen
 import se.rise.logline.ui.ChartMarks
+import se.rise.logline.record.McapDetails
+import se.rise.logline.record.McapTrack
+import se.rise.logline.record.recordingDetails
+import se.rise.logline.record.recordingEntry
+import se.rise.logline.record.recordingTrack
+import se.rise.logline.ui.RecordingDetailScreen
+import se.rise.logline.ui.TrackState
 import se.rise.logline.ui.MapLayer
 import se.rise.logline.ui.RecordingsScreen
 import se.rise.logline.ui.NEW_RIG
@@ -766,6 +773,9 @@ private fun App(
                 files = recordings.orEmpty(),
                 loaded = recordings != null,
                 onShare = { context.startActivity(shareIntent(listOf(it))) },
+                onOpen = { file ->
+                    nav.navigate(Routes.recordingDetail(Uri.encode(file.uri.toString())))
+                },
                 onDelete = { file ->
                     scope.launch {
                         withContext(Dispatchers.IO) { deleteSavedRecording(context, file) }
@@ -844,6 +854,58 @@ private fun App(
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 load = liveLoad,
                 bottomBar = navBar,
+            )
+        }
+        composable(Routes.RECORDING_DETAIL) { backStackEntry ->
+            val uri = backStackEntry.arguments?.getString("uri")?.let(Uri::parse)
+            if (uri == null) {
+                LaunchedEffect(Unit) { nav.popBackStack() }
+                return@composable
+            }
+            // Asked of MediaStore rather than taken from the Files listing: this screen is reached by
+            // URI so it survives a process death, and after one the listing has not been read. Querying
+            // the one row is also cheaper than rebuilding the list, which reads a summary per file.
+            val listed by produceState<se.rise.logline.record.SavedRecording?>(null, uri) {
+                value = withContext(Dispatchers.IO) { recordingEntry(context, uri) }
+            }
+
+            // **Two loads, because they cost two different things.** The summary is a few seeks off the
+            // footer whatever the file's size; the track is a full decompress of the data section, since
+            // the writer emits no chunk index. Loading them together would hold the figures behind the
+            // picture.
+            val details by produceState<Pair<Boolean, McapDetails?>>(false to null, uri) {
+                value = false to null
+                val read = withContext(Dispatchers.IO) { recordingDetails(context, uri) }
+                value = true to read
+            }
+            val (detailsLoaded, detail) = details
+
+            val track by produceState<TrackState>(TrackState.Reading, uri, detail, detailsLoaded) {
+                if (!detailsLoaded) {
+                    value = TrackState.Reading
+                    return@produceState
+                }
+                val channel = detail?.topics?.let(McapTrack::fixChannel)
+                // No fix channel means the scan never starts — an IMU-only run costs nothing here.
+                if (channel == null) {
+                    value = TrackState.NoGnss
+                    return@produceState
+                }
+                value = TrackState.Reading
+                val fixes = withContext(Dispatchers.IO) {
+                    recordingTrack(context, uri, channel.channelId)
+                }
+                value = TrackState.Ready(fixes)
+            }
+
+            RecordingDetailScreen(
+                name = listed?.name ?: uri.lastPathSegment.orEmpty(),
+                sizeBytes = listed?.sizeBytes ?: 0L,
+                savedAtMillis = listed?.savedAtMillis ?: 0L,
+                details = detail,
+                detailsLoaded = detailsLoaded,
+                track = track,
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.SUBJECT_DETAIL) { backStackEntry ->

@@ -104,6 +104,73 @@ private fun summaryOf(context: Context, uri: Uri): McapSummary? = try {
 }
 
 /**
+ * One file's name, size and date, without listing the folder.
+ *
+ * The detail screen is reached by URI so it works after a process death, when the listing has not been
+ * read — and asking `MediaStore` about the one row is cheaper than rebuilding the whole list, which
+ * would read a summary per recording on the way past.
+ *
+ * No `summary`: the caller reads that itself through [recordingDetails], which returns the topics too.
+ */
+fun recordingEntry(context: Context, uri: Uri): SavedRecording? = try {
+    context.contentResolver.query(
+        uri,
+        arrayOf(
+            MediaStore.Downloads.DISPLAY_NAME,
+            MediaStore.Downloads.SIZE,
+            MediaStore.Downloads.DATE_ADDED,
+        ),
+        null,
+        null,
+        null,
+    )?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        SavedRecording(
+            uri = uri,
+            name = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)),
+            sizeBytes = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)),
+            // Seconds here, unlike every other time in the app.
+            savedAtMillis = cursor.getLong(
+                cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_ADDED)
+            ) * 1_000L,
+            summary = null,
+        )
+    }
+} catch (t: Throwable) {
+    Log.i(TAG, "no entry for $uri", t)
+    null
+}
+
+/**
+ * Everything the detail screen needs, in the two costs it comes in.
+ *
+ * [details] is a few seeks off the footer, whatever the file's size. [track] is a full decompress of
+ * the data section — see [McapTrack] — so the caller loads them separately and shows the first while
+ * the second is still reading.
+ */
+fun recordingDetails(context: Context, uri: Uri): McapDetails? = try {
+    context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+        FileInputStream(pfd.fileDescriptor).use { readMcapDetails(it.channel) }
+    }
+} catch (t: Throwable) {
+    Log.i(TAG, "no details for $uri", t)
+    null
+}
+
+/**
+ * The recording's GNSS track, or empty when it holds none.
+ *
+ * **Streamed rather than seeked**, unlike everything else here: this reads the file forwards from the
+ * start and there is nothing to seek to — the writer emits no chunk index on purpose.
+ */
+fun recordingTrack(context: Context, uri: Uri, channelId: Int): List<TrackFix> = try {
+    context.contentResolver.openInputStream(uri)?.use { McapTrack.read(it, channelId) } ?: emptyList()
+} catch (t: Throwable) {
+    Log.i(TAG, "no track for $uri", t)
+    emptyList()
+}
+
+/**
  * Hand files to another app — mail, Drive, a laptop over a cable.
  *
  * `MediaStore` URIs are shareable as they are, so there is no `FileProvider` here and no

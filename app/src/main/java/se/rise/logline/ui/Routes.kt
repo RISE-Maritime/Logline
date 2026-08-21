@@ -52,6 +52,15 @@ object Routes {
      */
     const val SUBJECT_DETAIL = "plot/{entry}"
 
+    /**
+     * One saved recording, keyed on its `content://` URI, percent-encoded.
+     *
+     * The URI rather than a position in the listing: the screen then survives process death and does
+     * not depend on the Files tab having loaded, and it is what both reads of the file need anyway.
+     * Collides with neither session prefix.
+     */
+    const val RECORDING_DETAIL = "recording/{uri}"
+
     const val CHECKLISTS = "checklists"
     const val CHECKLIST = "checklist/{procedureId}"
 
@@ -92,6 +101,9 @@ object Routes {
     fun subjectQos(entryName: String): String = SUBJECT_QOS.replace("{entry}", entryName)
 
     fun subjectDetail(entryName: String): String = SUBJECT_DETAIL.replace("{entry}", entryName)
+
+    /** [uri] must be percent-encoded by the caller — a `content://` URI is full of slashes. */
+    fun recordingDetail(encodedUri: String): String = RECORDING_DETAIL.replace("{uri}", encodedUri)
 
     fun rig(encodedEntityId: String): String = RIG.replace("{entityId}", encodedEntityId)
 

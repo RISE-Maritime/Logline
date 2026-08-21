@@ -8,10 +8,10 @@ import java.nio.channels.FileChannel
 private const val TAG = "McapSummary"
 
 /** Eight bytes, opening and closing the file. */
-private const val MAGIC_SIZE = 8
+internal const val MAGIC_SIZE = 8
 
 /** Every record is an opcode byte and a little-endian uint64 length. */
-private const val RECORD_HEADER_SIZE = 9
+internal const val RECORD_HEADER_SIZE = 9
 
 /** `summary_start` + `summary_offset_start` + `summary_crc`. */
 private const val FOOTER_BODY_SIZE = 20
@@ -50,28 +50,126 @@ data class McapSummary(
  * message is present and the statistics are gone. Returning zeroes there would report a good recording
  * as an empty one.
  */
-fun readMcapSummary(channel: FileChannel): McapSummary? {
+fun readMcapSummary(channel: FileChannel): McapSummary? = try {
+    summaryStartOf(channel)?.let { statisticsIn(channel, it, channel.size()) }
+} catch (t: Throwable) {
+    // A truncated or foreign file is not an error worth surfacing: the caller shows size and date
+    // and says nothing about messages, which is the honest answer for a file it cannot read.
+    Log.i(TAG, "no readable summary", t)
+    null
+}
+
+/**
+ * Where the summary section begins, or null when the file does not have one.
+ *
+ * Shared by [readMcapSummary] and [readMcapDetails] rather than written twice: the footer walk is four
+ * exact offsets and a magic check, and two copies of it is two things to keep in step with the writer.
+ */
+private fun summaryStartOf(channel: FileChannel): Long? {
     val size = channel.size()
     if (size < MAGIC_SIZE * 2L + RECORD_HEADER_SIZE + FOOTER_BODY_SIZE) return null
 
-    return try {
-        // The closing magic is what says the file was finished. Without it there is no footer to trust.
-        if (!channel.read(MAGIC_SIZE, size - MAGIC_SIZE).matchesMagic()) return null
+    // The closing magic is what says the file was finished. Without it there is no footer to trust.
+    if (!channel.read(MAGIC_SIZE, size - MAGIC_SIZE).matchesMagic()) return null
 
-        val footer = channel.read(RECORD_HEADER_SIZE + FOOTER_BODY_SIZE, size - MAGIC_SIZE - FOOTER_BODY_SIZE - RECORD_HEADER_SIZE)
-        if (footer.get().toInt() != McapWriter.OP_FOOTER) return null
-        footer.long // the footer's own length, already known
-        val summaryStart = footer.long
-        // 0 is the spec's "no summary section" — see the note above.
-        if (summaryStart <= 0L || summaryStart >= size) return null
+    val footer = channel.read(
+        RECORD_HEADER_SIZE + FOOTER_BODY_SIZE,
+        size - MAGIC_SIZE - FOOTER_BODY_SIZE - RECORD_HEADER_SIZE,
+    )
+    if (footer.get().toInt() != McapWriter.OP_FOOTER) return null
+    footer.long // the footer's own length, already known
+    val summaryStart = footer.long
+    // 0 is the spec's "no summary section" — see the note on [readMcapSummary].
+    return summaryStart.takeIf { it > 0L && it < size }
+}
 
-        statisticsIn(channel, summaryStart, size)
-    } catch (t: Throwable) {
-        // A truncated or foreign file is not an error worth surfacing: the caller shows size and date
-        // and says nothing about messages, which is the honest answer for a file it cannot read.
-        Log.i(TAG, "no readable summary", t)
-        null
+/** One topic in a recording, and how many messages it holds. */
+data class TopicCount(val channelId: Int, val topic: String, val messages: Long)
+
+/**
+ * Everything the summary section says: the statistics, and every topic with its own message count.
+ *
+ * **As cheap as [readMcapSummary]** — a few seeks and a few hundred bytes, whatever the file's size —
+ * because `McapWriter.finish` puts the Channel records in the summary alongside Statistics, and
+ * `writeStatistics()` already emits `channelMessageCounts`. Nothing here touches the data section.
+ *
+ * A second reader of the same records, and the same warning applies: the field widths below are
+ * `writeChannel()` and `writeStatistics()` read backwards, and only a test that writes a file and reads
+ * it back will catch them drifting apart.
+ */
+data class McapDetails(val summary: McapSummary, val topics: List<TopicCount>)
+
+fun readMcapDetails(channel: FileChannel): McapDetails? = try {
+    val size = channel.size()
+    summaryStartOf(channel)?.let { start -> detailsIn(channel, start, size) }
+} catch (t: Throwable) {
+    Log.i(TAG, "no readable details", t)
+    null
+}
+
+private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails? {
+    val topics = LinkedHashMap<Int, String>()
+    var counts: Map<Int, Long> = emptyMap()
+    var summary: McapSummary? = null
+
+    var offset = from
+    while (offset + RECORD_HEADER_SIZE <= size) {
+        val header = channel.read(RECORD_HEADER_SIZE, offset)
+        val opcode = header.get().toInt() and 0xFF
+        val length = header.long
+        if (length < 0 || offset + RECORD_HEADER_SIZE + length > size) break
+        val body = offset + RECORD_HEADER_SIZE
+        when (opcode) {
+            McapWriter.OP_CHANNEL -> channel.read(length.toInt(), body).readChannel()
+                ?.let { (id, topic) -> topics[id] = topic }
+            McapWriter.OP_STATISTICS -> {
+                val bytes = channel.read(length.toInt(), body)
+                summary = bytes.readStatistics()
+                counts = bytes.readChannelCounts()
+            }
+        }
+        offset += RECORD_HEADER_SIZE + length
     }
+
+    val stats = summary ?: return null
+    return McapDetails(
+        summary = stats,
+        // Busiest first: on a run with forty subjects the question is which of them dominates the file.
+        topics = topics.map { (id, topic) -> TopicCount(id, topic, counts[id] ?: 0L) }
+            .sortedByDescending { it.messages },
+    )
+}
+
+/** `writeChannel()` read backwards: id, schema id, topic, encoding, empty metadata map. */
+private fun ByteBuffer.readChannel(): Pair<Int, String>? {
+    if (remaining() < 2 + 2 + 4) return null
+    val id = short.toInt() and 0xFFFF
+    short // schema id
+    val topicLength = int
+    if (topicLength < 0 || topicLength > remaining()) return null
+    val topic = ByteArray(topicLength).also { get(it) }.toString(Charsets.UTF_8)
+    return id to topic
+}
+
+/**
+ * The `channelMessageCounts` map, which sits after everything [readStatistics] reads.
+ *
+ * Its own function because the buffer has to be positioned past the prefix first — reading it inside
+ * `readStatistics` would make that function's contract "and also leaves the cursor somewhere", which is
+ * how the next person breaks it.
+ */
+private fun ByteBuffer.readChannelCounts(): Map<Int, Long> {
+    position(STATISTICS_PREFIX_SIZE)
+    if (remaining() < 4) return emptyMap()
+    val bytes = int
+    if (bytes < 0 || bytes > remaining()) return emptyMap()
+    val out = LinkedHashMap<Int, Long>()
+    var read = 0
+    while (read + 10 <= bytes) {
+        out[short.toInt() and 0xFFFF] = long
+        read += 10
+    }
+    return out
 }
 
 /** Walk the summary section's records looking for `Statistics`. */
