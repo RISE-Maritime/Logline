@@ -3,10 +3,11 @@ package se.rise.logline.calibrate
 import android.content.Context
 import android.net.Uri
 import se.rise.logline.keelson.escaped
+import se.rise.logline.record.CONFIG_FOLDER
 import se.rise.logline.record.saveToDownloads
 
 /**
- * Write one rig to `Downloads/Logline` as a platform-geometry file.
+ * Write one rig to `Downloads/Logline/config` as a platform-geometry file.
  *
  * The **strict** variant: no provenance block, so the file validates against
  * `keelson/connectors/platform/config-schema.json` and can be handed straight to
@@ -18,7 +19,7 @@ import se.rise.logline.record.saveToDownloads
  */
 fun exportCalibration(context: Context, calibration: RigCalibration): String {
     val name = "${defaultEntityId(calibration.name)}-platform-geometry.json"
-    saveToDownloads(context, name, "application/json") { out ->
+    saveToDownloads(context, name, "application/json", CONFIG_FOLDER) { out ->
         out.write(calibration.toPlatformGeometryJson().toByteArray(Charsets.UTF_8))
     }
     return name
@@ -39,7 +40,7 @@ fun exportCalibration(context: Context, calibration: RigCalibration): String {
  */
 fun exportPlatformRegistry(context: Context, rigs: List<RigCalibration>, realm: String): String {
     val name = "logline-platform-registry.json"
-    saveToDownloads(context, name, "application/json") { out ->
+    saveToDownloads(context, name, "application/json", CONFIG_FOLDER) { out ->
         out.write(platformRegistryJson(rigs, realm).toByteArray(Charsets.UTF_8))
     }
     return name

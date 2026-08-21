@@ -188,7 +188,9 @@ fun RecordingsScreen(
                 if (loaded) {
                     EmptyState(
                         title = "Nothing saved yet",
-                        body = "Finished recordings are copied to Downloads/Logline and appear here.\n\n" +
+                        body = "Finished recordings are copied to Downloads/Logline and appear here. " +
+                            "Exported settings and rig geometry go to Downloads/Logline/config " +
+                            "instead, so they do not clutter this list.\n\n" +
                             "Files saved by an earlier install of this app are not listed — Android " +
                             "ties them to the install that wrote them. They are still in " +
                             "Downloads/Logline and any file manager can see them.",

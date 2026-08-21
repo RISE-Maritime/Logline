@@ -2,8 +2,11 @@ package se.rise.logline
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import se.rise.logline.record.CONFIG_FOLDER
+import se.rise.logline.record.DOWNLOADS_FOLDER
 import se.rise.logline.record.RecordingFacts
 import se.rise.logline.record.RecordingKind
 import se.rise.logline.record.recordingKindOf
@@ -187,6 +190,22 @@ class RecordingsQueryTest {
         assertEquals(RecordingKind.RigGeometry, recordingKindOf("ssrs18-platform-geometry.json"))
         assertEquals(RecordingKind.Other, recordingKindOf("holiday-snap.jpg"))
         assertEquals("case is not the file system's promise", RecordingKind.Recording, recordingKindOf("LOGLINE.MCAP"))
+    }
+
+    /**
+     * **Exports live a level below the recordings, and that is what keeps them out of this list.**
+     *
+     * `savedRecordings()` matches `RELATIVE_PATH` for exactly `Download/Logline/`, so a subfolder is
+     * excluded by construction rather than by a filter somebody has to remember to keep working. If
+     * these two ever became siblings, every settings profile would be back in the Recordings tab.
+     */
+    @Test
+    fun `the config folder sits inside the recordings folder`() {
+        assertTrue(
+            "a subfolder, so the exact-match query cannot see it",
+            CONFIG_FOLDER.startsWith("$DOWNLOADS_FOLDER/"),
+        )
+        assertNotEquals(DOWNLOADS_FOLDER, CONFIG_FOLDER)
     }
 
     /**

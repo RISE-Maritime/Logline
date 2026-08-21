@@ -1193,6 +1193,14 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   version of its test — each track is scaled to **its own** extent, so the `cos(latitude)` correction
   has to be checked *within* one track; comparing two separate tracks gives a ratio of 1 whatever the
   projection does.
+- **Exports go to `Downloads/Logline/config`, recordings to `Downloads/Logline`.** A subfolder, and that
+  is what keeps a settings profile out of the Recordings tab: `savedRecordings()` matches
+  `RELATIVE_PATH` for *exactly* `Download/Logline/`, so anything a level down is excluded by
+  construction rather than by a filter somebody has to remember to keep working. `saveToDownloads` takes
+  the folder; `CONFIG_FOLDER` is used by the settings profile, the rig geometry and the rig library, and
+  `RecordingsQueryTest` pins that the two folders stay nested — as siblings every export would be back
+  in the list. Files written before this still sit among the recordings and are still labelled by
+  `recordingKindOf`, which is why that classification stays worth having.
 - **`Downloads/Logline` is not a folder of recordings, and `savedRecordings()` lists it by *path*.**
   Four things write there — the recorder, `exportSettingsProfile`, `exportPlatformGeometry` and
   `exportPlatformRegistry` — and the query filters on `RELATIVE_PATH` with **no extension test**, so all

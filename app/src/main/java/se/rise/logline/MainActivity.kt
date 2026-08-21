@@ -1303,7 +1303,7 @@ private fun App(
                         libraryMessage = withContext(Dispatchers.IO) {
                             runCatching { exportPlatformRegistry(context, current.rigs, current.realm) }
                                 .fold(
-                                    onSuccess = { "Wrote $it to Downloads/Logline" },
+                                    onSuccess = { "Wrote $it to Downloads/Logline/config" },
                                     onFailure = {
                                         "Could not export: ${it.message ?: it::class.simpleName}"
                                     },
@@ -1478,7 +1478,7 @@ private fun App(
                     scope.launch {
                         exportMessage = withContext(Dispatchers.IO) {
                             runCatching { exportCalibration(context, draft) }.fold(
-                                onSuccess = { "Wrote $it to Downloads/Logline" },
+                                onSuccess = { "Wrote $it to Downloads/Logline/config" },
                                 onFailure = { "Could not export: ${it.message ?: it::class.simpleName}" },
                             )
                         }
@@ -1682,7 +1682,7 @@ private fun App(
                     scope.launch {
                         profileMessage = withContext(Dispatchers.IO) {
                             runCatching { exportSettingsProfile(context, current) }.fold(
-                                onSuccess = { "Wrote $it to Downloads/Logline" },
+                                onSuccess = { "Wrote $it to Downloads/Logline/config" },
                                 onFailure = { "Could not export: ${it.message}" },
                             )
                         }
