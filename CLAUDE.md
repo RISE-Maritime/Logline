@@ -433,12 +433,14 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   profile carries the key. Note `SettingsProfileTest` does *not* catch a new field on its own; it is a
   hand-written list of assertions, not a reflective one, so CLAUDE.md's old claim that a new field fails
   it until somebody decides which side it belongs on holds only if the fixture is updated too.
-  **Four base layers, and Ocean is the one that earns its place.** MapTiler's bathymetry — depth
-  contours and soundings under a plain land mask — is the only one of these that says what is under the
-  hull rather than where the shore is. Topographic covers terrain ashore. MapTiler's `streets-v2` and
-  `outdoor-v2` were tried and left out: they render close enough to the OpenStreetMap layer that a menu
-  carrying all three would be three ways of saying the same thing, and each is one line to add if that
-  judgement turns out wrong. Note the two URL shapes — raw tilesets are `tiles/{id}`, rendered styles
+  **Six base layers, and Ocean is the one that earns its place.** MapTiler's bathymetry — depth
+  contours and soundings under a plain land mask — is the only one that says what is under the hull
+  rather than where the shore is. Topographic covers terrain ashore, Outdoor adds trail and cycle routes
+  over it, and Streets is the plain road map. Outdoor and Streets were left out at first as too close to
+  the OpenStreetMap layer; seen side by side on the phone they are not — Outdoor draws long-distance
+  trails OSM's own rendering does not. **New layers are appended, never slotted in**, so the positions of
+  the ones already in the menu do not shift under somebody who knows where they are. Note the two URL
+  shapes — raw tilesets are `tiles/{id}`, rendered styles
   are `maps/{id}` — and that every endpoint returns **512px** tiles, both verified against the service
   rather than taken from the documentation.
   **How far the chart zooms is per source, and each answer came from what the service does.**

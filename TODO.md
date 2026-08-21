@@ -116,6 +116,10 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
+The user need to be able to enter its own maptiler key in settings 
+
+In the in the chart layer section allow used to also to past track, hading line and Vector line
+
 - [x] **Can you change the satelite layer to be MapTiler.** Done in the chart-sources pass.
       Esri is kept as the keyless fallback — satellite is the default layer, so an install with
       no key must still draw something rather than opening on a blank grid. The key is a
@@ -230,10 +234,12 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       reflective one. `mapTilerKey` was added to both by hand. A reflective check over
       `Settings::class.memberProperties` would make the claim true.
 
-- [ ] **Two MapTiler styles were tried and left out.** `streets-v2` and `outdoor-v2` both work with the
+- [x] **Two MapTiler styles were tried and left out.** `streets-v2` and `outdoor-v2` both work with the
       key, and both render close enough to the existing OpenStreetMap layer that carrying all three
       would be three ways of saying the same thing. One line each in `sourceFor` if that judgement is
-      wrong — worth revisiting if anybody wants outdoor's trail rendering ashore.
+      wrong — worth revisiting if anybody wants outdoor's trail rendering ashore. Both added; the
+      judgement was wrong, and seeing them on the phone is what showed it — Outdoor draws
+      long-distance trail routes OSM's own rendering does not.
 
 - [ ] **The layer menu says a layer needs a key, but not that a key has stopped working.** An expired
       or over-quota MapTiler key fails per tile, so the chart simply goes blank with the layer still

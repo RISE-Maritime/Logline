@@ -40,6 +40,8 @@ enum class MapLayer(val label: String, val needsKey: Boolean = false) {
     Satellite("Satellite"),
     Ocean("Ocean", needsKey = true),
     Topographic("Topographic", needsKey = true),
+    Outdoor("Outdoor", needsKey = true),
+    Streets("Streets", needsKey = true),
 }
 
 /**
@@ -145,6 +147,11 @@ private fun sourceFor(layer: MapLayer, mapTilerKey: String) = when (layer) {
     // a plain land mask. The other layers say where the shore is; this one says what is under the hull.
     MapLayer.Ocean -> mapTilerRaster("MapTiler Ocean", "maps/ocean", ".png", mapTilerKey)
     MapLayer.Topographic -> mapTilerRaster("MapTiler Topo", "maps/topo-v2", ".png", mapTilerKey)
+    // These two sit close to the OpenStreetMap layer above — outdoor adds trail and terrain rendering,
+    // streets is the plainer road map. Appended rather than slotted in beside `Standard`, so the
+    // positions of the layers already in the menu do not shift under anybody who knows where they are.
+    MapLayer.Outdoor -> mapTilerRaster("MapTiler Outdoor", "maps/outdoor-v2", ".png", mapTilerKey)
+    MapLayer.Streets -> mapTilerRaster("MapTiler Streets", "maps/streets-v2", ".png", mapTilerKey)
 }
 
 /**
@@ -584,7 +591,9 @@ private fun chartInk(layer: MapLayer): Int = when (layer) {
     MapLayer.Satellite -> Color.WHITE
     MapLayer.Standard,
     MapLayer.Ocean,
-    MapLayer.Topographic -> Color.BLACK
+    MapLayer.Topographic,
+    MapLayer.Outdoor,
+    MapLayer.Streets -> Color.BLACK
 }
 
 /**
