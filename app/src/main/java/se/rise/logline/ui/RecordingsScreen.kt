@@ -1,25 +1,40 @@
 package se.rise.logline.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import se.rise.logline.publish.formatElapsed
 import se.rise.logline.record.SavedRecording
@@ -49,10 +64,43 @@ fun RecordingsScreen(
     onDelete: (SavedRecording) -> Unit,
     /** Open the recording's own page: its topics, its figures and its track. */
     onOpen: (SavedRecording) -> Unit,
+    /**
+     * The search box and the two orderings, hoisted into `MainActivity` like the live view's own
+     * preferences — a `remember` here dies when the screen is popped, so opening a recording and
+     * coming back would clear a search somebody had just typed.
+     */
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: RecordingSort,
+    onSortChange: (RecordingSort) -> Unit,
+    filter: RecordingFilter,
+    onFilterChange: (RecordingFilter) -> Unit,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
     bottomBar: @Composable () -> Unit = {},
 ) {
     var confirmDelete by remember { mutableStateOf<SavedRecording?>(null) }
+    val shown = remember(files, query, sort, filter) {
+        visibleRecordings(files, query, sort, filter)
+    }
+    val listState = rememberLazyListState()
+    // **A reorder has to bring the top of the list with it.**
+    //
+    // `items(key = …)` makes a `LazyColumn` keep the item it was showing in view when the list is
+    // reordered, which is right for a delete and wrong for a sort: choosing "Largest first" scrolled to
+    // wherever the previously-visible file had moved to, so the 479 MB recording sat at the top of a
+    // list still showing 2 MB ones — the control read as broken while working perfectly.
+    //
+    // Guarded against firing on first composition, because `rememberLazyListState` restores through the
+    // tab's `saveState`, and jumping to the top every time somebody came back from opening a recording
+    // would be its own small wrongness.
+    var lastOrder by remember { mutableStateOf(Triple(query, sort, filter)) }
+    LaunchedEffect(query, sort, filter) {
+        val order = Triple(query, sort, filter)
+        if (order != lastOrder) {
+            lastOrder = order
+            listState.scrollToItem(0)
+        }
+    }
 
     confirmDelete?.let { file ->
         ConfirmDialog(
@@ -88,12 +136,46 @@ fun RecordingsScreen(
             return@ScreenScaffold
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
-        ) {
-            items(files, key = { it.uri.toString() }) { file ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // **Pinned, not scrolled with the list.** The controls are what somebody reaches for while
+            // looking through a hundred and nineteen files, and a search box that has scrolled off is a
+            // search box they have to scroll back for.
+            RecordingsToolbar(
+                query = query,
+                onQueryChange = onQueryChange,
+                sort = sort,
+                onSortChange = onSortChange,
+                filter = filter,
+                onFilterChange = onFilterChange,
+                shown = shown.size,
+                total = files.size,
+            )
+
+            if (shown.isEmpty()) {
+                // **A third empty state.** "Nothing saved yet" would be a lie with a hundred files on
+                // the phone, and the difference matters: one is a phone that has never recorded, this
+                // is a search that excluded everything.
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    EmptyState(
+                        title = "No recordings match",
+                        body = if (filter == RecordingFilter.All) {
+                            "Nothing here is named like that. A recording's name is the date and time " +
+                                "it started, so 2026-08-21 or 0821 will find one."
+                        } else {
+                            "Nothing matches with the list set to ${filter.label.lowercase()}."
+                        },
+                    )
+                }
+                return@Column
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
+            ) {
+            items(shown, key = { it.uri.toString() }) { file ->
                 // The whole card opens it, with Details spelled out as well: a tappable card gives no
                 // sign it is tappable, and a row whose only controls send a file away or destroy it
                 // should not have a third, safer action hidden in the background.
@@ -115,6 +197,98 @@ fun RecordingsScreen(
                         }
                     }
                 }
+            }
+            }
+        }
+    }
+}
+
+/**
+ * Search, order and completeness, in two rows above the list.
+ *
+ * The count sits with the controls rather than under the title, because it is *their* readout: it is
+ * how somebody sees that a filter is on when the thing it hid is off screen.
+ */
+@Composable
+private fun RecordingsToolbar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: RecordingSort,
+    onSortChange: (RecordingSort) -> Unit,
+    filter: RecordingFilter,
+    onFilterChange: (RecordingFilter) -> Unit,
+    shown: Int,
+    total: Int,
+) {
+    Column(Modifier.padding(horizontal = 12.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            placeholder = { Text("Search by date or name") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear the search")
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ChoiceMenu(
+                current = sort.label,
+                options = RecordingSort.entries,
+                describe = { it.label },
+                onChoose = onSortChange,
+            )
+            ChoiceMenu(
+                current = filter.label,
+                options = RecordingFilter.entries,
+                describe = { it.label },
+                onChoose = onFilterChange,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                recordingsCount(shown, total),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        HorizontalDivider()
+    }
+}
+
+/** A compact text button that drops a menu — lighter than the form screens' full-width field. */
+@Composable
+private fun <T> ChoiceMenu(
+    current: String,
+    options: List<T>,
+    describe: (T) -> String,
+    onChoose: (T) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(current, style = MaterialTheme.typography.labelLarge)
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(describe(option)) },
+                    onClick = {
+                        onChoose(option)
+                        expanded = false
+                    },
+                )
             }
         }
     }

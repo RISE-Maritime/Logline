@@ -111,6 +111,8 @@ import se.rise.logline.publish.SampleWindow
 import se.rise.logline.ui.LiveScreen
 import se.rise.logline.ui.WINDOW_CHOICES
 import se.rise.logline.ui.RecordingChart
+import se.rise.logline.ui.RecordingFilter
+import se.rise.logline.ui.RecordingSort
 import se.rise.logline.ui.TrackMap
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -358,6 +360,13 @@ private fun App(
     // consequence for a first run with no signal — a fresh install now opens on an empty grid rather
     // than a cached street map, and the layer menu is the way out of that.
     var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Satellite) }
+    // How the Files tab is being looked through, hoisted for the reason the live view's preferences
+    // are: the tab is popped whenever a recording is opened, so a `remember` inside it would clear a
+    // search on the way back from the thing the search found. Enums carry through `rememberSaveable`
+    // on their own — they are `Serializable` — which is what `liveLayer` above relies on too.
+    var recordingsQuery by rememberSaveable { mutableStateOf("") }
+    var recordingsSort by rememberSaveable { mutableStateOf(RecordingSort.Newest) }
+    var recordingsFilter by rememberSaveable { mutableStateOf(RecordingFilter.All) }
     // Four booleans rather than one `ChartMarks`, purely so `rememberSaveable` can carry them: it has
     // no saver for an arbitrary data class, and losing which marks are on to a process death is the
     // sort of small wrongness that reads as the app forgetting things. Assembled at the call site.
@@ -783,6 +792,12 @@ private fun App(
                         recordingsRevision++
                     }
                 },
+                query = recordingsQuery,
+                onQueryChange = { recordingsQuery = it },
+                sort = recordingsSort,
+                onSortChange = { recordingsSort = it },
+                filter = recordingsFilter,
+                onFilterChange = { recordingsFilter = it },
                 bottomBar = navBar,
             )
         }

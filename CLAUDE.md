@@ -1134,6 +1134,30 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   sets `Configuration.userAgentValue` to the package name and calls `MapView.onResume()` — `AndroidView`
   does not forward lifecycle, and osmdroid starts its tile threads there. Both were needed before a
   single tile appeared.
+- **The Files list is searched, ordered and filtered, and all three read a recording's *name*.** With 119
+  recordings on the dev phone whose names differ only by a timestamp, the list was unusable without them.
+  **Search ignores separators on both sides**, so `2026-08-21`, `20260821` and `0821` all find
+  `logline-2026-08-21T104536.mcap` — a recording's name *is* its date, so a search insisting on the exact
+  punctuation would be a date search that rejects dates. A query of pure punctuation normalises to empty
+  and matches everything, which is what an empty box does and the only sensible reading of "no constraint".
+  **An unknown duration sorts last under "Longest first", never as zero.** An incomplete recording has no
+  summary and so no duration, and it may well be the longest run there is — it is the one that was still
+  going when the process died. Ranking it as a zero-second run buries exactly the file somebody is
+  hunting for. Every order breaks ties by newest so the list cannot reshuffle under the thumb.
+  **`items(key = …)` anchors a `LazyColumn` to the item it was showing**, which is right for a delete and
+  wrong for a re-sort: choosing "Largest first" scrolled to wherever the previously-visible file had
+  moved, so the 479 MB recording sat at the top of a list still showing 2 MB ones and the control read as
+  broken while working perfectly. A `LaunchedEffect` scrolls to the top when the ordering changes,
+  guarded against firing on first composition — `rememberLazyListState` restores through the tab's
+  `saveState`, and jumping to the top on every return from a recording would be its own small wrongness.
+  **Three empty states, not two.** "Nothing saved yet" is a lie with a hundred files on the phone, so a
+  search that excludes everything gets its own, and it keeps the toolbar on screen so there is a way out.
+  The count says `23 of 119 recordings` whenever anything is hidden, because a filter that quietly drops
+  ninety-six files looks exactly like a phone that has lost them.
+  **`RecordingFacts` exists so the logic can be tested.** `SavedRecording` carries a MediaStore `Uri`,
+  which has no implementation off a device, and there is no Robolectric and no mocking framework on the
+  test classpath — the same stance that had `PlatformGeometryParse` choose `kotlinx-serialization` over
+  `org.json`. Naming the four facts the query actually reads is what keeps it a JVM test.
 - **A recording's figures are free; its track is not, and the Files tab is built around that split.**
   `McapWriter.finish` puts the Schema and Channel records in the summary section beside Statistics, and
   `writeStatistics()` already emits `channelMessageCounts` — so `readMcapDetails()` gets every topic and

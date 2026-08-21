@@ -18,13 +18,42 @@ private const val TAG = "RecordingsLibrary"
  * export shares this folder, and so does a recording rescued from a killed process, which has no
  * statistics section. Both are listed; neither claims a message count.
  */
+/**
+ * The facts that ordering and searching a list of recordings need, and nothing else.
+ *
+ * Narrow deliberately. A [SavedRecording] carries a MediaStore [Uri], which has no implementation off a
+ * device, and this project's unit tests keep strictly to code that runs on a plain JVM — there is no
+ * Robolectric and no mocking framework on the test classpath, which is the same stance that had
+ * `PlatformGeometryParse` choose `kotlinx-serialization` over `org.json`. Naming what the query logic
+ * actually reads is what lets it stay testable without dragging a device in behind it.
+ */
+interface RecordingFacts {
+    val name: String
+    val sizeBytes: Long
+    val savedAtMillis: Long
+
+    /** Null when the recording has no summary section — see [isComplete]. */
+    val durationMillis: Long?
+
+    /**
+     * Whether the recording closed properly.
+     *
+     * False is what `McapRecovery.finalise` leaves behind for a run a killed process interrupted: every
+     * message present, the figures never written.
+     */
+    val isComplete: Boolean
+}
+
 data class SavedRecording(
     val uri: Uri,
-    val name: String,
-    val sizeBytes: Long,
-    val savedAtMillis: Long,
+    override val name: String,
+    override val sizeBytes: Long,
+    override val savedAtMillis: Long,
     val summary: McapSummary?,
-)
+) : RecordingFacts {
+    override val durationMillis: Long? get() = summary?.durationMillis
+    override val isComplete: Boolean get() = summary != null
+}
 
 /**
  * Everything this app has saved, newest first.
