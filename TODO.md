@@ -116,7 +116,11 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
-The user need to be able to enter its own maptiler key in settings 
+- [x] The user need to be able to enter its own maptiler key in settings
+      Done in b4fd8ba — Setup › Settings › Recording › Satellite imagery. Blank falls back to
+      Esri, so a keyless phone still draws; the layer menu grew a gear pointing at this field
+      in e8fa7e2. Stored per phone, never in the repo or the APK, and carried by a settings
+      profile so a fleet provisions from one QR.
 
 In the in the chart layer section allow used to also to past track, hading line and Vector line
 
