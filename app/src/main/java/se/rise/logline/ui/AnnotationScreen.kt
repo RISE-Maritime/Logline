@@ -302,20 +302,26 @@ fun AnnotationScreen(
                         )
                     }
                     // Last in the same row, so it wraps with them and sits at the end of the set it
-                    // edits. **Outlined rather than filled**: it is the same size and shape as the
-                    // marks beside it and must not be mistaken for one, and the fill is what every
-                    // other square here uses to mean "this makes a mark".
+                    // edits — but **smaller and outlined**, because it is not one of them. Same size
+                    // and same fill would make a control that opens a settings screen look like one
+                    // that publishes a mark, which matters more now that a long press on a real one
+                    // arms a timer. Still well over the 48dp a thumb needs; being subordinate is not
+                    // the same as being hard to hit.
+                    //
+                    // Centred on the row's cross axis so it sits with the squares rather than hanging
+                    // from their top edge on a line it shares with them.
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(14.dp),
                         color = Color.Transparent,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier
-                            .size(MARK_BUTTON_SIDE)
+                            .align(Alignment.CenterVertically)
+                            .size(EDIT_BUTTON_SIDE)
                             .clickable(onClick = onEditButtons)
                             .readAsOneItem("Edit the quick buttons"),
                     ) {
                         Column(
-                            Modifier.fillMaxSize().padding(8.dp),
+                            Modifier.fillMaxSize().padding(6.dp),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
@@ -323,12 +329,13 @@ fun AnnotationScreen(
                                 Icons.Default.Edit,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
                             )
                             Text(
                                 "Edit",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp),
+                                modifier = Modifier.padding(top = 2.dp),
                             )
                         }
                     }
@@ -356,6 +363,9 @@ private fun markListMaxHeight(): Dp = (LocalConfiguration.current.screenHeightDp
 
 /** Big enough for a thumb that is not looking at it, and square so the label has two lines to use. */
 private val MARK_BUTTON_SIDE = 104.dp
+
+/** Two thirds of a mark button: plainly not one of them, and still comfortably over a 48dp target. */
+private val EDIT_BUTTON_SIDE = 72.dp
 
 /**
  * One quick mark: tap for the instant, hold to time an interval.
