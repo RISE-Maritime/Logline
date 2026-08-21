@@ -56,7 +56,6 @@ fun SettingsScreen(
     onImportCredential: (TlsCredential) -> Unit,
     onClearCredential: (TlsCredential) -> Unit,
     /** Capture rates this device's microphone actually offers — asked, not assumed. */
-    supportedAudioRates: Set<Int>,
     scanning: Boolean,
     scanResults: List<DiscoveredRouter>,
     /** Why the result list is empty, when it is — an empty scan must not look like a dead button. */
@@ -93,17 +92,6 @@ fun SettingsScreen(
     var startOnBoot by remember { mutableStateOf(initial.startOnBoot) }
     var offlineTilesOnly by remember { mutableStateOf(initial.offlineTilesOnly) }
     var mapTilerKey by remember { mutableStateOf(initial.mapTilerKey) }
-    var audioEnabled by remember { mutableStateOf(initial.audioEnabled) }
-    var audioSampleRateHz by remember { mutableIntStateOf(initial.audioSampleRateHz) }
-    var audioChannels by remember { mutableIntStateOf(initial.audioChannels) }
-    var cameraEnabled by remember { mutableStateOf(initial.cameraEnabled) }
-    var cameraLensFront by remember { mutableStateOf(initial.cameraLensFront) }
-    var cameraWidth by remember { mutableIntStateOf(initial.cameraWidth) }
-    var cameraHeight by remember { mutableIntStateOf(initial.cameraHeight) }
-    var videoEnabled by remember { mutableStateOf(initial.videoEnabled) }
-    var videoWidth by remember { mutableIntStateOf(initial.videoWidth) }
-    var videoHeight by remember { mutableIntStateOf(initial.videoHeight) }
-    var videoBitrateKbps by remember { mutableIntStateOf(initial.videoBitrateKbps) }
     var checklistEnabled by remember { mutableStateOf(initial.checklistEnabled) }
     var operatorName by remember { mutableStateOf(initial.operatorName) }
     var operatorRole by remember { mutableStateOf(initial.operatorRole) }
@@ -111,12 +99,6 @@ fun SettingsScreen(
     var checklistRealm by remember { mutableStateOf(initial.checklistRealm) }
     var checklistEntityId by remember { mutableStateOf(initial.checklistEntityId) }
     // The time-lapse interval lives on the subject's own rate row, not here — this screen only reports
-    // what it costs. Clamped the same way the publisher clamps it, so the figure matches what will run.
-    // The record rate, for the same reason as in `Capacity.kt`: this is a figure about the file.
-    val frameHz = 1_000.0 / initial.recordRate(Subjects.IMAGE_COMPRESSED)
-        .toIntervalMillis()
-        .coerceIn(MIN_FRAME_INTERVAL_MILLIS, MAX_FRAME_INTERVAL_MILLIS)
-
     val edited = initial.copy(
         realm = realm.trim(),
         entityId = entityId.trim(),
@@ -129,17 +111,6 @@ fun SettingsScreen(
         offlineTilesOnly = offlineTilesOnly,
         mapTilerKey = mapTilerKey.trim(),
         scoutAddress = scoutAddress.trim().ifEmpty { Settings.DEFAULT_SCOUT_ADDRESS },
-        audioEnabled = audioEnabled,
-        audioSampleRateHz = audioSampleRateHz,
-        audioChannels = audioChannels,
-        cameraEnabled = cameraEnabled,
-        cameraLensFront = cameraLensFront,
-        cameraWidth = cameraWidth,
-        cameraHeight = cameraHeight,
-        videoEnabled = videoEnabled,
-        videoWidth = videoWidth,
-        videoHeight = videoHeight,
-        videoBitrateKbps = videoBitrateKbps,
         checklistEnabled = checklistEnabled,
         operatorName = operatorName.trim(),
         operatorRole = operatorRole.trim(),
@@ -537,168 +508,6 @@ fun SettingsScreen(
             }
 
             SettingsGroup(
-                title = "Sensors & media",
-                trailing = null,
-                expanded = "Sensors & media" in openSections,
-                onToggle = { openSections = toggleSection(openSections, "Sensors & media") },
-            ) {
-                SectionHeader("Audio")
-                SettingSwitch(
-                    title = "Record audio",
-                    description = "Captures the microphone continuously while a run is going and publishes " +
-                        "it on the audio subject. It records every conversation held near the phone — " +
-                        "Android shows its microphone indicator throughout, and this is off unless you " +
-                        "turn it on.",
-                    checked = audioEnabled,
-                    onCheckedChange = { audioEnabled = it },
-                )
-                if (audioEnabled) {
-                    Text(
-                        "Uncompressed WAV, because keelson's audio message allows only MP3 or WAV and " +
-                            "Android cannot encode MP3. Roughly ${audioMegabytesPerHour(audioSampleRateHz, audioChannels)} " +
-                            "MB per hour, against about 77 MB per hour for every other subject combined.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Settings.AUDIO_SAMPLE_RATES.forEach { rate ->
-                            val available = rate in supportedAudioRates
-                            FilterChip(
-                                selected = rate == audioSampleRateHz,
-                                enabled = available,
-                                onClick = { audioSampleRateHz = rate },
-                                // 44100 is "44.1 kHz" to anyone who works with audio; integer division
-                                // would call it 44 and quietly misname the one rate every device supports.
-                                label = { Text(audioRateLabel(rate)) },
-                            )
-                        }
-                    }
-                    if (Settings.AUDIO_SAMPLE_RATES.any { it !in supportedAudioRates }) {
-                        Text(
-                            "Greyed-out rates are ones this device's microphone does not offer.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(1 to "Mono", 2 to "Stereo").forEach { (count, name) ->
-                            FilterChip(
-                                selected = count == audioChannels,
-                                onClick = { audioChannels = count },
-                                label = { Text(name) },
-                            )
-                        }
-                    }
-                }
-
-                SectionHeader(
-                    "Camera",
-                    onInfo = {
-                        info = "Camera" to
-                            "The resolution is a request, like every other rate here: the camera picks " +
-                            "the size it supports closest to the one asked for.\n\n" +
-                            "The time-lapse interval and the video frame rate are not set here — each is " +
-                            "that subject's own rate, on its row in the subject list on the Session " +
-                            "screen."
-                    },
-                )
-                SettingSwitch(
-                    title = "Record a time-lapse",
-                    description = "Takes one picture at the image_compressed rate for the whole run and " +
-                        "publishes it as a JPEG. It photographs whatever is in front of the phone — " +
-                        "Android shows its camera indicator throughout, and this is off unless you turn " +
-                        "it on.",
-                    checked = cameraEnabled && !videoEnabled,
-                    onCheckedChange = {
-                        cameraEnabled = it
-                        // One camera consumer at a time — see the video switch below.
-                        if (it) videoEnabled = false
-                    },
-                )
-                if (cameraEnabled) {
-                    Text(
-                        "Roughly ${cameraMegabytesPerHour(cameraWidth, cameraHeight, frameHz)} MB per hour " +
-                            "at ${formatFrameRate(frameHz)}, against about 77 MB per hour for every other " +
-                            "subject combined. The interval is the image_compressed rate, on its own row " +
-                            "in the subject list.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Settings.CAMERA_RESOLUTIONS.forEach { (width, height) ->
-                            FilterChip(
-                                selected = width == cameraWidth && height == cameraHeight,
-                                onClick = {
-                                    cameraWidth = width
-                                    cameraHeight = height
-                                },
-                                label = { Text("${width}x$height") },
-                            )
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(false to "Rear", true to "Front").forEach { (front, name) ->
-                            FilterChip(
-                                selected = front == cameraLensFront,
-                                onClick = { cameraLensFront = front },
-                                label = { Text(name) },
-                            )
-                        }
-                    }
-                }
-
-                SettingSwitch(
-                    title = "Record video",
-                    description = "Publishes continuous H.264 on video_compressed. Replaces the " +
-                        "time-lapse rather than joining it — the camera will not serve both at once — and " +
-                        "is off by default for the same reason: this one records everything the lens " +
-                        "sees, not a frame every few seconds.",
-                    checked = videoEnabled,
-                    onCheckedChange = {
-                        videoEnabled = it
-                        if (it) cameraEnabled = false
-                    },
-                )
-                if (videoEnabled) {
-                    Text(
-                        "About ${videoMegabytesPerHour(videoBitrateKbps)} MB per hour — the bitrate is what " +
-                            "the encoder is told to produce, so unlike the time-lapse figure above this is " +
-                            "not an estimate. At the default it costs less per hour than the time-lapse " +
-                            "and carries twenty times the frames; at 2 Mbps it is five times the cost and " +
-                            "turns ten days of recording into under two.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Settings.VIDEO_RESOLUTIONS.forEach { (width, height) ->
-                            FilterChip(
-                                selected = width == videoWidth && height == videoHeight,
-                                onClick = {
-                                    videoWidth = width
-                                    videoHeight = height
-                                },
-                                label = { Text("${width}x$height") },
-                            )
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Settings.VIDEO_BITRATES_KBPS.forEach { kbps ->
-                            FilterChip(
-                                selected = kbps == videoBitrateKbps,
-                                onClick = { videoBitrateKbps = kbps },
-                                label = { Text(if (kbps >= 1_000) "${kbps / 1_000} Mbps" else "$kbps kbps") },
-                            )
-                        }
-                    }
-                    Text(
-                        "The frame rate is the video_compressed rate, on its own row in the subject list.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            SettingsGroup(
                 title = "Collaboration",
                 trailing = null,
                 expanded = "Collaboration" in openSections,
@@ -895,11 +704,13 @@ private fun toggleSection(open: List<String>, title: String): List<String> =
 
 /** A labelled switch with its explanation — the same shape wherever a setting is a toggle. */
 @Composable
-private fun SettingSwitch(
+internal fun SettingSwitch(
     title: String,
     description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    /** False greys the whole row — for hardware this phone has not got. */
+    enabled: Boolean = true,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -910,7 +721,7 @@ private fun SettingSwitch(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

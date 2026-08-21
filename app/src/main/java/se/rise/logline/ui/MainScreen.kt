@@ -156,6 +156,10 @@ fun MainScreen(
     /** Flip every subject to full rate, or back to the tuned profile. Restarts the run. */
     onSetRecordAllMax: (Boolean) -> Unit,
     onSetPublishAllMax: (Boolean) -> Unit,
+    /** What this device's microphone offers, for [MediaSection]. */
+    supportedAudioRates: Set<Int>,
+    /** Applied at once through `saveSettings`, hence the restart — see [MediaSection]. */
+    onMediaChange: (Settings) -> Unit,
     /** The tag vocabulary and which of them are switched on — see [TagsSection]. */
     tags: List<String>,
     activeTags: Set<String>,
@@ -298,7 +302,23 @@ fun MainScreen(
                 onSetPublishAllMax = onSetPublishAllMax,
             )
 
-            subjectGroups().forEach { group ->
+            // After the rates and before the per-subject groups: the rates say how much of the run
+            // there will be, this says what else is in it, and the groups below are the detail.
+            MediaSection(
+                settings = settings,
+                supportedAudioRates = supportedAudioRates,
+                unavailableSubjects = unavailableSubjects,
+                onChange = onMediaChange,
+                onOpenSubjectQos = onOpenSubjectQos,
+            )
+
+            subjectGroups().forEach { rawGroup ->
+                // **The media subjects have their own section above**, so they are not also rows here —
+                // the same control twice on one screen teaches the eye to trust neither. `START_TIME_SUBJECTS`
+                // is exactly those three, and the group master switch already filters on it for the same
+                // reason, so this is the existing rule applied one level up.
+                val group = rawGroup.copy(entries = rawGroup.entries.filter { it !in START_TIME_SUBJECTS })
+                if (group.entries.isEmpty()) return@forEach
                 val summary = groupSummary(
                     entries = group.entries,
                     status = status,

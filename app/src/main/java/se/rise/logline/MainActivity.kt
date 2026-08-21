@@ -370,6 +370,12 @@ private fun App(
     // are: the tab is popped whenever a recording is opened, so a `remember` inside it would clear a
     // search on the way back from the thing the search found. Enums carry through `rememberSaveable`
     // on their own — they are `Serializable` — which is what `liveLayer` above relies on too.
+    // Asked of the hardware once for the whole app, not per screen: only 44.1 kHz is guaranteed
+    // everywhere, and both the Session page's media section and the settings form need the answer.
+    val supportedAudioRates = remember {
+        val audio = AudioProvider(context)
+        Settings.AUDIO_SAMPLE_RATES.filter { audio.supports(it, channels = 1) }.toSet()
+    }
     var recordingsQuery by rememberSaveable { mutableStateOf("") }
     var recordingsSort by rememberSaveable { mutableStateOf(RecordingSort.Newest) }
     var recordingsFilter by rememberSaveable { mutableStateOf(RecordingFilter.All) }
@@ -749,6 +755,10 @@ private fun App(
                 onSetRecordingEnabled = { on ->
                     scope.launch { app.settingsRepository.update(current.copy(recordingEnabled = on)) }
                 },
+                supportedAudioRates = supportedAudioRates,
+                // **`saveSettings`, which restarts the run**, and unavoidably: the foreground-service
+                // type and its permission are fixed at `startForeground`. See `START_TIME_SUBJECTS`.
+                onMediaChange = { updated -> scope.launch { saveSettings(app, updated) } },
                 // **`update()`, never `saveSettings()`** — the same rule the per-subject switches and
                 // the annotation buttons follow. Toggling a tag must not tear down the Zenoh session
                 // and close the MCAP file: that would end the very run somebody is labelling.
@@ -1719,11 +1729,6 @@ private fun App(
             }
             SettingsScreen(
                 initial = current,
-                // Asked of the hardware once, not assumed: only 44.1 kHz is guaranteed everywhere.
-                supportedAudioRates = remember {
-                    val audio = AudioProvider(context)
-                    Settings.AUDIO_SAMPLE_RATES.filter { audio.supports(it, channels = 1) }.toSet()
-                },
                 scanning = scanning,
                 scanResults = scanResults,
                 scanMessage = scanMessage,

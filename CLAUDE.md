@@ -1152,6 +1152,27 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   and **not** a `putUInt32` before it — writing the length twice produced a file that parsed perfectly
   and carried no tags. And the metadata count in Statistics has to move with the record, or the figures
   describe a file that is not there.
+- **Audio, the time-lapse and video are switched on the Session page, and nowhere else.** They used to
+  be a collapsed section two screens away in Settings *and* rows inside the Session page's Device group,
+  because `toggleSubject()` already mapped `AUDIO` / `IMAGE_COMPRESSED` / `VIDEO_COMPRESSED` onto
+  `audioEnabled` / `cameraEnabled` / `videoEnabled` — the same control in two places, which is how they
+  drift. `MediaSection` is now the one place, sitting after **Sampling rates** because the rates say how
+  much of the run there will be and this says what else is in it.
+  **`MainScreen` filters `START_TIME_SUBJECTS` out of the per-subject groups** so the rows do not also
+  appear there. That set is *exactly* those three — `MediaSubjectsTest` pins it, because a fourth
+  start-time subject added later would otherwise vanish from its group with no switch anywhere — and the
+  group master switch already filtered on it for the same reason, so this is the existing rule one level
+  up. Device drops from twelve entries to nine.
+  Two things the section has to carry because the Device rows carried them: a **tap-through per subject**
+  (the time-lapse *interval* and the video frame rate are subject rates, set on their own page, not
+  settings), and **"not on this device"** for hardware that is absent, since a switch that can be pressed
+  and does nothing is worse than one that is plainly disabled.
+  **Every change here restarts the run**, said once at the top of the card rather than on each control —
+  unavoidable, because the foreground-service type and its runtime permission are fixed at
+  `startForeground`. `SettingsScreen` builds `edited` as `initial.copy(...)`, which is what made removing
+  its media block safe: the fields simply pass through untouched. Verified rather than assumed — with the
+  time-lapse on at 1280x720, an unrelated Settings save left `camera_enabled=true` and
+  `camera_width=1280` exactly as they were.
 - **A tag is a state, not an event, which is why it lives on the Session tab as switches.** A quick mark
   says something happened at a moment; a tag says what the whole run *is*. It began on Events and moved:
   Events is for marking moments as they pass, and what the run *is* belongs with the other things chosen
