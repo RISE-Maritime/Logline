@@ -25,6 +25,7 @@ import org.osmdroid.views.overlay.Polyline
 import se.rise.logline.map.osmdroidBasePath
 import se.rise.logline.publish.TrackPoint
 import java.io.File
+import kotlin.math.hypot
 
 /** Which base layer the chart draws. */
 enum class MapLayer(val label: String) {
@@ -354,7 +355,18 @@ private class FixOverlay : Overlay() {
         // across the course line it was meant to sit under, leaving a notch in it at exactly the point
         // the eye starts reading from.
         val course = current.bearingDegrees
-        val headingLength = VECTOR_PX * 0.75f
+        // **A real distance, so it scales with the chart** — the same conversion the accuracy circle
+        // uses, and for the same reason: a fixed pixel length means a different distance at every zoom,
+        // which is the one thing a heading line is not allowed to be. At working zoom the twelve miles
+        // run off the screen and it reads as a ray, which is what a chartplotter's heading line looks
+        // like; zoom out far enough to see twelve miles and it ends where it should.
+        //
+        // Clamped to what the canvas could possibly show. At zoom 16 twelve miles is about 17 000 px
+        // and at zoom 20 nearer 280 000 — all of it clipped, but handed to `drawLine` first. Cutting it
+        // at the diagonal draws exactly the same picture from coordinates that stay sane.
+        val headingLength = projection
+            .metersToPixels(HEADING_LINE_METRES, current.latitude, projection.zoomLevel)
+            .coerceAtMost(hypot(canvas.width.toFloat(), canvas.height.toFloat()))
         halo.strokeWidth = COURSE_PX + HALO_PX
         course?.let { canvas.drawVector(x, y, it, VECTOR_PX, halo) }
         halo.strokeWidth = HEADING_PX + HALO_PX
@@ -381,6 +393,21 @@ private class FixOverlay : Overlay() {
 
     private companion object {
         const val DOT_PX = 9f
+
+        /**
+         * How far ahead the heading line reaches: **twelve nautical miles**.
+         *
+         * The distance a chartplotter's heading line conventionally runs to, and the same figure as the
+         * territorial-sea limit and a common radar range ring — so it doubles as a scale a reader
+         * already knows. Written as the multiplication rather than 22 224 so the twelve stays visible;
+         * a nautical mile is 1852 m exactly, by definition.
+         *
+         * The *course* vector below is deliberately still a fixed pixel length: it says which way the
+         * boat is moving, not how far it will get, and giving it a distance would imply a prediction
+         * this app does not make.
+         */
+        const val HEADING_LINE_METRES = 12f * 1852f
+
         const val VECTOR_PX = 46f
         const val COURSE_PX = 6f
         const val HEADING_PX = 5f

@@ -116,6 +116,9 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
+-  Can you change the satelite layer to be MapTiler                                                                                                                                                                                    
+  ─────────────────────────────────────────────────────
+
 - [ ] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
       allocations a second on the one coroutine that must not fall behind. Left alone when the queue
       instrumentation went in (which is why the new depth counters are atomics read by a UI ticker

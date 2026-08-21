@@ -342,6 +342,18 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
 - **The live view is an instrument, not a control panel, and the hierarchy is deliberate**: chart →
   the three navigation values → data quality → the sensor groups. Four decisions hold it together and
   each has a failure it exists to prevent.
+  **The heading line is twelve nautical miles, and therefore scales with the chart.** A fixed pixel
+  length is a different distance at every zoom, which is the one thing a heading line must not be, so it
+  goes through the same `metersToPixels` the accuracy circle uses. At working zoom the twelve miles run
+  off the screen and it reads as a ray — which is what a chartplotter's heading line looks like — and
+  zoomed out far enough to see twelve miles, it ends where it should. Verified by measuring: at zoom 10
+  and 57.4°N the ground resolution is 82.3 m/px and the drawn line came to 262 px, i.e. 21.6 km against
+  the 22.2 expected, the shortfall being the colour threshold clipping its antialiased ends. Twelve *km*
+  would have been 146 px, so the two are not confusable.
+  It is clamped to the canvas diagonal, which changes nothing visible: at zoom 16 the line is about
+  17 000 px and at zoom 20 nearer 280 000, all of it clipped but handed to `drawLine` first. The
+  **course** vector is deliberately still a fixed pixel length — it says which way the boat is moving,
+  not how far it will get, and a distance there would imply a prediction this app does not make.
   **Everything drawn on the chart carries a white halo**, and that is what makes it work on more than
   one base layer. The course vector, the heading vector and the track are all drawn twice — a wider
   white stroke, then the coloured line on top — because a dark blue course line is perfectly legible on
