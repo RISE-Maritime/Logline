@@ -280,7 +280,12 @@ fun AnnotationScreen(
 }
 
 /**
- * How tall the expanded mark list is allowed to get: **half the screen**.
+ * How tall the expanded mark list is allowed to get: **a third of the screen**.
+ *
+ * Half was the first attempt and showed nine rows on a Pixel 6 — more history than the question this
+ * list answers ("what have I logged, did that register") needs, and it left the note field and the
+ * buttons only just on screen. A third is six rows, which is a run's recent past rather than its whole
+ * log, and the list scrolls for the rest.
  *
  * Measured rather than hand-tuned — `MAP_HEIGHT` on the live view is a fixed dp and there is a note in
  * TODO.md about exactly that being wrong on a device whose bars differ. `BoxWithConstraints` is no help
@@ -288,7 +293,7 @@ fun AnnotationScreen(
  * own dimension is the honest thing to take a fraction of.
  */
 @Composable
-private fun markListMaxHeight(): Dp = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
+private fun markListMaxHeight(): Dp = (LocalConfiguration.current.screenHeightDp * 0.33f).dp
 
 /**
  * The compact form of the list: the newest mark, on one line.
