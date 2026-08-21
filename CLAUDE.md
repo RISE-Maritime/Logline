@@ -1427,6 +1427,16 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   being marked is passing while you look for them, and an expanded list above would put the one control
   that screen exists for out of a thumb's reach. A header and a line does not, which is why the default
   is collapsed rather than a matter of taste.
+  **Expanded, the list is capped at half the screen and scrolls inside that.** A run makes a hundred
+  marks and the page is one scrolling column, so an uncapped list pushed the note field and the buttons
+  arbitrarily far down. The `heightIn` is also what makes the nested scroll *legal*: a scrollable
+  measured inside another scrollable is handed an infinite maximum height and throws, so bounding it
+  first is the fix rather than a nicety. The fraction is taken from `LocalConfiguration.screenHeightDp`
+  rather than hand-tuned — `BoxWithConstraints` is no help inside a scrolling column, where the height
+  it reports is infinite.
+  **The quick buttons are last, which on a phone is nearest the thumb.** They were first on the argument
+  that the moment being marked is passing while you look for them; that argument is right and the bottom
+  of the screen serves it better than the top did. The note field is what you reach for deliberately.
   Two details. The collapsed header's **count carries the worst severity in the whole list**, not the
   newest mark's — a fault five marks ago is still the thing somebody must not miss, and collapsed the
   newest line is all they would otherwise see. And the compact form drops the `EmptyState` card for a

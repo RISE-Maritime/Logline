@@ -117,10 +117,7 @@ turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
 - [ ] **Mark Events**
-  - Move the historcal events to the top, allow user to hide or show the events like compact just summary line or expand to show individual events
-    Done in the events pass: collapsed by default so the buttons stay in reach, a summary line
-    naming the newest mark, and the header count coloured by the worst severity in the list.
-  - that was quick an annotaion of buttons should be larger squares 
+  - that was quick an annotaion of buttons should be larger squares with round corners 
   - if an qucik annotaion button is PressAndHold it shoud workm like a timer with start and stop time + duration 
 
 
@@ -212,27 +209,12 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       hits a grey field with no explanation, and a line saying "no imagery at this zoom" would be
       kinder than the silence it gets.
 
-- [x] **The MapTiler path has never met the real service.** There is no key on this phone, so the URL
-      shape, the 512 px tile size and the `.jpg` ending are from their documentation rather than from a
-      tile that arrived. `maxZoomFor()` also gives it two levels of upscaling on the assumption that it
-      *fails* past zoom 20 — the upscaling mechanism is verified, but with OpenStreetMap, not MapTiler.
-      If MapTiler serves a placeholder the way Esri does, it needs the same cap. Settled with a real
-      key: 512 px and both URL shapes confirmed, and it turns out MapTiler over-zooms *server-side* to
-      22 — z19-z22 all return real content — so it declares 22 itself and the client-side upscaling
-      assumption was wrong in the opposite direction. Done in the layer-menu pass.
-
 - [ ] **`SettingsProfileTest` does not catch a new `Settings` field on its own.** CLAUDE.md says a
       field added later "fails the test until somebody decides which side it belongs on", and that is
       only true if the fixture is updated as well — the assertions are a hand-written list, not a
       reflective one. `mapTilerKey` was added to both by hand. A reflective check over
       `Settings::class.memberProperties` would make the claim true.
 
-- [x] **Two MapTiler styles were tried and left out.** `streets-v2` and `outdoor-v2` both work with the
-      key, and both render close enough to the existing OpenStreetMap layer that carrying all three
-      would be three ways of saying the same thing. One line each in `sourceFor` if that judgement is
-      wrong — worth revisiting if anybody wants outdoor's trail rendering ashore. Both added; the
-      judgement was wrong, and seeing them on the phone is what showed it — Outdoor draws
-      long-distance trail routes OSM's own rendering does not.
 
 - [ ] **The layer menu says a layer needs a key, but not that a key has stopped working.** An expired
       or over-quota MapTiler key fails per tile, so the chart simply goes blank with the layer still

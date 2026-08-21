@@ -35,6 +35,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
@@ -175,7 +178,20 @@ fun AnnotationScreen(
                     )
                 } else {
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(vertical = 4.dp)) {
+                        // **Bounded, and scrolling inside that bound.** A run can make a hundred marks
+                        // and the page scrolls as one column, so an uncapped list pushed everything
+                        // below it — the note field and the buttons — arbitrarily far down. Half the
+                        // screen reads a dozen marks and leaves the other half for the controls.
+                        //
+                        // The `heightIn` is what makes the nested scroll legal at all: a scrollable
+                        // measured inside another scrollable is handed an infinite maximum height and
+                        // throws. Bounding it first is the fix, not a nicety.
+                        Column(
+                            Modifier
+                                .heightIn(max = markListMaxHeight())
+                                .verticalScroll(rememberScrollState())
+                                .padding(vertical = 4.dp)
+                        ) {
                             recent.asReversed().forEachIndexed { index, annotation ->
                                 if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 12.dp))
                                 MarkRow(annotation, nowMillis)
@@ -185,40 +201,6 @@ fun AnnotationScreen(
                 }
             } else {
                 MarkSummary(recent.lastOrNull(), running, nowMillis)
-            }
-
-            if (buttons.isEmpty()) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("No buttons configured", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Add one to mark a recurring event with a single tap. A typed note below " +
-                                "works without them.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        TextButton(onClick = onEditButtons) { Text("Add a button") }
-                    }
-                }
-            } else {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    buttons.forEach { button ->
-                        Button(
-                            onClick = { confirm(onMark(button), button.label) },
-                            enabled = running,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = severityColor(button.severity),
-                            ),
-                            contentPadding = ButtonDefaults.ContentPadding,
-                        ) {
-                            Text(button.label)
-                        }
-                    }
-                }
             }
 
             SectionHeader(title = "Note")
@@ -255,9 +237,58 @@ fun AnnotationScreen(
                 }
             }
 
+            // **Last, which on a phone is nearest the thumb.** These were first on the theory that the
+            // moment being marked is passing while you look for them — true, and the bottom of the
+            // screen is where a thumb already is, so being last serves that argument better than being
+            // first did. The note field is what you reach for deliberately; these are what you hit
+            // without looking.
+            if (buttons.isEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No buttons configured", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Add one to mark a recurring event with a single tap. The typed note above " +
+                                "works without them.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onEditButtons) { Text("Add a button") }
+                    }
+                }
+            } else {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    buttons.forEach { button ->
+                        Button(
+                            onClick = { confirm(onMark(button), button.label) },
+                            enabled = running,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = severityColor(button.severity),
+                            ),
+                            contentPadding = ButtonDefaults.ContentPadding,
+                        ) {
+                            Text(button.label)
+                        }
+                    }
+                }
+            }
         }
     }
 }
+
+/**
+ * How tall the expanded mark list is allowed to get: **half the screen**.
+ *
+ * Measured rather than hand-tuned — `MAP_HEIGHT` on the live view is a fixed dp and there is a note in
+ * TODO.md about exactly that being wrong on a device whose bars differ. `BoxWithConstraints` is no help
+ * here because the page is a scrolling column, so the height it would report is infinite; the screen's
+ * own dimension is the honest thing to take a fraction of.
+ */
+@Composable
+private fun markListMaxHeight(): Dp = (LocalConfiguration.current.screenHeightDp * 0.5f).dp
 
 /**
  * The compact form of the list: the newest mark, on one line.
