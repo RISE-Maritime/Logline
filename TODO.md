@@ -122,7 +122,10 @@ turned up rather than what it did — the *what* is in the commit and in
       in e8fa7e2. Stored per phone, never in the repo or the APK, and carried by a settings
       profile so a fleet provisions from one QR.
 
-In the in the chart layer section allow used to also to past track, hading line and Vector line
+- [x] In the in the chart layer section allow used to also to past track, hading line and Vector line
+      Done in the chart-marks pass. Four ticks under the base layers: Sea marks, Track,
+      Heading line and Course vector — named that rather than "vector line" because it sits
+      directly under "Heading line" and the question there is which of the two is which.
 
 - [x] **Can you change the satelite layer to be MapTiler.** Done in the chart-sources pass.
       Esri is kept as the keyless fallback — satellite is the default layer, so an install with

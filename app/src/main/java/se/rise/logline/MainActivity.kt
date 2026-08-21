@@ -130,6 +130,7 @@ import se.rise.logline.ui.ConnectionQrDialog
 import se.rise.logline.ui.ImportProfileDialog
 import se.rise.logline.ui.MainScreen
 import se.rise.logline.ui.QrScannerScreen
+import se.rise.logline.ui.ChartMarks
 import se.rise.logline.ui.MapLayer
 import se.rise.logline.ui.RecordingsScreen
 import se.rise.logline.ui.NEW_RIG
@@ -349,7 +350,19 @@ private fun App(
     // consequence for a first run with no signal — a fresh install now opens on an empty grid rather
     // than a cached street map, and the layer menu is the way out of that.
     var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Satellite) }
+    // Four booleans rather than one `ChartMarks`, purely so `rememberSaveable` can carry them: it has
+    // no saver for an arbitrary data class, and losing which marks are on to a process death is the
+    // sort of small wrongness that reads as the app forgetting things. Assembled at the call site.
     var liveSeaMarks by rememberSaveable { mutableStateOf(false) }
+    var liveShowTrack by rememberSaveable { mutableStateOf(true) }
+    var liveShowHeading by rememberSaveable { mutableStateOf(true) }
+    var liveShowCourse by rememberSaveable { mutableStateOf(true) }
+    val liveMarks = ChartMarks(
+        seaMarks = liveSeaMarks,
+        track = liveShowTrack,
+        headingLine = liveShowHeading,
+        courseVector = liveShowCourse,
+    )
     // Whether the live view plots the curated set or all of it. Defaults to the curated one: thirty-nine
     // plots is a page nobody scrolls during a run, and `PublishedSubject.featured` names the few that
     // answer "is this going well". Hoisted with the rest so it survives leaving the tab.
@@ -776,15 +789,20 @@ private fun App(
                         headingDegrees = heading,
                         offlineOnly = current.offlineTilesOnly,
                         layer = liveLayer,
-                        seaMarks = liveSeaMarks,
+                        marks = liveMarks,
                         mapTilerKey = current.mapTilerKey,
                         modifier = m,
                     )
                 },
                 layer = liveLayer,
                 onLayerChange = { liveLayer = it },
-                seaMarks = liveSeaMarks,
-                onSeaMarksChange = { liveSeaMarks = it },
+                marks = liveMarks,
+                onMarksChange = {
+                    liveSeaMarks = it.seaMarks
+                    liveShowTrack = it.track
+                    liveShowHeading = it.headingLine
+                    liveShowCourse = it.courseVector
+                },
                 basicOnly = liveBasicOnly,
                 onBasicOnlyChange = { liveBasicOnly = it },
                 onOpenSubject = { nav.navigate(Routes.subjectDetail(it.name)) },

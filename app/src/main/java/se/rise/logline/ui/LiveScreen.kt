@@ -106,8 +106,9 @@ fun LiveScreen(
     /** Which base layer the chart draws, and the seamark overlay. */
     layer: MapLayer,
     onLayerChange: (MapLayer) -> Unit,
-    seaMarks: Boolean,
-    onSeaMarksChange: (Boolean) -> Unit,
+    /** Everything drawn over the base layer, and one lambda to change any of it. */
+    marks: ChartMarks,
+    onMarksChange: (ChartMarks) -> Unit,
     /**
      * Null while this is a tab, which it normally is — `ScreenScaffold` then omits the back arrow.
      * Kept as a parameter because the screen is still reachable as a pushed destination.
@@ -231,8 +232,8 @@ fun LiveScreen(
                     onFollowFixChange = onFollowFixChange,
                     layer = layer,
                     onLayerChange = onLayerChange,
-                    seaMarks = seaMarks,
-                    onSeaMarksChange = onSeaMarksChange,
+                    marks = marks,
+                    onMarksChange = onMarksChange,
                     expanded = mapExpanded,
                     onExpandedChange = { mapExpanded = it },
                     hasMapTilerKey = hasMapTilerKey,
@@ -274,8 +275,8 @@ fun LiveScreen(
                     onFollowFixChange = onFollowFixChange,
                     layer = layer,
                     onLayerChange = onLayerChange,
-                    seaMarks = seaMarks,
-                    onSeaMarksChange = onSeaMarksChange,
+                    marks = marks,
+                    onMarksChange = onMarksChange,
                     expanded = mapExpanded,
                     onExpandedChange = { mapExpanded = it },
                     hasMapTilerKey = hasMapTilerKey,
@@ -448,8 +449,8 @@ private fun MapToolbar(
     onFollowFixChange: (Boolean) -> Unit,
     layer: MapLayer,
     onLayerChange: (MapLayer) -> Unit,
-    seaMarks: Boolean,
-    onSeaMarksChange: (Boolean) -> Unit,
+    marks: ChartMarks,
+    onMarksChange: (ChartMarks) -> Unit,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     hasMapTilerKey: Boolean,
@@ -474,8 +475,8 @@ private fun MapToolbar(
             LayerControl(
                 layer = layer,
                 onLayerChange = onLayerChange,
-                seaMarks = seaMarks,
-                onSeaMarksChange = onSeaMarksChange,
+                marks = marks,
+                onMarksChange = onMarksChange,
                 hasMapTilerKey = hasMapTilerKey,
                 onOpenSettings = onOpenSettings,
             )
@@ -528,8 +529,8 @@ private fun MapIconButton(
 private fun LayerControl(
     layer: MapLayer,
     onLayerChange: (MapLayer) -> Unit,
-    seaMarks: Boolean,
-    onSeaMarksChange: (Boolean) -> Unit,
+    marks: ChartMarks,
+    onMarksChange: (ChartMarks) -> Unit,
     /** Whether the layers that need a MapTiler key can actually draw. See [MapLayer.needsKey]. */
     hasMapTilerKey: Boolean,
     /** Where a layer that needs configuring sends you. */
@@ -592,18 +593,34 @@ private fun LayerControl(
                 )
             }
             HorizontalDivider()
-            // An overlay rather than a base layer, so it is a tick and not a choice: seamarks are
-            // drawn *over* whichever of the above is showing.
-            DropdownMenuItem(
-                text = { Text("Sea marks") },
-                leadingIcon = { Text(if (seaMarks) "✓" else " ") },
-                onClick = {
-                    onSeaMarksChange(!seaMarks)
-                    open = false
-                },
-            )
+            // Overlays rather than base layers, so these are ticks and not choices: each is drawn
+            // *over* whichever of the above is showing, and any combination of them is legal.
+            //
+            // The menu stays open on a tick, unlike a layer choice. Turning two of them off is one
+            // errand, and re-opening the menu between them would make it two.
+            MarkToggle("Sea marks", marks.seaMarks) { onMarksChange(marks.copy(seaMarks = it)) }
+            MarkToggle("Track", marks.track) { onMarksChange(marks.copy(track = it)) }
+            MarkToggle("Heading line", marks.headingLine) {
+                onMarksChange(marks.copy(headingLine = it))
+            }
+            // "Course vector" rather than the "vector line" a chartplotter would say: it sits directly
+            // under "Heading line" and the whole question a reader has there is which of the two lines
+            // is which — where the boat points, or where it is going.
+            MarkToggle("Course vector", marks.courseVector) {
+                onMarksChange(marks.copy(courseVector = it))
+            }
         }
     }
+}
+
+/** One overlay's tick. Its own composable so four of them cannot drift apart. */
+@Composable
+private fun MarkToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = { Text(if (checked) "✓" else " ") },
+        onClick = { onChange(!checked) },
+    )
 }
 
 /**

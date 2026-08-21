@@ -28,6 +28,27 @@ import java.io.File
 import kotlin.math.hypot
 
 /**
+ * What the chart draws *over* its base layer, as one value.
+ *
+ * Four booleans threaded individually through the live screen, its toolbar and the layer menu would be
+ * eight parameters and would grow to ten the next time somebody adds a mark. This also makes the menu's
+ * job a copy: it hands back a changed [ChartMarks] and knows nothing about what each flag reaches.
+ *
+ * The position and its accuracy circle are deliberately absent — a chart with no "you are here" is not
+ * a chart, so they are not switches.
+ */
+data class ChartMarks(
+    /** OpenSeaMap's buoys and lights, drawn over whichever base layer is showing. */
+    val seaMarks: Boolean = false,
+    /** Where the phone has been. History, and the first thing to clutter a close-quarters view. */
+    val track: Boolean = true,
+    /** Where it points now, to twelve nautical miles. */
+    val headingLine: Boolean = true,
+    /** Where it is going now, from the fix's own bearing. */
+    val courseVector: Boolean = true,
+)
+
+/**
  * Which base layer the chart draws.
  *
  * [needsKey] is what puts a settings gear beside a layer in the menu instead of letting it be chosen:
@@ -218,7 +239,7 @@ fun TrackMap(
     /** Which base layer to draw. */
     layer: MapLayer = MapLayer.Standard,
     /** OpenSeaMap's buoys, lights and seamarks, drawn transparently over the base layer. */
-    seaMarks: Boolean = false,
+    marks: ChartMarks = ChartMarks(),
     /** Where the phone points, from the compass. Null when there is no heading to draw. */
     headingDegrees: Float? = null,
     /** Upgrades the satellite layer to MapTiler's imagery. Blank falls back to Esri — see [sourceFor]. */
@@ -307,7 +328,7 @@ fun TrackMap(
             // The heading line takes the same ink at full strength — see `FixOverlay.inkColor`.
             fixOverlay.inkColor = chartInk(layer)
             map.setUseDataConnection(!offlineOnly)
-            val marks = seaMarkOverlay.value ?: TilesOverlay(
+            val seaMarkTiles = seaMarkOverlay.value ?: TilesOverlay(
                 MapTileProviderBasic(map.context, TileSourceFactory.OPEN_SEAMAP),
                 map.context,
             ).apply {
@@ -316,22 +337,28 @@ fun TrackMap(
                 loadingBackgroundColor = Color.TRANSPARENT
                 loadingLineColor = Color.TRANSPARENT
             }.also { seaMarkOverlay.value = it }
-            val shown = marks in map.overlays
-            if (seaMarks && !shown) {
+            val shown = seaMarkTiles in map.overlays
+            if (marks.seaMarks && !shown) {
                 // Beneath the track and the fix marker, above the base tiles.
-                map.overlays.add(0, marks)
+                map.overlays.add(0, seaMarkTiles)
                 map.invalidate()
-            } else if (!seaMarks && shown) {
-                map.overlays.remove(marks)
+            } else if (!marks.seaMarks && shown) {
+                map.overlays.remove(seaMarkTiles)
                 map.invalidate()
             }
             // Built once and handed to both: two `map` passes over a track that runs to thousands of
             // points, every time anything on this screen recomposes, is not free.
             val points = track.map { GeoPoint(it.latitude, it.longitude) }
-            trackHalo.setPoints(points)
-            polyline.setPoints(points)
+            // Emptied rather than removed from the overlay list: a `Polyline` with no points draws
+            // nothing, and adding and removing overlays is what the seamark tile provider above needs
+            // only because *it* owns threads. A polyline owns nothing.
+            val drawn = if (marks.track) points else emptyList()
+            trackHalo.setPoints(drawn)
+            polyline.setPoints(drawn)
             fixOverlay.fix = track.lastOrNull()
             fixOverlay.headingDegrees = headingDegrees
+            fixOverlay.showHeading = marks.headingLine
+            fixOverlay.showCourse = marks.courseVector
             track.lastOrNull()?.let { fix ->
                 val point = GeoPoint(fix.latitude, fix.longitude)
                 when {
@@ -398,6 +425,10 @@ private class FixOverlay : Overlay() {
 
     var fix: TrackPoint? = null
     var headingDegrees: Float? = null
+
+    /** Whether to draw each vector at all — see the switches on [TrackMap]. */
+    var showHeading: Boolean = true
+    var showCourse: Boolean = true
 
     private val accuracyFill = Paint().apply {
         color = Color.argb(40, 0x3F, 0x6F, 0xD8)
@@ -495,7 +526,8 @@ private class FixOverlay : Overlay() {
         // has nothing to be outlined against. Its halo used to be drawn *before* the course line for a
         // reason that no longer applies: the two share an origin, so a halo painted after would have
         // notched the course line at exactly the point the eye starts reading from.
-        val course = current.bearingDegrees
+        val course = current.bearingDegrees.takeIf { showCourse }
+        val heading = headingDegrees?.takeIf { showHeading }
         // **A real distance, so it scales with the chart** — the same conversion the accuracy circle
         // uses, and for the same reason: a fixed pixel length means a different distance at every zoom,
         // which is the one thing a heading line is not allowed to be. At working zoom the twelve miles
@@ -513,7 +545,7 @@ private class FixOverlay : Overlay() {
 
         headingPaint.color = inkColor
         course?.let { canvas.drawVector(x, y, it, VECTOR_PX, coursePaint) }
-        headingDegrees?.let { canvas.drawVector(x, y, it, headingLength, headingPaint) }
+        heading?.let { canvas.drawVector(x, y, it, headingLength, headingPaint) }
 
         canvas.drawCircle(x, y, DOT_PX, positionPaint)
         canvas.drawCircle(x, y, DOT_PX, positionEdge)

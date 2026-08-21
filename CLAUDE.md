@@ -414,6 +414,17 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   **The chip row is no longer the plot list.** `Rig calibration` is filtered out of it: geometry surveyed
   once and republished on a ten-second loop is configuration the phone is announcing, not telemetry it is
   measuring. The group keeps its plot section, so a stalled republish loop is still visible somewhere.
+  **What the chart draws over its base layer is one value, `ChartMarks`.** Sea marks, the track, the
+  heading line and the course vector, each a tick rather than a choice — they are overlays, so any
+  combination is legal. As four booleans they would be eight parameters through the live screen, its
+  toolbar and the menu, and ten the next time somebody adds a mark; as one value the menu hands back a
+  `copy()` and knows nothing about what each flag reaches. **The position and its accuracy circle are
+  deliberately not switchable** — a chart with no "you are here" is not a chart.
+  Two details. The ticks **do not close the menu**, unlike a layer choice: turning two marks off is one
+  errand, and re-opening between them would make it two. And `MainActivity` holds four separate
+  `rememberSaveable` booleans rather than one `ChartMarks`, purely because there is no saver for an
+  arbitrary data class — losing which marks are on to a process death is the sort of small wrongness
+  that reads as the app forgetting things. The value is assembled at the call site.
   **A layer that needs a key it has not got is shown, not hidden — with a gear instead of a tick.**
   `MapLayer.needsKey` drives it: the row keeps its place in the menu, says "Needs a MapTiler key", and
   tapping anywhere on it opens Settings rather than selecting it. Selecting a layer that cannot fetch a
