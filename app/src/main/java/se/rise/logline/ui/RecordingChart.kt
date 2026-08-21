@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -48,6 +49,8 @@ fun RecordingChart(
     val ends = remember { EndsOverlay() }
     val tileSource = remember(layer, mapTilerKey) { sourceFor(layer, mapTilerKey) }
     val box = remember(fixes) { boundsOf(fixes) }
+    // Reset when the track itself changes, so a different recording still opens on its own extent.
+    val fitted = remember(box) { mutableStateOf(false) }
 
     AndroidView(
         // osmdroid paints its background across the whole canvas and, being a plain View inside a
@@ -89,7 +92,12 @@ fun RecordingChart(
             // when `update` first runs — the same trap the live chart records for `animateTo`. Asking
             // on the first layout is what makes the chart open on the track rather than on the
             // placeholder centre.
-            if (box != null) {
+            // **Fitted once per track, not per recomposition.** `update` runs again whenever anything
+            // it reads changes — the layer, the key — and re-fitting there would yank the view back to
+            // the whole track just as somebody had panned or zoomed into part of it. That matters now
+            // the chart can be opened full screen, where panning is the point.
+            if (box != null && !fitted.value) {
+                fitted.value = true
                 if (map.width > 0 && map.height > 0) {
                     map.zoomToBoundingBox(box, false, CHART_PADDING_PX)
                 } else {

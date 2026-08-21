@@ -1,6 +1,7 @@
 package se.rise.logline.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,11 +14,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,7 +84,39 @@ fun RecordingDetailScreen(
     chart: @Composable (List<TrackFix>, Modifier) -> Unit,
     onBack: () -> Unit,
 ) {
-    ScreenScaffold(title = "Recording", onBack = onBack) { padding ->
+    // Not hoisted: expanding the chart is something you do for a minute while looking at it, the same
+    // call the live view's own `mapExpanded` makes.
+    var chartExpanded by rememberSaveable { mutableStateOf(false) }
+    val fixes = (track as? TrackState.Ready)?.fixes.orEmpty()
+    val expandable = fixes.size >= 2
+    // Collapse rather than leave, so the system gesture and the bar's arrow agree — and so a full-screen
+    // chart cannot be a place somebody backs out of the recording from by accident.
+    val leave = { if (chartExpanded) chartExpanded = false else onBack() }
+    BackHandler(enabled = chartExpanded) { chartExpanded = false }
+
+    ScreenScaffold(
+        title = if (chartExpanded) "Track" else "Recording",
+        onBack = leave,
+    ) { padding ->
+        // **Outside the scrolling column, which is the whole point.** Collapsed, the chart sits in a
+        // `verticalScroll`, so a drag across it is a gesture the page and the map both want and the
+        // page wins — panning barely works. Expanded there is no scroll to compete with, and the
+        // pinch, drag and double-tap the `MapView` has always had become usable.
+        //
+        // The top bar deliberately stays, for the reason the live view records: a control that
+        // disappears is how somebody ends up stranded on a full-screen map.
+        if (chartExpanded && expandable) {
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                chart(fixes, Modifier.fillMaxSize())
+                ChartExpandButton(
+                    expanded = true,
+                    onExpandedChange = { chartExpanded = it },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                )
+            }
+            return@ScreenScaffold
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -112,7 +150,7 @@ fun RecordingDetailScreen(
             }
 
             SectionHeader(title = "Track")
-            TrackCard(track, chart)
+            TrackCard(track, chart, onExpand = { chartExpanded = true })
 
             if (details != null && details.topics.isNotEmpty()) {
                 SectionHeader(title = "Topics", trailing = formatCount(details.summary.messages))
@@ -153,7 +191,11 @@ fun RecordingDetailScreen(
 }
 
 @Composable
-private fun TrackCard(track: TrackState, chart: @Composable (List<TrackFix>, Modifier) -> Unit) {
+private fun TrackCard(
+    track: TrackState,
+    chart: @Composable (List<TrackFix>, Modifier) -> Unit,
+    onExpand: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         when (track) {
             TrackState.Reading -> Row(
@@ -195,10 +237,16 @@ private fun TrackCard(track: TrackState, chart: @Composable (List<TrackFix>, Mod
                     )
                 } else {
                     Column(Modifier.padding(12.dp)) {
-                        chart(
-                            track.fixes,
+                        Box(
                             Modifier.fillMaxWidth().height(CHART_HEIGHT).clip(CHART_SHAPE),
-                        )
+                        ) {
+                            chart(track.fixes, Modifier.fillMaxSize())
+                            ChartExpandButton(
+                                expanded = false,
+                                onExpandedChange = { onExpand() },
+                                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            )
+                        }
                         val extent = trackExtentMetres(track.fixes)
                         Text(
                             if (track.partial) {
@@ -252,4 +300,31 @@ internal fun subjectOf(topic: String): String {
     // Anything that is not a pubsub key is printed whole rather than guessed at.
     if (parts.size < 2) return topic
     return "${parts[parts.size - 2]} · ${parts.last()}"
+}
+
+/**
+ * The one control the recording's chart needs.
+ *
+ * A single button rather than the live view's `MapToolbar`: there is no fix to follow and no marks to
+ * draw over a run that finished hours ago, so three quarters of that toolbar would be controls for
+ * things this chart does not have. It keeps the same translucent hugging surface and the same 40dp
+ * button, so the two charts do not look like they came from different apps.
+ */
+@Composable
+private fun ChartExpandButton(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+        shape = RoundedCornerShape(20.dp),
+        modifier = modifier,
+    ) {
+        MapIconButton(
+            icon = if (expanded) IconFullscreenExit else IconFullscreen,
+            description = if (expanded) "Shrink the chart" else "Expand the chart",
+            onClick = { onExpandedChange(!expanded) },
+        )
+    }
 }

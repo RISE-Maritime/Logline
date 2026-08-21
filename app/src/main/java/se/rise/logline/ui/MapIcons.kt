@@ -2,6 +2,13 @@ package se.rise.logline.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
@@ -108,5 +115,35 @@ val IconFullscreenExit: ImageVector by lazy {
             moveTo(14f, 14f); horizontalLineTo(20f); verticalLineTo(16f)
             horizontalLineTo(16f); verticalLineTo(20f); horizontalLineTo(14f); close()
         }
+    }
+}
+
+/**
+ * One button in the chart's toolbar.
+ *
+ * 40dp rather than the icon's own 24: the visual weight is what this pass is reducing, and a tap target
+ * shrunk to match is a control that gets missed on a moving boat.
+ */
+@Composable
+internal fun MapIconButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    /** A toggle that is currently on, drawn with the app's selected fill. */
+    active: Boolean = false,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(40.dp),
+        colors = if (active) {
+            IconButtonDefaults.iconButtonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        } else {
+            IconButtonDefaults.iconButtonColors()
+        },
+    ) {
+        Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp))
     }
 }

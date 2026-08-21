@@ -490,36 +490,6 @@ private fun MapToolbar(
 }
 
 /**
- * One button in the chart's toolbar.
- *
- * 40dp rather than the icon's own 24: the visual weight is what this pass is reducing, and a tap target
- * shrunk to match is a control that gets missed on a moving boat.
- */
-@Composable
-private fun MapIconButton(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit,
-    /** A toggle that is currently on, drawn with the app's selected fill. */
-    active: Boolean = false,
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(40.dp),
-        colors = if (active) {
-            IconButtonDefaults.iconButtonColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        } else {
-            IconButtonDefaults.iconButtonColors()
-        },
-    ) {
-        Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp))
-    }
-}
-
-/**
  * The base layer, and the seamarks over it.
  *
  * A menu rather than a row of chips: the list will grow — an imported archive is a layer in waiting —

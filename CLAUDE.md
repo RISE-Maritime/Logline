@@ -1262,7 +1262,26 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   that reads as broken. One trap of its own: **`zoomToBoundingBox` is a no-op before the view is laid
   out**, which is exactly when `update` first runs — hence `addOnFirstLayoutListener`, the same shape as
   the live chart's note about `animateTo`. The box is squared before use, because osmdroid fits the whole
-  box into the view and a box one metre tall by two hundred wide would still zoom to the metre.
+  box into the view and a box one metre tall by two hundred wide would still zoom to the metre. And it is
+  fitted **once per track, not per recomposition**: `update` runs again whenever the layer or the key
+  changes, and re-fitting there yanks the view back to the whole track just as somebody has zoomed into
+  part of it.
+- **The recording's chart opens full screen, and that is what makes it usable.** Collapsed it sits in a
+  `verticalScroll`, so a drag across it is a gesture the page and the map both want and the page wins —
+  panning barely works, which is not a thing to fix with a bigger card. Expanded there is no scroll to
+  compete with and the pinch, drag and double-tap the `MapView` has always had come into their own.
+  It mirrors the live view's `mapExpanded` deliberately, down to the glyphs: `rememberSaveable` rather
+  than hoisted, because expanding is something you do for a minute while looking at something rather
+  than a preference carried between screens; the top bar **stays**, for the reason recorded there — a
+  control that disappears is how somebody ends up stranded on a full-screen map; and it fills `padding`
+  rather than a hand-tuned height, which is correct on every device by construction.
+  Two things this one adds because it is a *pushed* screen rather than a tab. **Back collapses before it
+  leaves** — a `BackHandler` plus the same lambda behind the bar's arrow, so the gesture and the arrow
+  agree and a full-screen chart is not somewhere you accidentally back out of the recording from. And
+  the title becomes **Track**, which is the only thing on screen saying what you are now looking at.
+  `MapIconButton` moved to `ui/MapIcons.kt` to be shared. The recording's chart deliberately does *not*
+  reuse `MapToolbar`: there is no fix to follow and no marks to draw over a run that finished hours ago,
+  so three quarters of that toolbar would be controls for things this chart has not got.
 - **The track reader must read every shape this app has ever written, and saying otherwise is a lie about
   somebody's day.** `TrackScan` carries three facts rather than a list — `channelFound`, `fixes`,
   `stoppedEarly` — because an empty list has three causes the screen must never merge: a run with no
