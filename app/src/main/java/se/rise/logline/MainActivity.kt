@@ -371,6 +371,12 @@ private fun App(
     // per-tab preferences, and collapsed by default: that screen's job is *marking*, and an expanded
     // list above the buttons would put them out of a thumb's reach on a moving boat.
     var eventsExpanded by rememberSaveable { mutableStateOf(false) }
+    // Full screen for the quick buttons, and whether the note field comes with them. Hoisted with the
+    // other per-tab preferences; the note flag governs full screen only, because a control has to be
+    // reachable where its effect is visible and there is nowhere in the normal view to flip it back.
+    // How many quick buttons sit across the Events tab. Three is the middle of the three choices and
+    // what the screen has always drawn on a Pixel 6.
+    var eventsColumns by rememberSaveable { mutableIntStateOf(3) }
 
     // Which sensors this device simply does not have, so a row that will never publish can say so
     // rather than looking broken. Resolved here because it needs a Context; screens take data.
@@ -1006,6 +1012,8 @@ private fun App(
                 onStart = startPublishing,
                 expanded = eventsExpanded,
                 onExpandedChange = { eventsExpanded = it },
+                columns = eventsColumns,
+                onColumnsChange = { eventsColumns = it },
                 bottomBar = navBar,
             )
         }

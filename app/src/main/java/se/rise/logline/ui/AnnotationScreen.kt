@@ -51,6 +51,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Surface
 import se.rise.logline.publish.formatElapsed
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.unit.dp
 import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
@@ -112,6 +115,16 @@ fun AnnotationScreen(
      */
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
+    /**
+     * How many quick buttons sit across the width: 2, 3 or 4.
+     *
+     * A preference rather than a fixed layout because it trades size against reach. Two are big enough
+     * to hit without looking and put four of them a scroll away; four fit a long list on one screen and
+     * ask for more aim. Which is right depends on how many buttons somebody has configured and how
+     * rough the water is.
+     */
+    columns: Int,
+    onColumnsChange: (Int) -> Unit,
     /** Null while this is a tab — see the note on `LiveScreen`. */
     onBack: (() -> Unit)? = null,
     /** The navigation bar, supplied by `MainActivity`. See `TopLevel`. */
@@ -139,12 +152,11 @@ fun AnnotationScreen(
     ScreenScaffold(
         title = "Mark event",
         onBack = onBack,
-        // No `actions`: editing the buttons moved down beside the buttons themselves. An icon in the
-        // top bar was as far from the thing it edits as the screen allows, and it competed for the one
-        // place a glance goes for the run's status.
+        // No `actions`: editing the buttons is a text action on the Note header, beside what it edits.
         bottomBar = bottomBar,
         snackbarHost = { SnackbarHost(snackbars) },
     ) { padding ->
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -179,6 +191,85 @@ fun AnnotationScreen(
             // file: the buttons are near the top because the moment being marked is passing while you
             // look for them, and an expanded list above them would put the one control this screen
             // exists for out of a thumb's reach. One header and one line does not.
+            SectionHeader(
+                title = "Note",
+                // **"Edit buttons", not "Edit."** This sits on the *Note* header while editing the
+                // quick buttons further down, so the word is the only thing saying which — a bare
+                // "Edit" here would read as editing the note beside it.
+                action = {
+                    TextButton(onClick = onEditButtons) { Text("Edit buttons") }
+                },
+            )
+            NoteCard(
+                note = note,
+                onNoteChange = { note = it },
+                severity = noteSeverity,
+                onSeverityChange = { noteSeverity = it },
+                running = running,
+                onSend = {
+                    confirm(onNote(note, noteSeverity), "note")
+                    note = ""
+                },
+            )
+
+            // **Last, which on a phone is nearest the thumb.** These were first on the theory that the
+            // moment being marked is passing while you look for them — true, and the bottom of the
+            // screen is where a thumb already is, so being last serves that argument better than being
+            // first did. The note field is what you reach for deliberately; these are what you hit
+            // without looking.
+            if (buttons.isEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No buttons configured", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Add one to mark a recurring event with a single tap. The typed note above " +
+                                "works without them.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onEditButtons) { Text("Add a button") }
+                    }
+                }
+            } else {
+                // How many across is a preference because it trades size against reach, and which way
+                // to trade depends on the boat. The chips sit in the header's action slot rather than
+                // taking a row of their own — the buttons are what this section is for.
+                SectionHeader(
+                    title = "Quick marks",
+                    action = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            COLUMN_CHOICES.forEach { choice ->
+                                FilterChip(
+                                    selected = columns == choice,
+                                    onClick = { onColumnsChange(choice) },
+                                    label = { Text(choice.toString()) },
+                                    modifier = Modifier.readAsOneItem("$choice buttons across"),
+                                )
+                            }
+                        }
+                    },
+                )
+                MarkGrid(
+                    buttons = buttons,
+                    columns = columns,
+                    running = running,
+                    runningTimers = runningTimers,
+                    nowMillis = nowMillis,
+                    onTap = { button ->
+                        if (runningTimers[button.label] == null) {
+                            confirm(onMark(button), button.label)
+                        } else {
+                            confirm(onStopTimed(button), "${button.label} ended")
+                        }
+                    },
+                    onHold = { button -> confirm(onStartTimed(button), "${button.label} started") },
+                )
+            }
+
+            // **Last, below the buttons.** It led the screen for a while, on the argument that it is
+            // what somebody opens this tab for when they are not marking anything — but it is also
+            // the only thing here that is *read* rather than pressed, and reading can be scrolled to
+            // where pressing has to be under the thumb already.
             SectionHeader(
                 title = "Marked this run",
                 trailing = if (totalMarks > 0) totalMarks.toString() else null,
@@ -226,94 +317,12 @@ fun AnnotationScreen(
                 MarkSummary(recent.lastOrNull(), running, nowMillis)
             }
 
-            SectionHeader(
-                title = "Note",
-                // **"Edit buttons", not "Edit."** This sits on the *Note* header while editing the
-                // quick buttons further down, so the word is the only thing saying which — a bare
-                // "Edit" here would read as editing the note beside it.
-                action = {
-                    TextButton(onClick = onEditButtons) { Text("Edit buttons") }
-                },
-            )
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = note,
-                        onValueChange = { note = it.replace('\n', ' ').replace('\t', ' ') },
-                        label = { Text("What happened") },
-                        enabled = running,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        AnnotationSeverity.entries.forEach { severity ->
-                            FilterChip(
-                                selected = noteSeverity == severity,
-                                onClick = { noteSeverity = severity },
-                                enabled = running,
-                                label = { Text(severity.label) },
-                            )
-                        }
-                    }
-                    Button(
-                        onClick = {
-                            confirm(onNote(note, noteSeverity), "note")
-                            note = ""
-                        },
-                        enabled = running && note.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Send note") }
-                }
-            }
-
-            // **Last, which on a phone is nearest the thumb.** These were first on the theory that the
-            // moment being marked is passing while you look for them — true, and the bottom of the
-            // screen is where a thumb already is, so being last serves that argument better than being
-            // first did. The note field is what you reach for deliberately; these are what you hit
-            // without looking.
-            if (buttons.isEmpty()) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("No buttons configured", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Add one to mark a recurring event with a single tap. The typed note above " +
-                                "works without them.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        TextButton(onClick = onEditButtons) { Text("Add a button") }
-                    }
-                }
-            } else {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    buttons.forEach { button ->
-                        MarkButton(
-                            button = button,
-                            enabled = running,
-                            startedAtMillis = runningTimers[button.label],
-                            nowMillis = nowMillis,
-                            onTap = {
-                                val startedAt = runningTimers[button.label]
-                                if (startedAt == null) {
-                                    confirm(onMark(button), button.label)
-                                } else {
-                                    confirm(onStopTimed(button), "${button.label} ended")
-                                }
-                            },
-                            onHold = { confirm(onStartTimed(button), "${button.label} started") },
-                        )
-                    }
-                }
-            }
         }
     }
 }
+
+/** How many quick buttons a row may hold. Two is a big target, four fits a long list on one screen. */
+private val COLUMN_CHOICES = listOf(2, 3, 4)
 
 /**
  * How tall the expanded mark list is allowed to get: **a third of the screen**.
@@ -331,8 +340,100 @@ fun AnnotationScreen(
 @Composable
 private fun markListMaxHeight(): Dp = (LocalConfiguration.current.screenHeightDp * 0.33f).dp
 
-/** Big enough for a thumb that is not looking at it, and square so the label has two lines to use. */
-private val MARK_BUTTON_SIDE = 104.dp
+/**
+ * The note field, its severity and its send button.
+ *
+ * Extracted because full screen draws the same card when the toggle is on, and two copies of a form is
+ * how the two come to differ — one gets a fix and the other does not.
+ */
+@Composable
+private fun NoteCard(
+    note: String,
+    onNoteChange: (String) -> Unit,
+    severity: AnnotationSeverity,
+    onSeverityChange: (AnnotationSeverity) -> Unit,
+    running: Boolean,
+    onSend: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = note,
+                // Tabs and newlines out: the payload is one log line, and a pasted paragraph would
+                // arrive as a message nothing downstream renders as the author saw it.
+                onValueChange = { onNoteChange(it.replace('\n', ' ').replace('\t', ' ')) },
+                label = { Text("What happened") },
+                enabled = running,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AnnotationSeverity.entries.forEach { option ->
+                    FilterChip(
+                        selected = severity == option,
+                        onClick = { onSeverityChange(option) },
+                        enabled = running,
+                        label = { Text(option.label) },
+                    )
+                }
+            }
+            Button(
+                onClick = onSend,
+                enabled = running && note.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Send note") }
+        }
+    }
+}
+
+/**
+ * The quick buttons, [columns] across.
+ *
+ * A `FlowRow` cannot do this: it wraps at a fixed item size, so the number across is whatever happens to
+ * fit rather than what was asked for. Rows of [columns], each cell weighted and square, so the width is
+ * whatever the count leaves and the height follows — no fixed dimension to be wrong on the next device
+ * or at the next setting.
+ */
+@Composable
+private fun MarkGrid(
+    buttons: List<AnnotationButton>,
+    columns: Int,
+    running: Boolean,
+    runningTimers: Map<String, Long>,
+    nowMillis: Long,
+    onTap: (AnnotationButton) -> Unit,
+    onHold: (AnnotationButton) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        buttons.chunked(columns).forEach { row ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                row.forEach { button ->
+                    MarkButton(
+                        button = button,
+                        enabled = running,
+                        startedAtMillis = runningTimers[button.label],
+                        nowMillis = nowMillis,
+                        onTap = { onTap(button) },
+                        onHold = { onHold(button) },
+                        // Weighted and square: the width is whatever `columns` leaves and the height
+                        // follows it, so four across a narrow phone are simply smaller rather than
+                        // overflowing a fixed side.
+                        modifier = Modifier.weight(1f).aspectRatio(1f),
+                    )
+                }
+                // A short last row keeps its cells the same size as the rest — stretching one button
+                // across the gap would make it look more important, and none of them is.
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
 
 /**
  * One quick mark: tap for the instant, hold to time an interval.
@@ -360,6 +461,8 @@ private fun MarkButton(
     nowMillis: Long,
     onTap: () -> Unit,
     onHold: () -> Unit,
+    /** Sized by the grid, which divides the width by the column count. */
+    modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
     val timing = startedAtMillis != null
@@ -369,8 +472,7 @@ private fun MarkButton(
         contentColor = if (enabled) contentColorFor(fill) else MaterialTheme.colorScheme.onSurfaceVariant,
         shape = RoundedCornerShape(16.dp),
         border = if (timing) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null,
-        modifier = Modifier
-            .size(MARK_BUTTON_SIDE)
+        modifier = modifier
             .combinedClickable(
                 enabled = enabled,
                 onClick = onTap,

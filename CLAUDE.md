@@ -1420,13 +1420,20 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   free space by up to a file's worth while `publish()` copies to Downloads before deleting — the trailing
   window is what absorbs that. A charging phone still fills its disk, so `Charging` does not suppress the
   storage half.
-- **The Events tab leads with its history, collapsed to one line.** That is what somebody opens the tab
-  for when they are *not* marking something — "what have I logged, and did that press register" — and it
-  used to sit below the buttons and the note field, further still once the keyboard was up. Collapsed is
-  what lets it come first **without contradicting the reason the buttons are near the top**: the moment
-  being marked is passing while you look for them, and an expanded list above would put the one control
-  that screen exists for out of a thumb's reach. A header and a line does not, which is why the default
-  is collapsed rather than a matter of taste.
+- **The Events tab reads note, buttons, history — and the history is last.** It led the screen for a
+  while, on the argument that it is what somebody opens the tab for when they are not marking anything.
+  Tried on a device, the other argument won: it is the only thing there that is *read* rather than
+  pressed, and reading can be scrolled to where pressing has to be under the thumb already. It stays
+  collapsible, and collapsed by default.
+  **How many buttons sit across is a setting, 2, 3 or 4**, because it trades size against reach and
+  which way to trade depends on the boat: two are big enough to hit without looking and put four of them
+  a scroll away, four fit a long list on one screen and ask for more aim. The cells are weighted and
+  square rather than a fixed side, so four across a narrow phone are simply smaller instead of
+  overflowing, and a short last row keeps its cells the same size as the rest — stretching one across
+  the gap would make it look more important than its neighbours.
+  A full-screen mode for the buttons was built and removed: with the note above and the history below,
+  the buttons already have the middle of the screen, and the mode added a state to leave rather than
+  room to press.
   **Expanded, the list is capped at a third of the screen and scrolls inside that.** A run makes a hundred
   marks and the page is one scrolling column, so an uncapped list pushed the note field and the buttons
   arbitrarily far down. The `heightIn` is also what makes the nested scroll *legal*: a scrollable
