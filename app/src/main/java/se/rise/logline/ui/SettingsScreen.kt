@@ -92,6 +92,7 @@ fun SettingsScreen(
     var backfillEnabled by remember { mutableStateOf(initial.backfillEnabled) }
     var startOnBoot by remember { mutableStateOf(initial.startOnBoot) }
     var offlineTilesOnly by remember { mutableStateOf(initial.offlineTilesOnly) }
+    var mapTilerKey by remember { mutableStateOf(initial.mapTilerKey) }
     var audioEnabled by remember { mutableStateOf(initial.audioEnabled) }
     var audioSampleRateHz by remember { mutableIntStateOf(initial.audioSampleRateHz) }
     var audioChannels by remember { mutableIntStateOf(initial.audioChannels) }
@@ -126,6 +127,7 @@ fun SettingsScreen(
         backfillEnabled = backfillEnabled,
         startOnBoot = startOnBoot,
         offlineTilesOnly = offlineTilesOnly,
+        mapTilerKey = mapTilerKey.trim(),
         scoutAddress = scoutAddress.trim().ifEmpty { Settings.DEFAULT_SCOUT_ADDRESS },
         audioEnabled = audioEnabled,
         audioSampleRateHz = audioSampleRateHz,
@@ -494,6 +496,39 @@ fun SettingsScreen(
                         "this is what stops a map that has what it needs grinding on the ones it does not.",
                     checked = offlineTilesOnly,
                     onCheckedChange = { offlineTilesOnly = it },
+                )
+
+                SectionHeader(
+                    "Satellite imagery",
+                    trailing = if (mapTilerKey.isBlank()) "Esri" else "MapTiler",
+                    onInfo = {
+                        info = "Satellite imagery" to
+                            "Without a key the chart uses Esri's world imagery, which needs no account " +
+                            "and covers the globe, but stops at zoom 19 and coarsens well before that " +
+                            "away from cities. A MapTiler key swaps in theirs: finer over the " +
+                            "Scandinavian coast and one zoom level deeper.\n\n" +
+                            "Keys are free for light use from maptiler.com. This one is kept on this " +
+                            "phone and is never built into the app — but note a settings profile does " +
+                            "carry it, which is how a fleet is provisioned from one QR, and also means " +
+                            "a profile you share carries your key."
+                    },
+                )
+                OutlinedTextField(
+                    value = mapTilerKey,
+                    onValueChange = { mapTilerKey = it },
+                    label = { Text("MapTiler key") },
+                    singleLine = true,
+                    // State, not documentation: which source the chart will actually use.
+                    supportingText = {
+                        Text(
+                            if (mapTilerKey.isBlank()) {
+                                "Empty — the chart uses Esri world imagery."
+                            } else {
+                                "The chart uses MapTiler satellite."
+                            }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 

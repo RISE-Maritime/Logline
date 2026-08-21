@@ -777,6 +777,7 @@ private fun App(
                         offlineOnly = current.offlineTilesOnly,
                         layer = liveLayer,
                         seaMarks = liveSeaMarks,
+                        mapTilerKey = current.mapTilerKey,
                         modifier = m,
                     )
                 },

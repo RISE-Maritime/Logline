@@ -122,6 +122,19 @@ data class Settings(
      */
     val offlineTilesOnly: Boolean = false,
     /**
+     * A MapTiler key, which upgrades the satellite layer to their imagery.
+     *
+     * Blank by default, and the chart falls back to Esri's world imagery when it is — satellite is the
+     * *default* layer, so an install with no key must still draw something rather than opening on a
+     * blank grid, which reads as a broken app rather than a missing key.
+     *
+     * **Typed in per phone and never in the repo or the APK**, the same stance the mTLS credentials
+     * take: a debug build of this app gets passed around, and a tile key is billable. Note it *is*
+     * carried by a settings profile, unlike the five install-identity fields — that is deliberate, so a
+     * fleet can be provisioned from one QR, and it does mean a shared profile carries the key.
+     */
+    val mapTilerKey: String = "",
+    /**
      * Capture the microphone and publish it as `audio`.
      *
      * **Off by default, and that is a deliberate choice rather than a cautious one.** A phone logging

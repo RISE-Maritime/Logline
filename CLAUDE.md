@@ -414,6 +414,26 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   **The chip row is no longer the plot list.** `Rig calibration` is filtered out of it: geometry surveyed
   once and republished on a ten-second loop is configuration the phone is announcing, not telemetry it is
   measuring. The group keeps its plot section, so a stalled republish loop is still visible somewhere.
+  **The satellite layer is MapTiler where a key is set and Esri where it is not**, and the fallback is
+  the point rather than a leftover: satellite is the *default* layer, so a keyless install would
+  otherwise open the Live tab on a blank grid, which reads as a broken app. `Settings.mapTilerKey` is a
+  per-phone field, never in the repo and never in the APK — the same stance the mTLS credentials take,
+  and for the same reason, a debug build gets passed around. It **is** carried by a settings profile,
+  unlike the five install-identity fields: a tile key is a shared credential rather than an identity, so
+  a fleet provisions from one QR — with the consequence, stated on the settings screen, that a shared
+  profile carries the key. Note `SettingsProfileTest` does *not* catch a new field on its own; it is a
+  hand-written list of assertions, not a reflective one, so CLAUDE.md's old claim that a new field fails
+  it until somebody decides which side it belongs on holds only if the fixture is updated too.
+  **How far the chart zooms is per source, and Esri is the reason.** osmdroid stops at the source's
+  maximum unless told otherwise, and where a source *fails* past its limit the tile approximater
+  upscales the deepest tile it has — verified on a Pixel 6, OpenStreetMap at zoom 21 draws building
+  footprints upscaled from 19, soft-edged, with the position and heading line sharp on top. **Esri does
+  not fail past 19; it serves a grey "Map data not available" tile**, which is a tile as far as the
+  provider is concerned, so there is nothing to approximate from and over-zooming buys a grey field
+  rather than a blurry one. `maxZoomFor()` therefore caps Esri at exactly what it serves and gives
+  everything else two levels of upscaling. Worth knowing before reading a blank chart as a bug: Esri's
+  declared 19 is a global maximum and its *coverage* over the Swedish coast runs out earlier, which is
+  the limitation a MapTiler key exists to lift.
   **The chart opens on satellite, over Gothenburg.** Imagery is the right default for a tool used on
   the water: the standard map's value is street names and building outlines, and there are none at sea —
   what a track is read against is the shoreline, the shoals and the jetty being approached. It costs no

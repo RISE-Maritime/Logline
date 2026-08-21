@@ -63,6 +63,7 @@ data class SettingsProfile(
     val backfillEnabled: Boolean? = null,
     val startOnBoot: Boolean? = null,
     val offlineTilesOnly: Boolean? = null,
+    val mapTilerKey: String? = null,
     val audioEnabled: Boolean? = null,
     val audioSampleRateHz: Int? = null,
     val audioChannels: Int? = null,
@@ -143,6 +144,7 @@ fun SettingsProfile.encode(pretty: Boolean = true): String {
         putIfPresent("backfill_enabled", backfillEnabled)
         putIfPresent("start_on_boot", startOnBoot)
         putIfPresent("offline_tiles_only", offlineTilesOnly)
+        putIfPresent("maptiler_key", mapTilerKey)
         putIfPresent("audio_enabled", audioEnabled)
         putIfPresent("audio_sample_rate_hz", audioSampleRateHz)
         putIfPresent("audio_channels", audioChannels)
@@ -222,6 +224,7 @@ fun parseSettingsProfile(text: String): SettingsProfile? {
         backfillEnabled = root.bool("backfill_enabled"),
         startOnBoot = root.bool("start_on_boot"),
         offlineTilesOnly = root.bool("offline_tiles_only"),
+        mapTilerKey = root.string("maptiler_key"),
         audioEnabled = root.bool("audio_enabled"),
         audioSampleRateHz = root.int("audio_sample_rate_hz"),
         audioChannels = root.int("audio_channels"),
@@ -297,6 +300,7 @@ fun Settings.toProfile(): SettingsProfile = SettingsProfile(
     backfillEnabled = backfillEnabled,
     startOnBoot = startOnBoot,
     offlineTilesOnly = offlineTilesOnly,
+    mapTilerKey = mapTilerKey,
     audioEnabled = audioEnabled,
     audioSampleRateHz = audioSampleRateHz,
     audioChannels = audioChannels,
@@ -372,6 +376,7 @@ fun Settings.applyProfile(profile: SettingsProfile, withOperator: Boolean = true
     backfillEnabled = profile.backfillEnabled ?: backfillEnabled,
     startOnBoot = profile.startOnBoot ?: startOnBoot,
     offlineTilesOnly = profile.offlineTilesOnly ?: offlineTilesOnly,
+    mapTilerKey = profile.mapTilerKey ?: mapTilerKey,
     audioEnabled = profile.audioEnabled ?: audioEnabled,
     audioSampleRateHz = profile.audioSampleRateHz ?: audioSampleRateHz,
     audioChannels = profile.audioChannels ?: audioChannels,

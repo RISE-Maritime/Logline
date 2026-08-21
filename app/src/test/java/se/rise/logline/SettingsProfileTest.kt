@@ -46,6 +46,7 @@ class SettingsProfileTest {
         backfillEnabled = false,
         startOnBoot = true,
         offlineTilesOnly = true,
+        mapTilerKey = "test-key-abc123",
         audioEnabled = true,
         audioSampleRateHz = 44_100,
         audioChannels = 2,
@@ -117,6 +118,11 @@ class SettingsProfileTest {
         assertEquals(original.backfillEnabled, out.backfillEnabled)
         assertEquals(original.startOnBoot, out.startOnBoot)
         assertEquals(original.offlineTilesOnly, out.offlineTilesOnly)
+        // **Deliberately carried, unlike the five install-identity fields.** A tile key is a shared
+        // credential rather than an identity, and provisioning a fleet from one QR is the reason it
+        // travels — with the consequence, stated on the settings screen, that a profile you share
+        // carries your key.
+        assertEquals(original.mapTilerKey, out.mapTilerKey)
         assertEquals(original.audioEnabled, out.audioEnabled)
         assertEquals(original.audioSampleRateHz, out.audioSampleRateHz)
         assertEquals(original.audioChannels, out.audioChannels)

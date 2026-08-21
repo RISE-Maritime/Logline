@@ -116,8 +116,10 @@ The design review's ten priorities, implemented and walked on a Pixel 6. What fo
 turned up rather than what it did — the *what* is in the commit and in
 [docs/architecture.md](docs/architecture.md).
 
--  Can you change the satelite layer to be MapTiler                                                                                                                                                                                    
-  ─────────────────────────────────────────────────────
+- [x] **Can you change the satelite layer to be MapTiler.** Done in the chart-sources pass.
+      Esri is kept as the keyless fallback — satellite is the default layer, so an install with
+      no key must still draw something rather than opening on a blank grid. The key is a
+      per-phone setting, never in the repo or the APK.
 
 - [ ] **The drain loop calls `_status.update` on every written sample** — roughly 217 `MutableStateFlow`
       allocations a second on the one coroutine that must not fall behind. Left alone when the queue
@@ -202,3 +204,25 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       decimator, the interval map and the resolution are each covered, and the combination was checked
       by hand on a Pixel 6 (`course_over_ground_deg` at 0.2 Hz against the fix at 1.0). An instrumented
       test would need a running publisher and a real sensor, which is why it was not written.
+
+## Chart sources and zoom (2026-08-21)
+
+- [ ] **Esri's imagery over the Swedish coast runs out well before its declared zoom 19.** Verified by
+      forcing the chart to 19 at Onsala: every tile came back as Esri's grey "Map data not yet
+      available" placeholder. The 19 in its `OnlineTileSourceBase` is a global maximum, not a promise
+      about a location, and the app has no way to know where coverage actually ends. This is the
+      limitation a MapTiler key lifts, so it may not be worth solving — but a keyless phone zooming in
+      hits a grey field with no explanation, and a line saying "no imagery at this zoom" would be
+      kinder than the silence it gets.
+
+- [ ] **The MapTiler path has never met the real service.** There is no key on this phone, so the URL
+      shape, the 512 px tile size and the `.jpg` ending are from their documentation rather than from a
+      tile that arrived. `maxZoomFor()` also gives it two levels of upscaling on the assumption that it
+      *fails* past zoom 20 — the upscaling mechanism is verified, but with OpenStreetMap, not MapTiler.
+      If MapTiler serves a placeholder the way Esri does, it needs the same cap.
+
+- [ ] **`SettingsProfileTest` does not catch a new `Settings` field on its own.** CLAUDE.md says a
+      field added later "fails the test until somebody decides which side it belongs on", and that is
+      only true if the fixture is updated as well — the assertions are a hand-written list, not a
+      reflective one. `mapTilerKey` was added to both by hand. A reflective check over
+      `Settings::class.memberProperties` would make the claim true.

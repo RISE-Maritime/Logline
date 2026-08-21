@@ -72,10 +72,84 @@ private val ESRI_WORLD_IMAGERY: OnlineTileSourceBase = object : OnlineTileSource
             MapTileIndex.getX(pMapTileIndex)
 }
 
-private fun sourceFor(layer: MapLayer) = when (layer) {
-    MapLayer.Standard -> TileSourceFactory.MAPNIK
-    MapLayer.Satellite -> ESRI_WORLD_IMAGERY
+/**
+ * MapTiler's satellite imagery, which needs a key and repays it in resolution.
+ *
+ * Esri stops at zoom 19 and coarsens well before that outside cities; MapTiler serves 20 and its
+ * coverage over Scandinavian coast is finer, which is the difference between seeing a jetty and seeing
+ * where a jetty is. A plain `{z}/{x}/{y}`, unlike Esri's row-before-column URL, so `XYTileSource` would
+ * almost do — except the key rides on the query string, which is what the override is for.
+ *
+ * **The key is never in this repo or in the APK**: it is a per-phone setting. See `Settings.mapTilerKey`.
+ *
+ * `FLAG_NO_BULK` like the others: a key makes bulk downloading somebody's billable problem rather than
+ * merely rude, and it keeps `CacheManager` from ever being pointed at it. MapTiler's terms require the
+ * notice below, which `CopyrightOverlay` draws.
+ */
+private fun mapTilerSatellite(key: String): OnlineTileSourceBase = object : OnlineTileSourceBase(
+    "MapTiler Satellite",
+    0,
+    MAPTILER_MAX_ZOOM,
+    512,
+    ".jpg",
+    arrayOf("https://api.maptiler.com/tiles/satellite-v2/"),
+    "© MapTiler © OpenStreetMap contributors",
+    TileSourcePolicy(
+        2,
+        TileSourcePolicy.FLAG_NO_BULK or
+            TileSourcePolicy.FLAG_NO_PREVENTIVE or
+            TileSourcePolicy.FLAG_USER_AGENT_MEANINGFUL or
+            TileSourcePolicy.FLAG_USER_AGENT_NORMALIZED,
+    ),
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String =
+        baseUrl +
+            MapTileIndex.getZoom(pMapTileIndex) + "/" +
+            MapTileIndex.getX(pMapTileIndex) + "/" +
+            MapTileIndex.getY(pMapTileIndex) +
+            mImageFilenameEnding + "?key=" + key
 }
+
+/**
+ * Which source draws a layer, given whatever key the phone holds.
+ *
+ * **Esri is the fallback rather than an error**, because satellite is the *default* layer: an install
+ * with no key would otherwise open the Live tab on a blank grid, which reads as a broken app rather
+ * than a missing setting.
+ */
+private fun sourceFor(layer: MapLayer, mapTilerKey: String) = when (layer) {
+    MapLayer.Standard -> TileSourceFactory.MAPNIK
+    MapLayer.Satellite ->
+        if (mapTilerKey.isNotBlank()) mapTilerSatellite(mapTilerKey) else ESRI_WORLD_IMAGERY
+}
+
+/** What MapTiler's satellite tiles go to. Beyond it the chart upscales — see [maxZoomFor]. */
+private const val MAPTILER_MAX_ZOOM = 20
+
+/**
+ * How far in the chart will go, which is **not the same answer for every source**.
+ *
+ * osmdroid stops dead at the source's maximum unless the view is told otherwise, and on a chart that is
+ * a pinch which simply refuses at the moment somebody is trying to see which side of a pontoon they are
+ * on. Where a source *fails* past its limit, osmdroid's tile approximater upscales the deepest tile it
+ * has — blurry, and still the right answer, because the position, the track and the heading line stay
+ * sharp and keep their true scale, and those are what is being read at that zoom.
+ *
+ * **Esri does not fail past 19; it serves a grey "Map data not available" tile.** Verified on a Pixel 6
+ * by forcing zoom 21: a 200 with a placeholder in it is a tile as far as the provider is concerned, so
+ * there is nothing to approximate from and over-zooming buys a grey field rather than a blurry one. It
+ * is therefore capped at exactly what it serves. MapTiler returns nothing for a tile it does not have,
+ * which is what makes the extra levels worth having there.
+ */
+private fun maxZoomFor(source: OnlineTileSourceBase): Double =
+    if (source === ESRI_WORLD_IMAGERY) {
+        source.maximumZoomLevel.toDouble()
+    } else {
+        source.maximumZoomLevel + OVER_ZOOM_LEVELS
+    }
+
+/** Two levels of upscaling: 4x, past which the blur stops being worth the magnification. */
+private const val OVER_ZOOM_LEVELS = 2.0
 
 /**
  * The GNSS track on an OpenStreetMap background.
@@ -102,6 +176,8 @@ fun TrackMap(
     seaMarks: Boolean = false,
     /** Where the phone points, from the compass. Null when there is no heading to draw. */
     headingDegrees: Float? = null,
+    /** Upgrades the satellite layer to MapTiler's imagery. Blank falls back to Esri — see [sourceFor]. */
+    mapTilerKey: String = "",
 ) {
     val polyline = remember { Polyline() }
     // Drawn under the track for the same reason the vectors have one — see `FixOverlay.halo`. A second
@@ -111,6 +187,11 @@ fun TrackMap(
     // one every time the switch is read would leak them.
     val seaMarkOverlay = remember { mutableStateOf<TilesOverlay?>(null) }
     val fixOverlay = remember { FixOverlay() }
+    // **Remembered on (layer, key), not rebuilt per recomposition.** `setTileSource` compares by
+    // identity, so a fresh instance every frame would swap the source — and throw away its tile cache —
+    // several times a second. Esri is a singleton and never had this problem; MapTiler's carries a key
+    // and so has to be constructed.
+    val tileSource = remember(layer, mapTilerKey) { sourceFor(layer, mapTilerKey) }
     // Held so its colour can follow the base layer — see `attributionColour`. The overlay re-reads the
     // notice *text* from the current tile source on every draw, so only the paint needs wiring.
     val copyright = remember { mutableStateOf<CopyrightOverlay?>(null) }
@@ -125,7 +206,7 @@ fun TrackMap(
         factory = { context ->
             configureOsmdroid(context)
             MapView(context).apply {
-                setTileSource(sourceFor(layer))
+                setTileSource(tileSource)
                 setUseDataConnection(!offlineOnly)
                 // Attribution is a condition of both OSM's and Esri's terms, and osmdroid does *not*
                 // draw it on its own — `CopyrightOverlay` has to be added, which this map never did.
@@ -169,9 +250,12 @@ fun TrackMap(
             // Swapping the source on a live MapView is supported and redraws; a new one is only built
             // when the composable is. The seamark overlay is created once and then added or removed,
             // because each instance carries its own tile provider and threads.
-            if (map.tileProvider.tileSource != sourceFor(layer)) {
-                map.setTileSource(sourceFor(layer))
+            if (map.tileProvider.tileSource != tileSource) {
+                map.setTileSource(tileSource)
             }
+            // In `update` rather than `factory`: it depends on the source, so it has to follow a layer
+            // change. Without it a pinch stops dead at the source's own maximum — see `maxZoomFor`.
+            map.maxZoomLevel = maxZoomFor(tileSource)
             // Dark on map tiles, light on imagery. The library paints it black whatever is underneath,
             // and black on a night-time satellite tile is not attribution, it is a smudge.
             copyright.value?.setTextColor(attributionColour(layer))
