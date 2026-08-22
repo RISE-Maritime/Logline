@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  The media half of a WHEP camera feed.
+
+  Android has no RTCPeerConnection in the app process; the system WebView has a whole WebRTC stack.
+  Using it costs nothing to ship, where bundling libwebrtc would add tens of megabytes across four ABIs
+  on top of the Zenoh natives already in the APK.
+
+  This page does exactly what crowsnest's CameraFeed.jsx does — recvonly video and audio, ontrack into
+  the elements — and nothing else. It does no signalling: the SDP offer goes out through the Kotlin
+  bridge, because signalling is a Zenoh query and the Zenoh REST plugin cannot serve one (an HTTP POST
+  there is a publish, not a queryable invocation, so it never reaches the proxy).
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+</style>
+<video id="v" autoplay playsinline muted></video>
+<audio id="a" autoplay></audio>
+<script>
+  let pc = null;
+
+  // Kotlin calls this. `iceJson` is a JSON array of RTCIceServer, empty for a LAN-only test where
+  // host candidates are enough.
+  async function start(iceJson) {
+    stop();
+    const iceServers = JSON.parse(iceJson || "[]");
+    pc = new RTCPeerConnection({ iceServers });
+
+    pc.addEventListener("track", (e) => {
+      const el = e.track.kind === "video" ? document.getElementById("v") : document.getElementById("a");
+      if (el) el.srcObject = e.streams[0];
+    });
+    pc.addEventListener("connectionstatechange", () => {
+      if (pc) Android.onState(pc.connectionState);
+    });
+
+    // recvonly, both: this is a viewer. Asking for sendrecv would have MediaMTX expect media from us.
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addTransceiver("audio", { direction: "recvonly" });
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // **Wait for ICE gathering before offering.** WHEP is a single request and response with no
+    // trickle, so an offer sent before the candidates are in it describes a peer at no address.
+    await new Promise((resolve) => {
+      if (pc.iceGatheringState === "complete") return resolve();
+      const check = () => {
+        if (pc.iceGatheringState === "complete") {
+          pc.removeEventListener("icegatheringstatechange", check);
+          resolve();
+        }
+      };
+      pc.addEventListener("icegatheringstatechange", check);
+      // Gathering can stall on a network that answers nothing; a stalled offer is still better than
+      // no offer, and the answer will simply fail to connect rather than never being asked for.
+      setTimeout(resolve, 3000);
+    });
+
+    Android.onOffer(pc.localDescription.sdp);
+  }
+
+  // Kotlin calls this with the SDP answer from the Zenoh round trip.
+  async function answer(sdp) {
+    if (!pc) return;
+    try {
+      await pc.setRemoteDescription({ type: "answer", sdp });
+    } catch (e) {
+      Android.onState("failed: " + e.message);
+    }
+  }
+
+  function stop() {
+    if (!pc) return;
+    try { pc.close(); } catch (e) {}
+    pc = null;
+    document.getElementById("v").srcObject = null;
+    document.getElementById("a").srcObject = null;
+  }
+</script>

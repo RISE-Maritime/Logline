@@ -103,6 +103,8 @@ import java.io.File
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import se.rise.logline.record.TrackCache
+import se.rise.logline.whep.CameraLink
+import se.rise.logline.whep.hasCamera
 import se.rise.logline.record.deleteSavedRecordings
 import se.rise.logline.record.recordingsFreeBytes
 import se.rise.logline.record.savedRecordings
@@ -116,6 +118,7 @@ import se.rise.logline.publish.TextHistory
 import se.rise.logline.publish.SampleWindow
 import se.rise.logline.ui.LiveScreen
 import se.rise.logline.ui.WINDOW_CHOICES
+import se.rise.logline.ui.LiveCameraCard
 import se.rise.logline.ui.RecordingChart
 import se.rise.logline.ui.RecordingFilter
 import se.rise.logline.ui.RecordingSort
@@ -376,6 +379,9 @@ private fun App(
         val audio = AudioProvider(context)
         Settings.AUDIO_SAMPLE_RATES.filter { audio.supports(it, channels = 1) }.toSet()
     }
+    // Holds no session of its own — it opens one for the few seconds a handshake takes and closes it
+    // again, because once the SDP is exchanged the media does not go through Zenoh at all.
+    val cameraLink = remember(context) { CameraLink(context) }
     var recordingsQuery by rememberSaveable { mutableStateOf("") }
     var recordingsSort by rememberSaveable { mutableStateOf(RecordingSort.Newest) }
     var recordingsFilter by rememberSaveable { mutableStateOf(RecordingFilter.All) }
@@ -965,6 +971,19 @@ private fun App(
                         mapTilerKey = current.mapTilerKey,
                         modifier = m,
                     )
+                },
+                // Only when one is configured — blank entity or path means no card at all, which is
+                // the default: this points at somebody else's vessel and there is no sensible guess.
+                cameraView = if (current.hasCamera()) {
+                    { m ->
+                        LiveCameraCard(
+                            settings = current,
+                            link = cameraLink,
+                            modifier = m,
+                        )
+                    }
+                } else {
+                    null
                 },
                 layer = liveLayer,
                 onLayerChange = { liveLayer = it },

@@ -296,3 +296,33 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       false. Note the gap was narrower than feared — leaving the tab and returning *does* re-read,
       verified by deleting a file behind the app's back and watching the count go 7 to 6 — so only a run
       ended from the notification while the tab is on screen was ever affected.
+
+## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
+
+Built on branch `whep-live-camera`, not merged: the app **crashes** the moment the signalling query
+completes, and that is not something app code can fix.
+
+- [ ] **A Zenoh query that receives a reply from a remote queryable SIGABRTs the app.**
+      `JNI DETECTED ERROR IN APPLICATION: ... ClassNotFoundException: Didn't find class
+      "io.zenoh.jni.pubsub.EntityGlobalId"`, in `finalize_pending_query`. It is the **same bug as
+      `Zenoh.scout`** — the binding builds a class in native code with `FindClass`, on one of Zenoh's
+      own threads, where JNI resolves against the system class loader and cannot see app classes — and
+      `keelson/Scout.kt` exists because of it. Reproduced twice, zenoh-kotlin 1.10.0.
+      Opening the Rigs screen (`livelinessGet`) does *not* crash, so it is the reply path specifically;
+      whether `KeelsonSession.query()` is also affected when a storage actually answers is **untested**
+      and matters, because the checklist bootstrap uses it.
+      No workaround from this side. Either the binding is fixed upstream, or the handshake goes over
+      something other than a Zenoh query.
+
+- [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
+      Two independent faults, both found by running it:
+      `WHEPResponse(res.text)` raises `TypeError: No positional arguments allowed` — protobuf requires
+      keyword arguments, and the repo source has `WHEPResponse(sdp=res.text)`, so it is fixed upstream
+      and unreleased. And it declares the **legacy** key
+      `rise/@v0/{entity}/@rpc/whep_signal/{responder}` with no interface or version chunk, where the
+      repo source and crowsnest both use `.../@rpc/whep_proxy/v1/whep_signal/{responder}`.
+      So crowsnest's camera feature cannot be working against `latest` either. Worth telling RISE.
+
+- [ ] **MediaMTX silently drops AAC for WebRTC.** `skipping track 2 (MPEG-4 Audio)` — a WHEP viewer
+      gets video and no sound. The source has to publish Opus. Not an app problem, but it is the first
+      thing to check when a feed has no audio.

@@ -85,6 +85,13 @@ fun SettingsScreen(
     val endpoints = remember { mutableStateListOf<String>().apply { addAll(initial.routerEndpoints) } }
     var newEndpoint by remember { mutableStateOf("") }
     var scoutAddress by remember { mutableStateOf(initial.scoutAddress) }
+    var cameraEntityId by remember { mutableStateOf(initial.cameraEntityId) }
+    var cameraResponderId by remember { mutableStateOf(initial.cameraResponderId) }
+    var cameraPath by remember { mutableStateOf(initial.cameraPath) }
+    var cameraStunUrl by remember { mutableStateOf(initial.cameraStunUrl) }
+    var cameraTurnUrl by remember { mutableStateOf(initial.cameraTurnUrl) }
+    var cameraTurnUsername by remember { mutableStateOf(initial.cameraTurnUsername) }
+    var cameraTurnPassword by remember { mutableStateOf(initial.cameraTurnPassword) }
     var locationSource by remember { mutableStateOf(initial.locationSource) }
     var imuSource by remember { mutableStateOf(initial.imuSource) }
     var recordingEnabled by remember { mutableStateOf(initial.recordingEnabled) }
@@ -111,6 +118,15 @@ fun SettingsScreen(
         offlineTilesOnly = offlineTilesOnly,
         mapTilerKey = mapTilerKey.trim(),
         scoutAddress = scoutAddress.trim().ifEmpty { Settings.DEFAULT_SCOUT_ADDRESS },
+        cameraEntityId = cameraEntityId.trim(),
+        cameraResponderId = cameraResponderId.trim().ifEmpty { Settings.DEFAULT_CAMERA_RESPONDER },
+        cameraPath = cameraPath.trim(),
+        // Not defaulted back: an empty STUN box is a choice on a LAN, where a STUN round trip only
+        // delays gathering and host candidates are enough.
+        cameraStunUrl = cameraStunUrl.trim(),
+        cameraTurnUrl = cameraTurnUrl.trim(),
+        cameraTurnUsername = cameraTurnUsername.trim(),
+        cameraTurnPassword = cameraTurnPassword,
         checklistEnabled = checklistEnabled,
         operatorName = operatorName.trim(),
         operatorRole = operatorRole.trim(),
@@ -505,6 +521,91 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+
+            SettingsGroup(
+                title = "Live camera",
+                trailing = if (cameraEntityId.isNotBlank()) cameraEntityId.trim() else "off",
+                expanded = "Live camera" in openSections,
+                onToggle = { openSections = toggleSection(openSections, "Live camera") },
+            ) {
+                SectionHeader(
+                    "Source",
+                    onInfo = {
+                        info = "Live camera" to
+                            "A live view from another entity's camera, over WebRTC.\n\n" +
+                            "It is not a keelson subject and none of it travels on the bus. keelson's " +
+                            "mediamtx connector proxies only the handshake: this phone asks it over " +
+                            "Zenoh, and the video and audio then flow straight from the vessel's " +
+                            "MediaMTX to here.\n\n" +
+                            "The path is MediaMTX's own name for the stream, not a subject — the " +
+                            "<pathname> in its MTX_PATHS_<pathname>_SOURCE. Nothing on the bus " +
+                            "advertises it, so it has to be typed.\n\n" +
+                            "Leave the entity blank to switch the feature off."
+                    },
+                )
+                OutlinedTextField(
+                    value = cameraEntityId,
+                    onValueChange = { cameraEntityId = it },
+                    label = { Text("Camera entity") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = cameraResponderId,
+                    onValueChange = { cameraResponderId = it },
+                    label = { Text("Responder id") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = cameraPath,
+                    onValueChange = { cameraPath = it },
+                    label = { Text("MediaMTX path") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SectionHeader(
+                    "ICE",
+                    onInfo = {
+                        info = "ICE" to
+                            "How the two ends find each other.\n\n" +
+                            "On one network, host candidates are enough and both boxes can be empty. " +
+                            "Across networks a STUN server lets each side learn its public address, " +
+                            "and where that is not enough — most vessel networks — a TURN server " +
+                            "relays the media itself, which costs bandwidth at whoever runs it."
+                    },
+                )
+                OutlinedTextField(
+                    value = cameraStunUrl,
+                    onValueChange = { cameraStunUrl = it },
+                    label = { Text("STUN URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = cameraTurnUrl,
+                    onValueChange = { cameraTurnUrl = it },
+                    label = { Text("TURN URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = cameraTurnUsername,
+                        onValueChange = { cameraTurnUsername = it },
+                        label = { Text("TURN user") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = cameraTurnPassword,
+                        onValueChange = { cameraTurnPassword = it },
+                        label = { Text("TURN password") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
 
             SettingsGroup(

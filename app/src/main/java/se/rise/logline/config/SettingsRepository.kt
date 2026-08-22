@@ -103,6 +103,13 @@ internal object Keys {
      * time the app restarted, which is a setting that will not stay set.
      */
     val ANNOTATION_BUTTONS = stringPreferencesKey("annotation_buttons")
+    val CAMERA_ENTITY = stringPreferencesKey("camera_entity")
+    val CAMERA_RESPONDER = stringPreferencesKey("camera_responder")
+    val CAMERA_PATH = stringPreferencesKey("camera_path")
+    val CAMERA_STUN = stringPreferencesKey("camera_stun")
+    val CAMERA_TURN = stringPreferencesKey("camera_turn")
+    val CAMERA_TURN_USER = stringPreferencesKey("camera_turn_user")
+    val CAMERA_TURN_PASSWORD = stringPreferencesKey("camera_turn_password")
     val TAGS = stringPreferencesKey("tags")
     val ACTIVE_TAGS = stringPreferencesKey("active_tags")
 
@@ -266,6 +273,15 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
         annotationButtons = readAnnotationButtons(prefs),
         // Absent and empty mean the same for tags, unlike the annotation buttons: there is no default
         // vocabulary to fall back to, so nothing has to tell them apart.
+        cameraEntityId = prefs[Keys.CAMERA_ENTITY].orEmpty(),
+        cameraResponderId = prefs[Keys.CAMERA_RESPONDER] ?: Settings.DEFAULT_CAMERA_RESPONDER,
+        cameraPath = prefs[Keys.CAMERA_PATH].orEmpty(),
+        // Absent means the shipped STUN server; empty means somebody cleared it on purpose, which is
+        // right on a LAN where host candidates are enough and a STUN round trip only delays gathering.
+        cameraStunUrl = prefs[Keys.CAMERA_STUN] ?: Settings.DEFAULT_STUN_URL,
+        cameraTurnUrl = prefs[Keys.CAMERA_TURN].orEmpty(),
+        cameraTurnUsername = prefs[Keys.CAMERA_TURN_USER].orEmpty(),
+        cameraTurnPassword = prefs[Keys.CAMERA_TURN_PASSWORD].orEmpty(),
         tags = prefs[Keys.TAGS]?.let(::parseTags)?.toList().orEmpty(),
         activeTags = prefs[Keys.ACTIVE_TAGS]?.let(::parseTags).orEmpty(),
         qosOverrides = readQosOverrides(prefs),
@@ -331,6 +347,13 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.VIDEO_KEYFRAME_SECONDS] = settings.videoKeyframeSeconds.toString()
     prefs[Keys.DISABLED_SUBJECTS] = settings.disabledSubjects.serialiseDisabledSubjects()
     prefs[Keys.ANNOTATION_BUTTONS] = settings.annotationButtons.serialiseAnnotationButtons()
+    prefs[Keys.CAMERA_ENTITY] = settings.cameraEntityId
+    prefs[Keys.CAMERA_RESPONDER] = settings.cameraResponderId
+    prefs[Keys.CAMERA_PATH] = settings.cameraPath
+    prefs[Keys.CAMERA_STUN] = settings.cameraStunUrl
+    prefs[Keys.CAMERA_TURN] = settings.cameraTurnUrl
+    prefs[Keys.CAMERA_TURN_USER] = settings.cameraTurnUsername
+    prefs[Keys.CAMERA_TURN_PASSWORD] = settings.cameraTurnPassword
     prefs[Keys.TAGS] = encodeTags(settings.tags.toSet())
     // Only tags that still exist can be active, or removing one would leave it switched on for ever.
     prefs[Keys.ACTIVE_TAGS] = encodeTags(settings.activeTags.filter { it in settings.tags }.toSet())

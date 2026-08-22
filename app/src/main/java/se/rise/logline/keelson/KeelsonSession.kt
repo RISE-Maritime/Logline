@@ -230,6 +230,43 @@ class KeelsonSession private constructor(private val session: Session) {
         return out
     }
 
+    /**
+     * Invoke an RPC procedure: a query carrying a payload, answered by one responder.
+     *
+     * The difference from [query] is the whole reason this exists. That one reads a *storage* — no
+     * payload goes out, and a `reply_err` is indistinguishable from no answer, which is right when the
+     * question is "is anything stored here". An RPC asks a responder to *do* something, so it has to
+     * send arguments and it has to be able to tell a refusal from a silence: keelson wraps a refusal in
+     * `keelson.interfaces.ErrorResponse`, which the caller can only decode if the error bytes survive.
+     * Hence the [ReplyError] is handed back intact rather than flattened to null.
+     *
+     * The first ok reply wins. An RPC key names one responder — the `{source}` chunk is in it — so a
+     * second reply would mean two processes answering for the same source, which is a misconfiguration
+     * rather than something to merge.
+     */
+    suspend fun call(
+        key: String,
+        payload: ByteArray,
+        timeout: Duration = QUERY_TIMEOUT,
+    ): Result<ByteArray> = runCatching {
+        val selector = key.intoSelector().getOrThrow()
+        val replies = session.get(
+            selector,
+            channel = Channel<Reply>(Channel.UNLIMITED),
+            payload = ZBytes.from(payload),
+            encoding = Encoding.ZENOH_BYTES,
+            timeout = timeout,
+        ).getOrThrow()
+        var failure: Throwable? = null
+        // Zenoh closes the channel when the query finishes or times out, so this terminates.
+        for (reply in replies) {
+            reply.result
+                .onSuccess { return@runCatching it.payload.toBytes() }
+                .onFailure { if (failure == null) failure = it }
+        }
+        throw failure ?: NoSuchElementException("no reply on $key")
+    }
+
     /** True when the session still holds a transport to at least one router. */
     fun isConnectedToRouter(): Boolean =
         !session.isClosed() && session.info().routersZid().getOrNull()?.isNotEmpty() == true

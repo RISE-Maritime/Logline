@@ -225,6 +225,24 @@ data class Settings(
      * why it lives here and travels in a settings profile, rather than beside the recordings it ends up
      * describing.
      */
+    /**
+     * A live camera to watch, served by keelson's `mediamtx` WHEP proxy on some other entity.
+     *
+     * Blank means the feature is off, which is the default: this points at somebody else's vessel and
+     * there is no sensible guess. [cameraPath] is MediaMTX's own path name — the `<pathname>` in
+     * `MTX_PATHS_<pathname>_SOURCE` — not a keelson subject, and nothing on the bus advertises it.
+     */
+    val cameraEntityId: String = "",
+    val cameraResponderId: String = DEFAULT_CAMERA_RESPONDER,
+    val cameraPath: String = "",
+    /**
+     * ICE for the camera. STUN alone will not cross most vessel networks, which is why TURN is here at
+     * all; crowsnest carries the same three fields for the same reason.
+     */
+    val cameraStunUrl: String = DEFAULT_STUN_URL,
+    val cameraTurnUrl: String = "",
+    val cameraTurnUsername: String = "",
+    val cameraTurnPassword: String = "",
     val tags: List<String> = emptyList(),
     /**
      * Which of [tags] are switched on.
@@ -321,6 +339,12 @@ data class Settings(
 
         /** Zenoh's own default scout socket. Deployments may move it — coswim uses :7448. */
         const val DEFAULT_SCOUT_ADDRESS = "224.0.0.224:7446"
+
+        /** What keelson's own `mediamtx` README calls the responder. */
+        const val DEFAULT_CAMERA_RESPONDER = "mediamtx"
+
+        /** The STUN server keelson's README puts in its MediaMTX example. */
+        const val DEFAULT_STUN_URL = "stun:stun.l.google.com:19302"
 
         /**
          * 16 kHz mono: speech is fully intelligible and machinery noise is well represented to 8 kHz,
