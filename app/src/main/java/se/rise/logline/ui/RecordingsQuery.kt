@@ -75,7 +75,7 @@ fun <T : RecordingFacts> visibleRecordings(
         val passesFilter = when (filter) {
             RecordingFilter.All -> true
             // **Both compare against a value, so null falls out of each.** A settings profile or a
-            // rig-geometry export has no MCAP summary and so no answer to "did it close properly";
+            // platform-geometry export has no MCAP summary and so no answer to "did it close properly";
             // it therefore shows under All and under neither of the other two, which is what keeps
             // it out of the bulk delete built on the Incomplete set.
             RecordingFilter.Complete -> recording.isComplete == true
@@ -130,8 +130,8 @@ fun recordingSubtitle(file: RecordingFacts): String = buildString {
     append(" · ")
     when (recordingKindOf(file.name)) {
         RecordingKind.SettingsProfile -> append("Settings profile")
-        RecordingKind.RigGeometry -> append("Rig geometry export")
-        RecordingKind.RigLibrary -> append("Rig library export")
+        RecordingKind.PlatformGeometry -> append("Platform geometry export")
+        RecordingKind.PlatformLibrary -> append("Platform library export")
         RecordingKind.Other -> append("Not a recording")
         RecordingKind.Recording -> {
             val messages = file.messages

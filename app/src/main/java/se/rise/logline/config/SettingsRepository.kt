@@ -19,8 +19,8 @@ import se.rise.logline.calibrate.EulerDeg
 import se.rise.logline.calibrate.HeadingSource
 import se.rise.logline.calibrate.PlatformType
 import se.rise.logline.calibrate.parsePlatformGeometry
-import se.rise.logline.calibrate.RigCalibration
-import se.rise.logline.calibrate.RigZero
+import se.rise.logline.calibrate.PlatformCalibration
+import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
 import se.rise.logline.calibrate.toStoredJson
@@ -138,31 +138,47 @@ internal object Keys {
 
     val CALIBRATION_SOURCE = stringPreferencesKey("calibration_source")
 
-    // The rig library. One rig per key, each holding the whole document as JSON.
+    // The platform library. One platform per key, each holding the whole document as JSON.
     //
-    // A flat key per field, the way everything else here is stored, was what the single rig used — and
-    // it does not survive becoming a list. Two nested indices (rig, then sensor) mean a clear-out that
+    // A flat key per field, the way everything else here is stored, was what the single platform used — and
+    // it does not survive becoming a list. Two nested indices (platform, then sensor) mean a clear-out that
     // has to walk both, and that clear-out is the part that has already been got wrong once: deleting a
-    // sensor without removing its indices resurrects it at the next start. One string per rig turns
+    // sensor without removing its indices resurrects it at the next start. One string per platform turns
     // that into a single loop, and the serialiser it needs already exists.
-    val RIG_COUNT = stringPreferencesKey("rig_count")
-    fun rig(index: Int) = stringPreferencesKey("rig_$index")
+    val PLATFORM_COUNT = stringPreferencesKey("platform_count")
+    fun platform(index: Int) = stringPreferencesKey("platform_$index")
 
-    /** Entity id of the rig the phone is on. Absent means none is selected. */
-    val RIG_ACTIVE_ENTITY = stringPreferencesKey("rig_active_entity")
+    /** Entity id of the platform the phone is on. Absent means none is selected. */
+    val PLATFORM_ACTIVE_ENTITY = stringPreferencesKey("platform_active_entity")
 
     /**
-     * Entity ids of the rigs opted in to publishing, newline-delimited — the same shape
+     * Entity ids of the platforms opted in to publishing, newline-delimited — the same shape
      * [ROUTER_ENDPOINT] uses, for the same reason: a list in a string-keyed store.
      */
-    val RIG_PUBLISHING = stringPreferencesKey("rig_publishing")
-    val RIG_SHARE_LIBRARY = stringPreferencesKey("rig_share_library")
-    val RIG_REGISTRY_VERSION = stringPreferencesKey("rig_registry_version")
-    val RIG_REGISTRY_ORIGIN = stringPreferencesKey("rig_registry_origin")
+    val PLATFORM_PUBLISHING = stringPreferencesKey("platform_publishing")
+    val PLATFORM_SHARE_LIBRARY = stringPreferencesKey("platform_share_library")
+    val PLATFORM_REGISTRY_VERSION = stringPreferencesKey("platform_registry_version")
+    val PLATFORM_REGISTRY_ORIGIN = stringPreferencesKey("platform_registry_origin")
 
-    // The single rig, flattened — **read-only now, and kept only for the migration**. A preferences
-    // file written by an older build has these and no `rig_count`; `readRigs` turns them into a
-    // one-rig library and the next write replaces them. Nothing writes them any more.
+    // The same six keys under their previous names — **read-only, and kept only for the migration**.
+    //
+    // The word was `rig` until a platform library made it plainly the wrong one: keelson calls the thing
+    // a *platform*, `entity_id` is "normally the platform name", and one word for one thing is cheaper
+    // than a translation everybody has to hold in their head. Renaming the DataStore keys with it means a
+    // phone updating over an existing install would otherwise find no library at all and silently stop
+    // publishing geometry that was going out before — the one thing a rename must not do. `writePlatforms`
+    // clears these on the next save, so this is one-way, exactly like the `calib_*` keys below.
+    val LEGACY_RIG_COUNT = stringPreferencesKey("rig_count")
+    fun legacyRig(index: Int) = stringPreferencesKey("rig_$index")
+    val LEGACY_RIG_ACTIVE_ENTITY = stringPreferencesKey("rig_active_entity")
+    val LEGACY_RIG_PUBLISHING = stringPreferencesKey("rig_publishing")
+    val LEGACY_RIG_SHARE_LIBRARY = stringPreferencesKey("rig_share_library")
+    val LEGACY_RIG_REGISTRY_VERSION = stringPreferencesKey("rig_registry_version")
+    val LEGACY_RIG_REGISTRY_ORIGIN = stringPreferencesKey("rig_registry_origin")
+
+    // The single platform, flattened — **read-only now, and kept only for the migration**. A preferences
+    // file written by an older build has these and no `platform_count`; `readPlatforms` turns them into a
+    // one-platform library and the next write replaces them. Nothing writes them any more.
 
     /** Absent means there is no calibration at all — the normal state. */
     val CALIB_NAME = stringPreferencesKey("calib_name")
@@ -215,7 +231,7 @@ internal val overridableSubjects: List<String> = PublishedSubject.entries.map { 
 internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings {
     // Read once and reused: the migrated selection is derived from the library itself, so the
     // two cannot be built independently.
-    val rigs = readRigs(prefs)
+    val platforms = readPlatforms(prefs)
     return Settings(
         realm = prefs[Keys.REALM] ?: Settings.DEFAULT_REALM,
         entityId = prefs[Keys.ENTITY_ID] ?: defaultEntityId,
@@ -225,19 +241,25 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
         deviceSource = prefs[Keys.DEVICE_SOURCE] ?: Settings.DEFAULT_DEVICE_SOURCE,
         calibrationSource = prefs[Keys.CALIBRATION_SOURCE]?.takeIf { it.isNotBlank() }
             ?: Settings.DEFAULT_CALIBRATION_SOURCE,
-        rigs = rigs,
+        platforms = platforms,
         // `?:` on the raw key, not `ifBlank`: an **absent** key is a file from before the library
-        // and needs its one rig nominated, while a **present but empty** one is a selection somebody
-        // cleared by deleting the active rig. Treating those the same re-activates a surviving rig on
-        // the next launch — and since the active rig always publishes, its geometry starts going out
+        // and needs its one platform nominated, while a **present but empty** one is a selection somebody
+        // cleared by deleting the active platform. Treating those the same re-activates a surviving platform on
+        // the next launch — and since the active platform always publishes, its geometry starts going out
         // under its own entity id with nobody having asked. Same rule as the annotation buttons: an
         // absent key and an empty value mean different things.
-        activeRigEntityId = prefs[Keys.RIG_ACTIVE_ENTITY] ?: migratedActiveRig(rigs),
-        publishingRigEntityIds = parseRigEntityIds(prefs[Keys.RIG_PUBLISHING]),
+        activePlatformEntityId = prefs[Keys.PLATFORM_ACTIVE_ENTITY]
+            ?: prefs[Keys.LEGACY_RIG_ACTIVE_ENTITY]
+            ?: migratedActivePlatform(platforms),
+        publishingPlatformEntityIds =
+            parsePlatformEntityIds(prefs[Keys.PLATFORM_PUBLISHING] ?: prefs[Keys.LEGACY_RIG_PUBLISHING]),
         // Absent means off, as for the checklist: only a stored value shares the library.
-        shareRigLibrary = prefs[Keys.RIG_SHARE_LIBRARY]?.toBooleanStrictOrNull() ?: false,
-        rigRegistryVersion = prefs[Keys.RIG_REGISTRY_VERSION]?.toLongOrNull() ?: 0L,
-        rigRegistryOrigin = prefs[Keys.RIG_REGISTRY_ORIGIN].orEmpty(),
+        sharePlatformLibrary = (prefs[Keys.PLATFORM_SHARE_LIBRARY]
+            ?: prefs[Keys.LEGACY_RIG_SHARE_LIBRARY])?.toBooleanStrictOrNull() ?: false,
+        platformRegistryVersion = (prefs[Keys.PLATFORM_REGISTRY_VERSION]
+            ?: prefs[Keys.LEGACY_RIG_REGISTRY_VERSION])?.toLongOrNull() ?: 0L,
+        platformRegistryOrigin = (prefs[Keys.PLATFORM_REGISTRY_ORIGIN]
+            ?: prefs[Keys.LEGACY_RIG_REGISTRY_ORIGIN]).orEmpty(),
         recordingEnabled = prefs[Keys.RECORDING_ENABLED]?.toBooleanStrictOrNull() ?: true,
         backfillEnabled = prefs[Keys.BACKFILL_ENABLED]?.toBooleanStrictOrNull() ?: true,
         batteryExemptionAsked = prefs[Keys.BATTERY_EXEMPTION_ASKED]?.toBooleanStrictOrNull() ?: false,
@@ -315,7 +337,7 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.IMU_SOURCE] = settings.imuSource
     prefs[Keys.DEVICE_SOURCE] = settings.deviceSource
     prefs[Keys.CALIBRATION_SOURCE] = settings.calibrationSource
-    writeRigs(prefs, settings)
+    writePlatforms(prefs, settings)
     prefs[Keys.RECORDING_ENABLED] = settings.recordingEnabled.toString()
     prefs[Keys.BACKFILL_ENABLED] = settings.backfillEnabled.toString()
     prefs[Keys.BATTERY_EXEMPTION_ASKED] = settings.batteryExemptionAsked.toString()
@@ -388,15 +410,15 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
 }
 
 /**
- * The rig calibration, or null when nothing has been calibrated.
+ * The platform calibration, or null when nothing has been calibrated.
  *
  * The name is the presence flag: no name, no calibration. Everything else has a sensible fallback, so
- * a preferences file half-written by a crash yields a usable rig rather than an exception at startup —
+ * a preferences file half-written by a crash yields a usable platform rather than an exception at startup —
  * the same stance [readQosOverrides] takes.
  */
-internal fun readCalibration(prefs: Preferences): RigCalibration? {
+internal fun readCalibration(prefs: Preferences): PlatformCalibration? {
     val name = prefs[Keys.CALIB_NAME]?.takeIf { it.isNotBlank() } ?: return null
-    return RigCalibration(
+    return PlatformCalibration(
         name = name,
         entityId = prefs[Keys.CALIB_ENTITY_ID]?.takeIf { it.isNotBlank() }
             ?: se.rise.logline.calibrate.defaultEntityId(name),
@@ -411,7 +433,7 @@ internal fun readCalibration(prefs: Preferences): RigCalibration? {
             y = prefs[Keys.CALIB_CCRP_Y]?.toDoubleOrNull() ?: 0.0,
             z = prefs[Keys.CALIB_CCRP_Z]?.toDoubleOrNull() ?: 0.0,
         ),
-        zero = readRigZero(prefs),
+        zero = readPlatformZero(prefs),
         sensors = readSensorMounts(prefs),
         updatedAtEpochMillis = prefs[Keys.CALIB_UPDATED_AT]?.toLongOrNull() ?: 0L,
     )
@@ -421,13 +443,13 @@ internal fun readCalibration(prefs: Preferences): RigCalibration? {
  * The surveyed origin, or null.
  *
  * Latitude and longitude together are the presence flag, and both must parse: a zero with one of them
- * missing would place the rig on the equator or the Greenwich meridian, which is a real place and a
+ * missing would place the platform on the equator or the Greenwich meridian, which is a real place and a
  * completely wrong answer.
  */
-private fun readRigZero(prefs: Preferences): RigZero? {
+private fun readPlatformZero(prefs: Preferences): PlatformZero? {
     val lat = prefs[Keys.CALIB_ZERO_LAT]?.toDoubleOrNull() ?: return null
     val lon = prefs[Keys.CALIB_ZERO_LON]?.toDoubleOrNull() ?: return null
-    return RigZero(
+    return PlatformZero(
         latitude = lat,
         longitude = lon,
         altitudeM = prefs[Keys.CALIB_ZERO_ALT]?.toDoubleOrNull(),
@@ -448,7 +470,7 @@ private fun readRigZero(prefs: Preferences): RigZero? {
  *
  * A mount missing its frame id or any of its three translation components is **skipped**, not read as
  * zeros: a half-written entry would otherwise appear on the bus as a sensor mounted exactly at the
- * rig's origin, which is a plausible-looking lie.
+ * platform's origin, which is a plausible-looking lie.
  */
 private fun readSensorMounts(prefs: Preferences): List<SensorMount> {
     val count = prefs[Keys.CALIB_SENSOR_COUNT]?.toIntOrNull() ?: 0
@@ -476,61 +498,88 @@ private fun readSensorMounts(prefs: Preferences): List<SensorMount> {
 }
 
 /**
- * Persist the rig library, clearing whatever a longer one left behind.
+ * Persist the platform library, clearing whatever a longer one left behind.
  *
- * The clear-out is the part that matters, and it is why a rig is one key rather than a spray of them:
- * writing a two-rig library over a five-rig one has to remove indices two, three and four, and with a
- * flat scheme that meant walking every field of every sensor of every removed rig. Miss any of it and
- * the deleted rig comes back at the next start — present in the file, absent from the screen, and on
+ * The clear-out is the part that matters, and it is why a platform is one key rather than a spray of them:
+ * writing a two-platform library over a five-platform one has to remove indices two, three and four, and with a
+ * flat scheme that meant walking every field of every sensor of every removed platform. Miss any of it and
+ * the deleted platform comes back at the next start — present in the file, absent from the screen, and on
  * the bus.
  *
- * The single-rig `calib_*` keys are removed here too, once, so a migrated file does not carry a stale
- * copy of the rig it was migrated from.
+ * The single-platform `calib_*` keys are removed here too, once, so a migrated file does not carry a stale
+ * copy of the platform it was migrated from.
  */
-internal fun writeRigs(prefs: MutablePreferences, settings: Settings) {
-    val previousCount = prefs[Keys.RIG_COUNT]?.toIntOrNull() ?: 0
-    settings.rigs.forEachIndexed { i, rig -> prefs[Keys.rig(i)] = rig.toStoredJson() }
-    for (i in settings.rigs.size until previousCount) prefs.remove(Keys.rig(i))
-    prefs[Keys.RIG_COUNT] = settings.rigs.size.toString()
-    prefs[Keys.RIG_ACTIVE_ENTITY] = settings.activeRigEntityId
-    prefs[Keys.RIG_PUBLISHING] = settings.publishingRigEntityIds.sorted().joinToString("\n")
-    prefs[Keys.RIG_SHARE_LIBRARY] = settings.shareRigLibrary.toString()
-    prefs[Keys.RIG_REGISTRY_VERSION] = settings.rigRegistryVersion.toString()
-    prefs[Keys.RIG_REGISTRY_ORIGIN] = settings.rigRegistryOrigin
+internal fun writePlatforms(prefs: MutablePreferences, settings: Settings) {
+    val previousCount = prefs[Keys.PLATFORM_COUNT]?.toIntOrNull() ?: 0
+    settings.platforms.forEachIndexed { i, platform -> prefs[Keys.platform(i)] = platform.toStoredJson() }
+    for (i in settings.platforms.size until previousCount) prefs.remove(Keys.platform(i))
+    prefs[Keys.PLATFORM_COUNT] = settings.platforms.size.toString()
+    prefs[Keys.PLATFORM_ACTIVE_ENTITY] = settings.activePlatformEntityId
+    prefs[Keys.PLATFORM_PUBLISHING] = settings.publishingPlatformEntityIds.sorted().joinToString("\n")
+    prefs[Keys.PLATFORM_SHARE_LIBRARY] = settings.sharePlatformLibrary.toString()
+    prefs[Keys.PLATFORM_REGISTRY_VERSION] = settings.platformRegistryVersion.toString()
+    prefs[Keys.PLATFORM_REGISTRY_ORIGIN] = settings.platformRegistryOrigin
     if (prefs[Keys.CALIB_NAME] != null) clearLegacyCalibration(prefs)
+    if (prefs[Keys.LEGACY_RIG_COUNT] != null) clearLegacyPlatformKeys(prefs)
 }
 
 /**
- * The rig library, or the migrated single rig, or nothing.
+ * The platform library, or the migrated single platform, or nothing.
  *
- * `rig_count` present is the new scheme and is authoritative even when it says zero — that is a
- * library somebody emptied, and falling back to the legacy keys there would resurrect the rig they
- * deleted. Only its *absence* means the file predates the library, in which case today's single
- * calibration becomes a one-rig library; [readSettings] takes the active rig from
- * [Keys.RIG_ACTIVE_ENTITY], which is likewise absent, so `activeRig()` is null until the next write —
- * hence the migration also has to nominate it, which it does in [migrateActiveRig].
+ * Three schemes, newest first, and **a count present is authoritative even when it says zero** — that is
+ * a library somebody emptied, and falling back to an older scheme there would resurrect the platforms
+ * they deleted. Only a count's *absence* means the file predates that scheme: no `platform_count` falls
+ * through to `rig_count`, the same library under the name it had before platforms were called platforms,
+ * and no `rig_count` either means the file predates the library entirely, in which case today's single
+ * calibration becomes a one-platform library; [readSettings] takes the active platform from
+ * [Keys.PLATFORM_ACTIVE_ENTITY], which is likewise absent, so `activePlatform()` is null until the next write —
+ * hence the migration also has to nominate it, which it does in [migrateActivePlatform].
  *
- * A rig whose JSON will not parse is skipped rather than failing the whole read, the same stance
- * [readQosOverrides] takes: one corrupt entry should cost one rig, not every setting on the phone.
+ * A platform whose JSON will not parse is skipped rather than failing the whole read, the same stance
+ * [readQosOverrides] takes: one corrupt entry should cost one platform, not every setting on the phone.
  */
-internal fun readRigs(prefs: Preferences): List<RigCalibration> {
-    val count = prefs[Keys.RIG_COUNT]?.toIntOrNull()
-        ?: return listOfNotNull(readCalibration(prefs))
-    return (0 until count).mapNotNull { i ->
-        prefs[Keys.rig(i)]?.let { parsePlatformGeometry(it) }
+internal fun readPlatforms(prefs: Preferences): List<PlatformCalibration> {
+    prefs[Keys.PLATFORM_COUNT]?.toIntOrNull()?.let { count ->
+        return (0 until count).mapNotNull { i ->
+            prefs[Keys.platform(i)]?.let { parsePlatformGeometry(it) }
+        }
     }
+    prefs[Keys.LEGACY_RIG_COUNT]?.toIntOrNull()?.let { count ->
+        return (0 until count).mapNotNull { i ->
+            prefs[Keys.legacyRig(i)]?.let { parsePlatformGeometry(it) }
+        }
+    }
+    return listOfNotNull(readCalibration(prefs))
 }
 
 /**
- * Which rig a freshly migrated file should have selected.
+ * Which platform a freshly migrated file should have selected.
  *
- * A file written by an older build has one rig and no stored selection, and leaving it unselected
+ * A file written by an older build has one platform and no stored selection, and leaving it unselected
  * would silently stop publishing geometry that was publishing before the update — the one thing a
- * migration must not do. Reached **only** when [Keys.RIG_ACTIVE_ENTITY] is absent; see the call site
+ * migration must not do. Reached **only** when [Keys.PLATFORM_ACTIVE_ENTITY] is absent; see the call site
  * for why a present-but-empty value must not come here.
  */
-internal fun migratedActiveRig(rigs: List<RigCalibration>): String =
-    rigs.singleOrNull()?.entityId.orEmpty()
+internal fun migratedActivePlatform(platforms: List<PlatformCalibration>): String =
+    platforms.singleOrNull()?.entityId.orEmpty()
+
+/**
+ * Drops the `rig_*` keys once the library has been written under its own names.
+ *
+ * The indexed entries are counted from `rig_count` rather than from the library that was just saved:
+ * merging a shared library can leave fewer platforms than the file held, and the leftovers would sit
+ * there forever otherwise. One-way, like [clearLegacyCalibration] — an older APK installed over this
+ * one sees no platforms.
+ */
+private fun clearLegacyPlatformKeys(prefs: MutablePreferences) {
+    val previousCount = prefs[Keys.LEGACY_RIG_COUNT]?.toIntOrNull() ?: 0
+    for (i in 0 until previousCount) prefs.remove(Keys.legacyRig(i))
+    listOf(
+        Keys.LEGACY_RIG_COUNT, Keys.LEGACY_RIG_ACTIVE_ENTITY, Keys.LEGACY_RIG_PUBLISHING,
+        Keys.LEGACY_RIG_SHARE_LIBRARY, Keys.LEGACY_RIG_REGISTRY_VERSION,
+        Keys.LEGACY_RIG_REGISTRY_ORIGIN,
+    ).forEach { prefs.remove(it) }
+}
 
 private fun clearLegacyCalibration(prefs: MutablePreferences) {
     val previousSensors = prefs[Keys.CALIB_SENSOR_COUNT]?.toIntOrNull() ?: 0
@@ -634,7 +683,7 @@ internal fun slugifyModel(model: String?): String =
     (model ?: "android").lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_').ifEmpty { "android" }
 
 /** Newline-delimited, like the endpoints. Blank lines dropped so a trailing newline costs nothing. */
-private fun parseRigEntityIds(stored: String?): Set<String> =
+private fun parsePlatformEntityIds(stored: String?): Set<String> =
     stored?.lineSequence()?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
 
 private fun <T : Enum<T>> List<T>.byName(stored: String?): T? =

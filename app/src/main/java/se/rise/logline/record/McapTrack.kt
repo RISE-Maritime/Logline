@@ -52,7 +52,7 @@ object McapTrack {
      * Which channel holds the phone's own fixes, out of a recording's topics.
      *
      * **Two registry entries publish `location_fix`** — the phone's live position on
-     * `{realm}/@v0/{entity}/pubsub/location_fix/{source}` and a rig's *surveyed zero point* on
+     * `{realm}/@v0/{entity}/pubsub/location_fix/{source}` and a platform's *surveyed zero point* on
      * `.../location_fix/calibration`. They are different things at different places: the zero point is
      * a jetty somebody stood on with a tape measure, and including it would draw a line from the boat
      * to the shore and call it a track.
@@ -262,7 +262,7 @@ object McapTrack {
     private const val NO_CHANNEL = -1
 }
 
-/** The source id a rig's surveyed zero point publishes under. See [McapTrack.fixChannel]. */
+/** The source id a platform's surveyed zero point publishes under. See [McapTrack.fixChannel]. */
 private const val CALIBRATION_SOURCE = "calibration"
 
 /**

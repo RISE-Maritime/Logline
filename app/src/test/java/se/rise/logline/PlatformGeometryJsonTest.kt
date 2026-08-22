@@ -4,8 +4,8 @@ import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.EulerDeg
 import se.rise.logline.calibrate.HeadingSource
 import se.rise.logline.calibrate.PlatformType
-import se.rise.logline.calibrate.RigCalibration
-import se.rise.logline.calibrate.RigZero
+import se.rise.logline.calibrate.PlatformCalibration
+import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
 import se.rise.logline.calibrate.Vec3M
@@ -22,11 +22,11 @@ import org.junit.Test
  * `keelson/connectors/platform/config-schema.json`, which is `additionalProperties: false` at every
  * level — one stray key and the connector refuses to start. The last test walks every key the writer
  * emits against a list transcribed from that schema, so a field added here without a home upstream
- * fails at build time rather than in front of somebody's rig.
+ * fails at build time rather than in front of somebody's platform.
  */
 class PlatformGeometryJsonTest {
 
-    private val ssrs18 = RigCalibration(
+    private val ssrs18 = PlatformCalibration(
         name = "SSRS18",
         entityId = "ssrs18",
         parentFrameId = "ssrs18-frame-ccrp",
@@ -52,7 +52,7 @@ class PlatformGeometryJsonTest {
                 capturedAtEpochMillis = 1_700_000_000_000L,
             ),
         ),
-        zero = RigZero(
+        zero = PlatformZero(
             latitude = 57.708912345,
             longitude = 11.974560,
             altitudeM = 12.5,
@@ -148,9 +148,9 @@ class PlatformGeometryJsonTest {
 
     @Test
     fun `absent optional fields are omitted, not written as null`() {
-        val bare = RigCalibration.forName("Rig One").copy(
+        val bare = PlatformCalibration.forName("Platform One").copy(
             sensors = listOf(
-                SensorMount("A", "rig-one-frame-a", SensorType.OTHER, Vec3M(1.0, 0.0, 0.0))
+                SensorMount("A", "platform-one-frame-a", SensorType.OTHER, Vec3M(1.0, 0.0, 0.0))
             ),
         )
         val json = bare.toPlatformGeometryJson()
@@ -160,7 +160,7 @@ class PlatformGeometryJsonTest {
         // The two-space indent is what makes this the *top-level* key: `sensor_description` is a
         // different field and the mount below legitimately has one.
         assertFalse(json.contains("\n  \"description\":"))
-        assertTrue(json.contains("\"name\": \"Rig One\""))
+        assertTrue(json.contains("\"name\": \"Platform One\""))
     }
 
     @Test
@@ -191,8 +191,8 @@ class PlatformGeometryJsonTest {
     }
 
     @Test
-    fun `an empty rig still emits a valid frame_transforms array`() {
-        val json = RigCalibration.forName("Empty").toPlatformGeometryJson()
+    fun `an empty platform still emits a valid frame_transforms array`() {
+        val json = PlatformCalibration.forName("Empty").toPlatformGeometryJson()
         assertTrue(json.contains("\"frame_transforms\": []"))
     }
 

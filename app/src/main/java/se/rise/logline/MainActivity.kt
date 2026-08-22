@@ -44,7 +44,7 @@ import se.rise.logline.ui.RecordingLoad
 import se.rise.logline.ui.Routes
 import se.rise.logline.ui.rateCeilings
 import se.rise.logline.ui.labelOf
-import se.rise.logline.ui.rigSummaryOf
+import se.rise.logline.ui.platformSummaryOf
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -59,8 +59,8 @@ import se.rise.logline.calibrate.AveragedFix
 import se.rise.logline.calibrate.CalibrationCapture
 import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.HeadingSource
-import se.rise.logline.calibrate.RigCalibration
-import se.rise.logline.calibrate.RigZero
+import se.rise.logline.calibrate.PlatformCalibration
+import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.bodyOffsetMetres
 import se.rise.logline.calibrate.enuOffsetMetres
 import se.rise.logline.calibrate.exportCalibration
@@ -152,11 +152,11 @@ import se.rise.logline.ui.RecordingDetailScreen
 import se.rise.logline.ui.TrackState
 import se.rise.logline.ui.MapLayer
 import se.rise.logline.ui.RecordingsScreen
-import se.rise.logline.ui.NEW_RIG
+import se.rise.logline.ui.NEW_PLATFORM
 import se.rise.logline.ui.NEW_SENSOR
 import se.rise.logline.platform.PlatformSyncConfig
-import se.rise.logline.platform.mergeRemoteRigs
-import se.rise.logline.ui.RigListScreen
+import se.rise.logline.platform.mergeRemotePlatforms
+import se.rise.logline.ui.PlatformListScreen
 import se.rise.logline.ui.SensorMountScreen
 import se.rise.logline.ui.SettingsScreen
 import se.rise.logline.ui.SubjectDetailScreen
@@ -478,22 +478,22 @@ private fun App(
 
     // ── the platform session ────────────────────────────────────────────────────────────────────
     //
-    // Scoped to the rig screens the same way the checklist session is scoped to its own, and keyed on
+    // Scoped to the platform screens the same way the checklist session is scoped to its own, and keyed on
     // the prefix for the same reason: the list, an editor and a sensor form are three destinations,
     // and tying the session to any one of them would cycle it every time somebody stepped between.
     val platformState by app.platforms.state.collectAsState()
-    val inRigScreens = Routes.inRigScreens(currentRoute)
+    val inPlatformScreens = Routes.inPlatformScreens(currentRoute)
     val platformConfig = PlatformSyncConfig(
         endpoints = current.routerEndpoints,
         realm = current.realm,
         calibrationSource = current.calibrationSource,
-        rigs = current.rigs,
-        origin = current.rigRegistryOrigin,
-        registryVersion = current.rigRegistryVersion,
-        shareLibrary = current.shareRigLibrary,
+        platforms = current.platforms,
+        origin = current.platformRegistryOrigin,
+        registryVersion = current.platformRegistryVersion,
+        shareLibrary = current.sharePlatformLibrary,
     )
 
-    LaunchedEffect(inRigScreens, platformConfig) {
+    LaunchedEffect(inPlatformScreens, platformConfig) {
         // Unconditionally first, as for the checklist: `start()` is a no-op while a session is up, so
         // this is what makes an endpoint or library change actually take effect rather than being
         // ignored until the screen is next opened.
@@ -546,7 +546,7 @@ private fun App(
         )
     }
 
-    // ---- rig calibration --------------------------------------------------------------------
+    // ---- platform calibration --------------------------------------------------------------------
     //
     // The working calibration lives here rather than in the screen: a capture is a coroutine, and its
     // result has to survive the trip into the sensor editor and back. Re-seeded whenever the saved
@@ -554,15 +554,15 @@ private fun App(
     //
     // Two pieces of state rather than one, because a rename is a re-key: `draftEntityId` is the id the
     // editor was *opened* under and is what says which library entry to replace, while the draft's own
-    // entityId is what the person is typing. Collapsing them would make renaming a rig add a second
-    // one — see Settings.upsertRig.
+    // entityId is what the person is typing. Collapsing them would make renaming a platform add a second
+    // one — see Settings.upsertPlatform.
     var draftEntityId by remember { mutableStateOf<String?>(null) }
-    var calibrationDraft by remember(current.rigs, draftEntityId) {
-        mutableStateOf(draftEntityId?.let { id -> current.rigs.firstOrNull { it.entityId == id } })
+    var calibrationDraft by remember(current.platforms, draftEntityId) {
+        mutableStateOf(draftEntityId?.let { id -> current.platforms.firstOrNull { it.entityId == id } })
     }
-    /** The library entry the draft is editing, or null while a new rig is being added. */
+    /** The library entry the draft is editing, or null while a new platform is being added. */
     /**
-     * Which step of the rig survey is showing.
+     * Which step of the platform survey is showing.
      *
      * Up here with the draft rather than inside `CalibrationScreen`, and for the same reason: editing a
      * sensor pushes another destination and pops back, which destroys anything remembered in the screen
@@ -571,27 +571,27 @@ private fun App(
      * `rememberSaveable` because it is one `Int`, so the step survives process death for free.
      */
     var calibrationStep by rememberSaveable { mutableIntStateOf(0) }
-    val savedRig = draftEntityId?.let { id -> current.rigs.firstOrNull { it.entityId == id } }
+    val savedPlatform = draftEntityId?.let { id -> current.platforms.firstOrNull { it.entityId == id } }
 
-    /** What the last import or library export did, shown on the rig list until it is left. */
+    /** What the last import or library export did, shown on the platform list until it is left. */
     var libraryMessage by remember { mutableStateOf<String?>(null) }
-    /** Parsed and waiting on a confirmation, because applying it would overwrite existing rigs. */
-    var pendingImport by remember { mutableStateOf<List<RigCalibration>>(emptyList()) }
+    /** Parsed and waiting on a confirmation, because applying it would overwrite existing platforms. */
+    var pendingImport by remember { mutableStateOf<List<PlatformCalibration>>(emptyList()) }
 
     /**
-     * Merge parsed rigs into the library.
+     * Merge parsed platforms into the library.
      *
-     * The imported document wins for everything a document describes. Which rig is active and which
-     * rigs publish are **not** touched: those are this phone's local policy, and a file somebody
+     * The imported document wins for everything a document describes. Which platform is active and which
+     * platforms publish are **not** touched: those are this phone's local policy, and a file somebody
      * mailed over has no business changing what goes on the bus.
      */
-    suspend fun applyImport(rigs: List<RigCalibration>) {
-        val replaced = rigs.count { current.rigFor(it.entityId) != null }
-        val merged = rigs.fold(current) { acc, rig ->
-            acc.upsertRig(rig.entityId.takeIf { id -> acc.rigFor(id) != null }, rig)
+    suspend fun applyImport(platforms: List<PlatformCalibration>) {
+        val replaced = platforms.count { current.platformFor(it.entityId) != null }
+        val merged = platforms.fold(current) { acc, platform ->
+            acc.upsertPlatform(platform.entityId.takeIf { id -> acc.platformFor(id) != null }, platform)
         }
-        saveSettings(app, merged.bumpRigRegistry())
-        libraryMessage = "Imported ${rigs.size} " + (if (rigs.size == 1) "rig" else "rigs") +
+        saveSettings(app, merged.bumpPlatformRegistry())
+        libraryMessage = "Imported ${platforms.size} " + (if (platforms.size == 1) "platform" else "platforms") +
             if (replaced > 0) " ($replaced replaced)" else ""
     }
 
@@ -604,17 +604,17 @@ private fun App(
                 runCatching { importPlatforms(context, uri) }
             }
             imported.fold(
-                onSuccess = { rigs ->
-                    val replacements = importCandidates(rigs, current.rigs)
+                onSuccess = { platforms ->
+                    val replacements = importCandidates(platforms, current.platforms)
                         .filter { it.disposition == ImportDisposition.REPLACES }
-                        .map { it.rig.name.ifBlank { it.rig.entityId } }
+                        .map { it.platform.name.ifBlank { it.platform.entityId } }
                     when {
                         // Nothing parsed is not a success. Reported plainly, because "imported" and
                         // "imported nothing" look identical from the outside otherwise.
-                        rigs.isEmpty() -> libraryMessage = "No platforms in that file"
+                        platforms.isEmpty() -> libraryMessage = "No platforms in that file"
                         // Purely additive, so there is nothing to lose and nothing to ask about.
-                        replacements.isEmpty() -> applyImport(rigs)
-                        else -> pendingImport = rigs
+                        replacements.isEmpty() -> applyImport(platforms)
+                        else -> pendingImport = platforms
                     }
                 },
                 onFailure = {
@@ -694,7 +694,7 @@ private fun App(
 
     // Provided once, for every screen's top bar. Ambient rather than threaded: the bar is shared
     // chrome, and passing the publisher's state through fourteen screen signatures to reach it would
-    // put a run's connection state into the argument list of the rig editor.
+    // put a run's connection state into the argument list of the platform editor.
     CompositionLocalProvider(
         LocalRunState provides RunState(
             running = status.running,
@@ -747,7 +747,7 @@ private fun App(
                 load = load,
                 onStart = startPublishing,
                 onStop = { note -> PublisherService.stop(context, note) },
-                // Through saveSettings, like the rig switches and unlike the per-subject ones: these
+                // Through saveSettings, like the platform switches and unlike the per-subject ones: these
                 // change what the sensors are registered at, so the run has to be redeclared.
                 onSetRecordAllMax = { on ->
                     scope.launch { saveSettings(app, current.copy(recordAllMax = on)) }
@@ -837,11 +837,11 @@ private fun App(
         // scoping below is untouched by the move.
         composable(Routes.SETUP) {
             SetupScreen(
-                rigSummary = rigSummaryOf(current),
+                platformSummary = platformSummaryOf(current),
                 checklistsEnabled = current.checklistEnabled,
                 identity = "${current.realm}/${current.entityId}",
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
-                onOpenRigs = { nav.navigate(Routes.RIGS) },
+                onOpenPlatforms = { nav.navigate(Routes.PLATFORMS) },
                 onOpenChecklists = { nav.navigate(Routes.CHECKLISTS) },
                 bottomBar = navBar,
             )
@@ -1148,7 +1148,7 @@ private fun App(
                 ceiling = registryEntry?.let { ceilings[it] },
                 // Resolved to an *entry*, not a subject: the route is keyed on the entry name, and
                 // `location_fix` is published by two of them. `rateOwnerEntry()` matches on the source
-                // kind as well, so the rig's zero point points at its own geometry loop.
+                // kind as well, so the platform's zero point points at its own geometry loop.
                 rateOwnerLabel = registryEntry?.rateOwnerEntry()?.let { labelOf(it).name },
                 onOpenRateOwner = registryEntry?.rateOwnerEntry()?.let { owner ->
                     { nav.navigate(Routes.subjectQos(owner.name)) }
@@ -1354,37 +1354,37 @@ private fun App(
                 )
             }
         }
-        composable(Routes.RIGS) {
-            RigListScreen(
-                rigs = current.rigs,
-                activeEntityId = current.activeRigEntityId,
-                publishingEntityIds = current.publishingRigEntityIds,
+        composable(Routes.PLATFORMS) {
+            PlatformListScreen(
+                platforms = current.platforms,
+                activeEntityId = current.activePlatformEntityId,
+                publishingEntityIds = current.publishingPlatformEntityIds,
                 publishing = status.running,
-                onOpenRig = { entityId ->
+                onOpenPlatform = { entityId ->
                     draftEntityId = entityId
-                    // Opening a rig starts at the beginning of it. The step survives the trip into a
+                    // Opening a platform starts at the beginning of it. The step survives the trip into a
                     // sensor and back, which is what it is for — but carrying step 4 across from the
-                    // last rig somebody edited into a different one would just be disorienting.
+                    // last platform somebody edited into a different one would just be disorienting.
                     calibrationStep = 0
-                    nav.navigate(Routes.rig(Uri.encode(entityId)))
+                    nav.navigate(Routes.platform(Uri.encode(entityId)))
                 },
-                onAddRig = {
+                onAddPlatform = {
                     draftEntityId = null
                     calibrationDraft = null
                     calibrationStep = 0
-                    nav.navigate(Routes.rig(NEW_RIG))
+                    nav.navigate(Routes.platform(NEW_PLATFORM))
                 },
                 // Both of these change which publishers a run declares, so unlike the per-subject
                 // switches they go through saveSettings and restart it. The list is read-only while
                 // a run is going, so this cannot happen mid-run.
-                onSetActive = { scope.launch { saveSettings(app, current.setActiveRig(it)) } },
+                onSetActive = { scope.launch { saveSettings(app, current.setActivePlatform(it)) } },
                 onSetPublishing = { entityId, on ->
-                    scope.launch { saveSettings(app, current.setRigPublishing(entityId, on)) }
+                    scope.launch { saveSettings(app, current.setPlatformPublishing(entityId, on)) }
                 },
                 onExportRegistry = {
                     scope.launch {
                         libraryMessage = withContext(Dispatchers.IO) {
-                            runCatching { exportPlatformRegistry(context, current.rigs, current.realm) }
+                            runCatching { exportPlatformRegistry(context, current.platforms, current.realm) }
                                 .fold(
                                     onSuccess = { "Wrote $it to Downloads/Logline/config" },
                                     onFailure = {
@@ -1397,12 +1397,12 @@ private fun App(
                 onImport = { platformPicker.launch(arrayOf("application/json", "*/*")) },
                 message = libraryMessage,
                 pendingReplacements = pendingImport
-                    .filter { current.rigFor(it.entityId) != null }
+                    .filter { current.platformFor(it.entityId) != null }
                     .map { it.name.ifBlank { it.entityId } },
                 onConfirmImport = {
-                    val rigs = pendingImport
+                    val platforms = pendingImport
                     pendingImport = emptyList()
-                    scope.launch { applyImport(rigs) }
+                    scope.launch { applyImport(platforms) }
                 },
                 onCancelImport = {
                     pendingImport = emptyList()
@@ -1413,52 +1413,52 @@ private fun App(
                 linkFailure = platformState.failure,
                 onDiscover = { app.platforms.discover() },
                 onAdopt = { platform ->
-                    platform.rig?.let { rig ->
+                    platform.geometry?.let { platform ->
                         scope.launch {
-                            saveSettings(app, current.upsertRig(null, rig).bumpRigRegistry())
-                            libraryMessage = "Added ${rig.name.ifBlank { rig.entityId }}"
+                            saveSettings(app, current.upsertPlatform(null, platform).bumpPlatformRegistry())
+                            libraryMessage = "Added ${platform.name.ifBlank { platform.entityId }}"
                         }
                     }
                 },
-                shareLibrary = current.shareRigLibrary,
+                shareLibrary = current.sharePlatformLibrary,
                 onSetShareLibrary = { on ->
                     scope.launch {
                         // The origin is generated the first time it is needed and then never changes,
                         // the same way operatorId is — it is what stops this phone applying its own
                         // library back over itself when the publisher's cache re-delivers it.
-                        val withOrigin = if (on && current.rigRegistryOrigin.isBlank()) {
-                            current.copy(rigRegistryOrigin = UUID.randomUUID().toString())
+                        val withOrigin = if (on && current.platformRegistryOrigin.isBlank()) {
+                            current.copy(platformRegistryOrigin = UUID.randomUUID().toString())
                         } else {
                             current
                         }
-                        saveSettings(app, withOrigin.copy(shareRigLibrary = on))
+                        saveSettings(app, withOrigin.copy(sharePlatformLibrary = on))
                     }
                 },
-                incomingRigCount = platformState.incoming?.rigs?.size,
+                incomingPlatformCount = platformState.incoming?.platforms?.size,
                 onApplyIncoming = {
                     val remote = platformState.incoming
                     app.platforms.clearIncoming()
                     if (remote != null) {
                         scope.launch {
-                            // Documents only. The active rig and the publishing set are this phone's
-                            // policy and are deliberately untouched — see mergeRemoteRigs.
-                            val merged = mergeRemoteRigs(
-                                local = current.rigs,
-                                remote = remote.rigs,
-                                protectedEntityIds = current.publishingRigs().map { it.entityId }.toSet(),
+                            // Documents only. The active platform and the publishing set are this phone's
+                            // policy and are deliberately untouched — see mergeRemotePlatforms.
+                            val merged = mergeRemotePlatforms(
+                                local = current.platforms,
+                                remote = remote.platforms,
+                                protectedEntityIds = current.publishingPlatforms().map { it.entityId }.toSet(),
                             )
-                            // Bumped past the remote's version, not set to it. `mergeRemoteRigs`
-                            // keeps rigs this phone is publishing, so what comes out is *not* what
+                            // Bumped past the remote's version, not set to it. `mergeRemotePlatforms`
+                            // keeps platforms this phone is publishing, so what comes out is *not* what
                             // arrived — and republishing different content at the sender's own
                             // version leaves the shared key holding two libraries that each claim to
                             // be the same one, with neither station able to accept the other's.
                             saveSettings(
                                 app,
                                 current
-                                    .copy(rigs = merged, rigRegistryVersion = remote.version)
-                                    .bumpRigRegistry(),
+                                    .copy(platforms = merged, platformRegistryVersion = remote.version)
+                                    .bumpPlatformRegistry(),
                             )
-                            libraryMessage = "Applied ${remote.rigs.size} rigs from another station"
+                            libraryMessage = "Applied ${remote.platforms.size} platforms from another station"
                         }
                     }
                 },
@@ -1469,10 +1469,10 @@ private fun App(
                 },
             )
         }
-        composable(Routes.RIG) {
-            // A rig nobody has named yet: the draft materialises on the first edit, so opening the
+        composable(Routes.PLATFORM) {
+            // A platform nobody has named yet: the draft materialises on the first edit, so opening the
             // screen and backing out again leaves nothing behind.
-            val draft = calibrationDraft ?: RigCalibration.forName("")
+            val draft = calibrationDraft ?: PlatformCalibration.forName("")
             CalibrationScreen(
                 calibration = draft,
                 onChange = { calibrationDraft = it },
@@ -1487,10 +1487,10 @@ private fun App(
                 onCaptureZero = {
                     captureFix("Averaging the zero point") { fix ->
                         // The heading is kept: it is established separately and a re-capture of the
-                        // position is not a reason to forget which way the rig points.
+                        // position is not a reason to forget which way the platform points.
                         val previous = draft.zero
                         calibrationDraft = draft.copy(
-                            zero = RigZero(
+                            zero = PlatformZero(
                                 latitude = fix.point.latitude,
                                 longitude = fix.point.longitude,
                                 altitudeM = fix.point.altitudeM.takeIf { fix.hasAltitude },
@@ -1534,7 +1534,7 @@ private fun App(
                         capture = when {
                             reading == null ->
                                 CaptureState.Failed("No compass on this device, or no reading arrived.")
-                            // Magnetic north is not the rig's north. Rather than pass one off as the
+                            // Magnetic north is not the platform's north. Rather than pass one off as the
                             // other, say what is missing: a position is what declination needs.
                             reading.trueDegrees == null -> CaptureState.Failed(
                                 "Compass read ${reading.magneticDegrees.roundToInt()}° magnetic. " +
@@ -1568,17 +1568,17 @@ private fun App(
                     }
                 },
                 exportMessage = exportMessage,
-                // Refuses a collision rather than merging two rigs: the entity id is what every key
-                // this rig publishes on is built from, so two rigs sharing one would put two rigs'
+                // Refuses a collision rather than merging two platforms: the entity id is what every key
+                // this platform publishes on is built from, so two platforms sharing one would put two platforms'
                 // geometry on the same three keys and neither would be readable.
                 entityIdError = when {
                     draft.entityId.isBlank() -> null
-                    // Refuses a collision rather than merging two rigs: the entity id is what every
-                    // key this rig publishes on is built from, so two rigs sharing one would put two
-                    // rigs' geometry on the same three keys and neither would be readable.
+                    // Refuses a collision rather than merging two platforms: the entity id is what every
+                    // key this platform publishes on is built from, so two platforms sharing one would put two
+                    // platforms' geometry on the same three keys and neither would be readable.
                     current.entityIdTaken(draft.entityId, draftEntityId) ->
-                        "Another rig already uses this id"
-                    // A slash would add a chunk to every key this rig publishes on, and to this
+                        "Another platform already uses this id"
+                    // A slash would add a chunk to every key this platform publishes on, and to this
                     // screen's own route. See isValidEntityId.
                     !isValidEntityId(draft.entityId) ->
                         "Lowercase letters, digits, - and _ only, starting with a letter or digit"
@@ -1587,35 +1587,35 @@ private fun App(
                 onSave = {
                     scope.launch {
                         val saved = draft.copy(updatedAtEpochMillis = System.currentTimeMillis())
-                        saveSettings(app, current.upsertRig(draftEntityId, saved).bumpRigRegistry())
+                        saveSettings(app, current.upsertPlatform(draftEntityId, saved).bumpPlatformRegistry())
                         draftEntityId = saved.entityId
                         nav.popBackStack()
                     }
                 },
                 onClear = {
                     scope.launch {
-                        savedRig?.let { saveSettings(app, current.removeRig(it.entityId).bumpRigRegistry()) }
+                        savedPlatform?.let { saveSettings(app, current.removePlatform(it.entityId).bumpPlatformRegistry()) }
                         draftEntityId = null
                         calibrationDraft = null
                         nav.popBackStack()
                     }
                 },
                 onCancel = {
-                    calibrationDraft = savedRig
+                    calibrationDraft = savedPlatform
                     exportMessage = null
                     nav.popBackStack()
                 },
-                dirty = calibrationDraft != savedRig,
+                dirty = calibrationDraft != savedPlatform,
                 step = calibrationStep,
                 onStepChange = { calibrationStep = it },
             )
         }
         composable(Routes.SENSOR_MOUNT) { backStackEntry ->
             val index = backStackEntry.arguments?.getString("index")?.toIntOrNull() ?: NEW_SENSOR
-            val draft = calibrationDraft ?: RigCalibration.forName("")
+            val draft = calibrationDraft ?: PlatformCalibration.forName("")
             val existing = draft.sensors.getOrNull(index)
             SensorMountScreen(
-                rigName = draft.name,
+                platformName = draft.name,
                 initial = existing,
                 hasZero = draft.zero?.hasPosition == true,
                 capture = capture,

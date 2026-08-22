@@ -1,6 +1,6 @@
 package se.rise.logline.config
 
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.SourceKind
@@ -25,53 +25,53 @@ data class Settings(
     val imuSource: String,
     /** Source id for what is neither GNSS nor IMU — the barometer and the battery. */
     val deviceSource: String = DEFAULT_DEVICE_SOURCE,
-    /** Source id for the rig geometry. Names the survey, not a piece of hardware. */
+    /** Source id for the platform geometry. Names the survey, not a piece of hardware. */
     val calibrationSource: String = DEFAULT_CALIBRATION_SOURCE,
     /**
-     * The rigs this phone knows about — its platform library.
+     * The platforms this phone knows about — its platform library.
      *
-     * Empty is the normal state: most runs are a phone logging itself, with no rig to describe. A rig
+     * Empty is the normal state: most runs are a phone logging itself, with no platform to describe. A platform
      * is a keelson **platform**, and `entityId` is both its identity here and the `entity_id` chunk of
      * every key its geometry travels on, so the list is keyed on that and it must be unique.
      *
-     * Several rigs are held at once because several are in play during a campaign; which of them
-     * actually publish is [publishingRigEntityIds], and which one the phone counts as being *on* is
-     * [activeRigEntityId]. See `docs/calibration.md`.
+     * Several platforms are held at once because several are in play during a campaign; which of them
+     * actually publish is [publishingPlatformEntityIds], and which one the phone counts as being *on* is
+     * [activePlatformEntityId]. See `docs/calibration.md`.
      */
-    val rigs: List<RigCalibration> = emptyList(),
+    val platforms: List<PlatformCalibration> = emptyList(),
     /**
-     * The rig this phone is on — the counterpart to crowsnest's own-ship selector.
+     * The platform this phone is on — the counterpart to crowsnest's own-ship selector.
      *
-     * Matched on [RigCalibration.entityId]; empty, or naming a rig that is no longer in [rigs], means
+     * Matched on [PlatformCalibration.entityId]; empty, or naming a platform that is no longer in [platforms], means
      * nothing is selected. It does **not** change where the phone's own sensor data goes: that stays
-     * under [entityId], because a battery reading is about the phone whichever rig it is bolted to.
+     * under [entityId], because a battery reading is about the phone whichever platform it is bolted to.
      */
-    val activeRigEntityId: String = "",
+    val activePlatformEntityId: String = "",
     /**
-     * Which rigs put their geometry on the bus this run, by entity id.
+     * Which platforms put their geometry on the bus this run, by entity id.
      *
-     * The active rig is included whether or not it is listed — see [publishingRigs] — so the one rig
+     * The active platform is included whether or not it is listed — see [publishingPlatforms] — so the one platform
      * the phone says it is on can never be silently absent from the bus. The set exists for the
-     * others: a run may legitimately carry the geometry of every rig in the water, not just the one
+     * others: a run may legitimately carry the geometry of every platform in the water, not just the one
      * the phone is sitting on.
      */
-    val publishingRigEntityIds: Set<String> = emptySet(),
+    val publishingPlatformEntityIds: Set<String> = emptySet(),
     /**
-     * Share the rig library with other stations over the bus.
+     * Share the platform library with other stations over the bus.
      *
      * Off by default, like the checklist and for the same reason: it opens a second Zenoh session and
      * puts this phone's library where every station can read it, neither of which should happen
      * because somebody installed a logger. The discovery and `get_config` halves of `PlatformSync`
      * need no such consent — they publish nothing about the operator — but sharing does.
      */
-    val shareRigLibrary: Boolean = false,
+    val sharePlatformLibrary: Boolean = false,
     /**
      * Monotonic version of this phone's library, for last-writer-wins on the shared key.
      *
      * Bumped on every local edit and set to whatever a remote library carried when one is applied, so
      * the next local edit is newer than the thing it was edited from.
      */
-    val rigRegistryVersion: Long = 0L,
+    val platformRegistryVersion: Long = 0L,
     /**
      * This install's identity on the shared key, generated once and never changed.
      *
@@ -79,7 +79,7 @@ data class Settings(
      * so without an origin to compare a phone applies its own library back over itself on every
      * reconnect and the version ratchets for no reason.
      */
-    val rigRegistryOrigin: String = "",
+    val platformRegistryOrigin: String = "",
     /**
      * Write every published sample to an MCAP file as well as the bus.
      *
@@ -250,7 +250,7 @@ data class Settings(
      * Whatever is on when a file closes is written into it, so this is a live control rather than a
      * preference: toggling one goes through `update()` and is pushed into the running recorder, never
      * through `saveSettings()`, which would tear down the run to record a word. It persists between
-     * runs on purpose — a rig that is always "harbour" should not have to be told twice.
+     * runs on purpose — a platform that is always "harbour" should not have to be told twice.
      */
     val activeTags: Set<String> = emptySet(),
     /** Multicast socket used by the router scan. Only ever used for scanning, never for the session. */
@@ -418,8 +418,8 @@ data class Settings(
         const val DEFAULT_DEVICE_SOURCE = "phone"
 
         /**
-         * Not `phone`: this source produces a survey of a rig, and naming it after the instrument
-         * would put the rig's geometry under the same source id as the phone's own barometer.
+         * Not `phone`: this source produces a survey of a platform, and naming it after the instrument
+         * would put the platform's geometry under the same source id as the phone's own barometer.
          */
         const val DEFAULT_CALIBRATION_SOURCE = "calibration"
 
@@ -598,119 +598,119 @@ data class Settings(
         // Nothing calibrated means nothing to say. Treated as off rather than as a subject that
         // merely never publishes, so the row reads "Off" instead of going stale and the collector is
         // never started in the first place.
-        val publishing = publishingRigs()
+        val publishing = publishingPlatforms()
         if (publishing.isEmpty()) {
             add(PublishedSubject.FRAME_TRANSFORM)
             add(PublishedSubject.CONFIGURATION_JSON)
         }
-        // The surveyed zero is gated separately: a rig measured entirely with a tape has sensors worth
+        // The surveyed zero is gated separately: a platform measured entirely with a tape has sensors worth
         // publishing and no position at all, and a heading typed before any capture is stored as a zero
-        // with no position (see RigZero.hasPosition). Either way there is nothing to put on
+        // with no position (see PlatformZero.hasPosition). Either way there is nothing to put on
         // `location_fix`, and publishing 0°N 0°E would be the most confident possible way of lying.
         //
-        // With several rigs the test is "any of them", not "all": one tape-measured rig among three
+        // With several platforms the test is "any of them", not "all": one tape-measured platform among three
         // surveyed ones must not take the other two zeros off the bus.
         if (publishing.none { it.zero?.hasPosition == true }) add(PublishedSubject.CALIBRATION_ZERO)
     }
 
-    /** The rig this phone is on, or null when the selection is empty or names a rig that is gone. */
-    fun activeRig(): RigCalibration? = rigs.firstOrNull { it.entityId == activeRigEntityId }
+    /** The platform this phone is on, or null when the selection is empty or names a platform that is gone. */
+    fun activePlatform(): PlatformCalibration? = platforms.firstOrNull { it.entityId == activePlatformEntityId }
 
-    fun rigFor(entityId: String): RigCalibration? = rigs.firstOrNull { it.entityId == entityId }
+    fun platformFor(entityId: String): PlatformCalibration? = platforms.firstOrNull { it.entityId == entityId }
 
     /**
-     * The rigs whose geometry goes on the bus, in library order.
+     * The platforms whose geometry goes on the bus, in library order.
      *
-     * The active rig is always included — saying "the phone is on this rig" and then not publishing
-     * its geometry would be a contradiction a switch should not be able to express — and a rig with no
-     * sensors is always excluded, because [RigCalibration.isPublishable] is the test for having
+     * The active platform is always included — saying "the phone is on this platform" and then not publishing
+     * its geometry would be a contradiction a switch should not be able to express — and a platform with no
+     * sensors is always excluded, because [PlatformCalibration.isPublishable] is the test for having
      * anything to say at all.
      */
-    fun publishingRigs(): List<RigCalibration> = rigs.filter {
-        it.isPublishable && (it.entityId == activeRigEntityId || it.entityId in publishingRigEntityIds)
+    fun publishingPlatforms(): List<PlatformCalibration> = platforms.filter {
+        it.isPublishable && (it.entityId == activePlatformEntityId || it.entityId in publishingPlatformEntityIds)
     }
 
     /**
-     * Insert or replace one rig, carrying its selection across a rename.
+     * Insert or replace one platform, carrying its selection across a rename.
      *
-     * A rig's entity id is its identity here *and* the `{entity_id}` chunk of every key its geometry
+     * A platform's entity id is its identity here *and* the `{entity_id}` chunk of every key its geometry
      * travels on, so editing it is a re-key rather than a field edit — and the active selection and
      * the publish set both name the old id. Doing that anywhere but here is how a rename silently
-     * deselects the rig somebody just renamed.
+     * deselects the platform somebody just renamed.
      *
-     * [previousEntityId] is null for a rig being added. A rig replacing one that is gone is appended,
+     * [previousEntityId] is null for a platform being added. A platform replacing one that is gone is appended,
      * which is what makes an import that renames something behave like an add rather than a no-op.
      */
-    fun upsertRig(previousEntityId: String?, rig: RigCalibration): Settings {
-        val index = previousEntityId?.let { id -> rigs.indexOfFirst { it.entityId == id } } ?: -1
+    fun upsertPlatform(previousEntityId: String?, platform: PlatformCalibration): Settings {
+        val index = previousEntityId?.let { id -> platforms.indexOfFirst { it.entityId == id } } ?: -1
         val next = if (index >= 0) {
-            rigs.toMutableList().also { it[index] = rig }
+            platforms.toMutableList().also { it[index] = platform }
         } else {
-            rigs + rig
+            platforms + platform
         }
-        val renamed = previousEntityId != null && previousEntityId != rig.entityId
+        val renamed = previousEntityId != null && previousEntityId != platform.entityId
         return copy(
-            rigs = next,
-            activeRigEntityId = if (renamed && activeRigEntityId == previousEntityId) {
-                rig.entityId
+            platforms = next,
+            activePlatformEntityId = if (renamed && activePlatformEntityId == previousEntityId) {
+                platform.entityId
             } else {
-                activeRigEntityId
+                activePlatformEntityId
             },
-            publishingRigEntityIds = if (renamed && previousEntityId in publishingRigEntityIds) {
-                publishingRigEntityIds - previousEntityId + rig.entityId
+            publishingPlatformEntityIds = if (renamed && previousEntityId in publishingPlatformEntityIds) {
+                publishingPlatformEntityIds - previousEntityId + platform.entityId
             } else {
-                publishingRigEntityIds
+                publishingPlatformEntityIds
             },
         )
     }
 
-    /** Remove a rig, and with it every reference to it. A dangling selection publishes nothing. */
-    fun removeRig(entityId: String): Settings = copy(
-        rigs = rigs.filterNot { it.entityId == entityId },
-        activeRigEntityId = activeRigEntityId.takeIf { it != entityId }.orEmpty(),
-        publishingRigEntityIds = publishingRigEntityIds - entityId,
+    /** Remove a platform, and with it every reference to it. A dangling selection publishes nothing. */
+    fun removePlatform(entityId: String): Settings = copy(
+        platforms = platforms.filterNot { it.entityId == entityId },
+        activePlatformEntityId = activePlatformEntityId.takeIf { it != entityId }.orEmpty(),
+        publishingPlatformEntityIds = publishingPlatformEntityIds - entityId,
     )
 
-    fun setActiveRig(entityId: String): Settings = copy(activeRigEntityId = entityId)
+    fun setActivePlatform(entityId: String): Settings = copy(activePlatformEntityId = entityId)
 
     /**
-     * Opt a rig in or out of publishing.
+     * Opt a platform in or out of publishing.
      *
-     * Switching the *active* rig off does nothing, deliberately: [publishingRigs] includes it either
+     * Switching the *active* platform off does nothing, deliberately: [publishingPlatforms] includes it either
      * way, so honouring the switch would produce a control that visibly does nothing. The UI renders
      * that switch on and disabled rather than letting it be pressed.
      */
-    fun setRigPublishing(entityId: String, publishing: Boolean): Settings = copy(
-        publishingRigEntityIds = if (publishing) {
-            publishingRigEntityIds + entityId
+    fun setPlatformPublishing(entityId: String, publishing: Boolean): Settings = copy(
+        publishingPlatformEntityIds = if (publishing) {
+            publishingPlatformEntityIds + entityId
         } else {
-            publishingRigEntityIds - entityId
+            publishingPlatformEntityIds - entityId
         },
     )
 
     /**
-     * The three keys one rig's geometry travels on.
+     * The three keys one platform's geometry travels on.
      *
-     * The counterpart to [entityFor] for the calibration subjects, and the only place a rig's entity
-     * reaches a key. It is a function of the *rig* rather than of a registry entry because that is the
-     * shape of the thing: one entry, several rigs, one key each.
+     * The counterpart to [entityFor] for the calibration subjects, and the only place a platform's entity
+     * reaches a key. It is a function of the *platform* rather than of a registry entry because that is the
+     * shape of the thing: one entry, several platforms, one key each.
      */
-    fun rigKeys(rig: RigCalibration): Map<PublishedSubject, String> =
+    fun platformKeys(platform: PlatformCalibration): Map<PublishedSubject, String> =
         PublishedSubject.entries
             .filter { it.source == SourceKind.CALIBRATION }
-            .associateWith { pubsubKey(realm, rig.entityId, it.subject, sourceFor(it)) }
+            .associateWith { pubsubKey(realm, platform.entityId, it.subject, sourceFor(it)) }
 
     /**
      * Mark the library as changed here, so a share is ordered against other stations'.
      *
-     * Bumped on every local edit rather than derived from the rigs, because two libraries can differ
+     * Bumped on every local edit rather than derived from the platforms, because two libraries can differ
      * without either being newer and last-writer-wins needs an ordering somebody actually asserted.
      */
-    fun bumpRigRegistry(): Settings = copy(rigRegistryVersion = rigRegistryVersion + 1)
+    fun bumpPlatformRegistry(): Settings = copy(platformRegistryVersion = platformRegistryVersion + 1)
 
-    /** True when another rig already holds this entity id — the one thing a rename must not do. */
+    /** True when another platform already holds this entity id — the one thing a rename must not do. */
     fun entityIdTaken(entityId: String, exceptEntityId: String?): Boolean =
-        rigs.any { it.entityId == entityId && it.entityId != exceptEntityId }
+        platforms.any { it.entityId == entityId && it.entityId != exceptEntityId }
 
     /**
      * Which source id a subject's key is built from.
@@ -735,10 +735,10 @@ data class Settings(
      * Which entity id a subject's key is built from — the counterpart to [sourceFor].
      *
      * Everything the phone measures is about the phone, so it publishes under [entityId], and that is
-     * now the only answer this function has. The rig calibration is about the **rig** and still goes
-     * out under the rig's entity, but a `PublishedSubject` names one registry entry and several rigs
+     * now the only answer this function has. The platform calibration is about the **platform** and still goes
+     * out under the platform's entity, but a `PublishedSubject` names one registry entry and several platforms
      * publish through the same three entries — so there is no single entity to return. Those keys are
-     * built per rig in `SensorPublisher`, from [publishingRigs]; see `docs/calibration.md`.
+     * built per platform in `SensorPublisher`, from [publishingPlatforms]; see `docs/calibration.md`.
      */
     fun entityFor(entry: PublishedSubject): String = entityId
 }

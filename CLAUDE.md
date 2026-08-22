@@ -65,16 +65,16 @@ LoglineApp
 
 ```
 LoglineApp
-  └── PlatformSync ─── its own KeelsonSession, opened only while a rig screen is up
+  └── PlatformSync ─── its own KeelsonSession, opened only while a platform screen is up
         ├── discovers  liveliness + a listening window on configuration_json
-        ├── serves     configurable/v1 — get_config per rig (plus crowsnest's older key shape),
+        ├── serves     configurable/v1 — get_config per platform (plus crowsnest's older key shape),
         │               set_config refused in a typed way, and the interface liveliness token
-        └── shares     the rig library as raw JSON on platform_registry/library/latest
+        └── shares     the platform library as raw JSON on platform_registry/library/latest
 ```
 
 `ChecklistSync` and `PlatformSync` share nothing with `SensorPublisher` — different session, different
-lifetime — because a checklist is worked through, and a rig surveyed, with logging stopped. See
-"Checklists" and "Rig library" below.
+lifetime — because a checklist is worked through, and a platform surveyed, with logging stopped. See
+"Checklists" and "Platform library" below.
 
 `SensorPublisher` is the only stateful thing in the app. It exposes `StateFlow<PublisherStatus>`
 holding a per-subject sample count and last-publish timestamp; the UI is otherwise stateless.
@@ -88,14 +88,14 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
 
 ## Conventions
 
-- **A rig's keys come from the rig, not from `entityFor()`.** `Settings.entityFor(entry)` answers for
-  the phone and only for the phone. It used to return the rig's entity for the three calibration
-  entries, which was right while there could be only one rig; with a library, one registry entry is
-  published by *several* rigs under different entity ids and there is no single answer to return.
-  `Settings.rigKeys(rig)` is the counterpart and the only place a rig's entity reaches a key, and
+- **A platform's keys come from the platform, not from `entityFor()`.** `Settings.entityFor(entry)` answers for
+  the phone and only for the phone. It used to return the platform's entity for the three calibration
+  entries, which was right while there could be only one platform; with a library, one registry entry is
+  published by *several* platforms under different entity ids and there is no single answer to return.
+  `Settings.platformKeys(platform)` is the counterpart and the only place a platform's entity reaches a key, and
   `SensorPublisher` therefore leaves `SourceKind.CALIBRATION` entries out of the per-entry
   `keys`/`publishers` pass entirely. A function that kept the old name and silently picked one of
-  several rigs is exactly the bug this shape exists to prevent.
+  several platforms is exactly the bug this shape exists to prevent.
 - **Key expressions only via `pubsubKey()`** in `keelson/Keys.kt`. Never concatenate a key inline —
   the `{realm}/@v0/{entity_id}/pubsub/{subject}/{source_id}` layout is protocol, not formatting.
   **`@v0` is verbatim: no wildcard crosses it**, so any subscription or tooling must spell it out —
@@ -154,9 +154,9 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `PublishedSubject.rateOwnerEntry()` is the one way to get from a derived subject to the one whose
   rate governs it, and it matches the source kind as well as the subject because a subject string does
   not identify an entry: **`location_fix` is published by two of them** — the phone's live fix and the
-  rig's surveyed zero point — so `forSubject()` answers with whichever sits earlier in the enum. That
+  platform's surveyed zero point — so `forSubject()` answers with whichever sits earlier in the enum. That
   is the right one today, which is exactly why `SubjectRegistryTest` pins it; reordering the entries
-  would silently point the rig's zero at the phone's GNSS. The UI needs an *entry* rather than a
+  would silently point the platform's zero at the phone's GNSS. The UI needs an *entry* rather than a
   subject anyway, since `Routes.subjectQos()` is keyed on the entry name. One hop always reaches the
   head — no owner has an owner — and that too is pinned, because `Settings.rate()` does the same
   single hop and a chain would quietly read the wrong subject's rate.
@@ -311,7 +311,7 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   on the first downward flick is not one.
   **The status is a `CompositionLocal`, not a parameter** — `LocalRunState`, provided once in `App()`.
   The bar is shared chrome, and threading the publisher's connection state through fourteen screen
-  signatures to reach it would put a run's state into the argument list of the rig editor. It replaced
+  signatures to reach it would put a run's state into the argument list of the platform editor. It replaced
   two separate chips that had already drifted (`ConnectionChip` said `Idle`, `LiveChip` said `IDLE`),
   which is the other thing one shared implementation buys.
   **Two lamps, `PUB` and `REC`, not one word.** A single label had to pick between them by priority, so
@@ -411,7 +411,7 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `ui/LiveSignals.kt` decide the tones and are pinned; the satellite count is deliberately never
   coloured, because a fused fix indoors solves with none and the GNSS verdict beside it already says so.
   Figures stay figures — `13 dB`, not "Good" — for the same reason `~241 MB/h` beat "much larger files".
-  **The chip row is no longer the plot list.** `Rig calibration` is filtered out of it: geometry surveyed
+  **The chip row is no longer the plot list.** `Platform calibration` is filtered out of it: geometry surveyed
   once and republished on a ten-second loop is configuration the phone is announcing, not telemetry it is
   measuring. The group keeps its plot section, so a stalled republish loop is still visible somewhere.
   **What the chart draws over its base layer is one value, `ChartMarks`.** Sea marks, the track, the
@@ -496,7 +496,7 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   accumulating back-stack entries and what lets Live keep its scroll. **`main` must stay the start
   destination**: system back on any tab pops to it and then exits.
   **The two Zenoh sessions are still scoped by route *prefix*** — `startsWith("checklist")` and
-  `startsWith("calibration")` — so moving Rigs and Checklists under Setup changed nothing there, and
+  `startsWith("calibration")` — so moving Platforms and Checklists under Setup changed nothing there, and
   `setup` collides with neither prefix. Anything that renames a route has to be re-checked on a device
   against those two, because a broken prefix match fails *silently*: the screen still opens and simply
   never finds anything on the bus.
@@ -624,44 +624,50 @@ A shared checklist that several sites work at once, interoperating with crowsnes
 - Checklist events are **not** recorded to MCAP. `Recorder` is per-run and hangs off the publish path;
   wiring an event-driven subject into it is a separate change.
 
-## Rig library
+## Platform library
 
-A rig is a keelson **platform**, and the phone holds several. `entity_id` is, per the protocol
-specification, "normally the platform name", so the library *is* a platform list and the counterpart to
-crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
+The phone holds several platforms. `entity_id` is, per the protocol specification, "normally the
+platform name", so the library *is* a platform list and the counterpart to crowsnest's own-ship
+selector. Lives in `calibrate/` and `platform/`.
 
-- **One active rig, plus any opted in — and the active one always publishes.** `Settings.publishingRigs()`
-  includes the active rig whether or not it is in `publishingRigEntityIds`, so no switch can express
-  "the phone is on this rig and its geometry is not on the bus". The UI renders the active rig's switch
+**This was called a *rig* until 2026-08-22**, which is worth knowing because the word survives in two
+places on purpose: the `rig_*` DataStore keys, read once by the migration in `SettingsRepository` and
+cleared on the next save, and `Routes.PLATFORM_PREFIX`, whose *value* is still `calibration` because the
+two Zenoh sessions are scoped by route prefix and renaming one fails silently — the screen opens and
+simply never finds anything on the bus.
+
+- **One active platform, plus any opted in — and the active one always publishes.** `Settings.publishingPlatforms()`
+  includes the active platform whether or not it is in `publishingPlatformEntityIds`, so no switch can express
+  "the phone is on this platform and its geometry is not on the bus". The UI renders the active platform's switch
   on and disabled rather than letting it be pressed and do nothing.
-- **The publish flag is not a field on `RigCalibration`.** That struct is the platform *document* — it
+- **The publish flag is not a field on `PlatformCalibration`.** That struct is the platform *document* — it
   is what the exporter writes, what `configuration_json` carries, what `get_config` replies with, and
   what crosses to and from crowsnest. A local policy flag inside it would either leak into a file that
   is `additionalProperties: false` at every level, or need excluding in three serialisers and the
   parser.
-- **A rename is a re-key, and `Settings.upsertRig(previousEntityId, rig)` owns it.** The entity id is
-  the identity *and* the `{entity_id}` chunk of every key the rig publishes on, and both the active
-  selection and the publish set name the old id. Renaming anywhere else silently deselects the rig
-  somebody just renamed. `entityIdTaken()` refuses a collision outright — two rigs on one id would
+- **A rename is a re-key, and `Settings.upsertPlatform(previousEntityId, platform)` owns it.** The entity id is
+  the identity *and* the `{entity_id}` chunk of every key the platform publishes on, and both the active
+  selection and the publish set name the old id. Renaming anywhere else silently deselects the platform
+  somebody just renamed. `entityIdTaken()` refuses a collision outright — two platforms on one id would
   publish onto the same three keys and overwrite each other in Zenoh's latest-value store.
-- **Changing the active rig or a publish switch restarts the run**, unlike the per-subject switches.
+- **Changing the active platform or a publish switch restarts the run**, unlike the per-subject switches.
   It changes which publishers are declared and which liveliness tokens exist, so it goes through
-  `saveSettings()`. The rig list is read-only while a run is going for that reason.
-- **A rig is stored as one JSON string per indexed key**, not as a spray of flat keys like everything
-  else in `SettingsRepository`. Two nested indices (rig, then sensor) would mean a clear-out that walks
+  `saveSettings()`. The platform list is read-only while a run is going for that reason.
+- **A platform is stored as one JSON string per indexed key**, not as a spray of flat keys like everything
+  else in `SettingsRepository`. Two nested indices (platform, then sensor) would mean a clear-out that walks
   both, and that clear-out is the part already got wrong once. The stored form is
   `toStoredJson()` — the *wire* document plus `entity_id` and `parent_frame_id`, which upstream's
   schema has no room for. Note it therefore **normalises rotations into `[-180, 180]` on save**: `-180`
   comes back as `180`, the same rotation, and `SettingsRepositoryTest` pins it.
-- **The migration from the single-rig `calib_*` keys is read-only and one-way.** `rig_count` absent is
-  the trigger; present and zero is an emptied library and must *not* fall back, or a deleted rig
-  resurrects. The migrated rig is nominated active by `migrateActiveRig()` — an update that silently
+- **The migration from the single-platform `calib_*` keys is read-only and one-way.** `platform_count` absent is
+  the trigger; present and zero is an emptied library and must *not* fall back, or a deleted platform
+  resurrects. The migrated platform is nominated active by `migrateActivePlatform()` — an update that silently
   stopped geometry that was going out before is the one outcome a migration must not produce. After the
   first save the old keys are gone, so an older APK sees no calibration.
-- **`rig_active_entity` absent and empty mean different things**, the same rule the annotation buttons
-  have. Absent is a file from before the library and its one rig gets nominated; **empty is a selection
-  somebody cleared by deleting the active rig**, and re-nominating there would silently start a
-  surviving rig's geometry going out under its own entity id — because the active rig always
+- **`platform_active_entity` absent and empty mean different things**, the same rule the annotation buttons
+  have. Absent is a file from before the library and its one platform gets nominated; **empty is a selection
+  somebody cleared by deleting the active platform**, and re-nominating there would silently start a
+  surviving platform's geometry going out under its own entity id — because the active platform always
   publishes. `readSettings` therefore uses `?:` on the raw key, never `ifBlank`.
 - **A Zenoh subscriber is not torn down by cancelling the scope that declared it.** The discovery scan
   closes its own subscriber in a `finally`, and must: left to `stop()`, every scan leaves a live
@@ -674,7 +680,7 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   the wildcard subscription can see every platform on the realm at once. Same rule the queryable's
   pre-rendered reply follows.
 - **Applying a shared library bumps past the version it merged**, rather than adopting it.
-  `mergeRemoteRigs` keeps rigs this phone is publishing, so what comes out is not what arrived;
+  `mergeRemotePlatforms` keeps platforms this phone is publishing, so what comes out is not what arrived;
   republishing that at the sender's own version would leave the shared key holding two different
   libraries both claiming to be the same one, with neither station able to accept the other's.
 - **`PlatformGeometryParse.kt` is the first thing in this app that parses JSON**, and it uses
@@ -687,9 +693,9 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   ever written, and pinned character-for-character.
 - **The parser is tolerant the way `readCalibration` is tolerant** — a transform missing a frame id or
   any translation component is skipped, never read as zeros, because zeros put the sensor exactly at
-  the rig's origin and nothing downstream can tell that from a measurement. It also accepts the older
+  the platform's origin and nothing downstream can tell that from a measurement. It also accepts the older
   `keelson-platforms` shape where `translation` is a `[x, y, z]` array; **that array is
-  `[roll, pitch, yaw]`**, squaternion's own argument order, and reading it yaw-first would roll a rig
+  `[roll, pitch, yaw]`**, squaternion's own argument order, and reading it yaw-first would roll a platform
   onto its side.
 - **`configuration_json` has two wire shapes and both are real.** On pubsub it is an enveloped
   `keelson.TimestampedString`; as a `get_config` reply it is **raw JSON bytes**. Crowsnest carries the
@@ -701,13 +707,13 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   the app serves `get_config` and refuses `set_config` with a serialised `keelson.interfaces.ErrorResponse`
   (`setConfigRefusal()` in `platform/PlatformSync.kt`, `declareRefusingQueryable()` in `KeelsonSession`).
   Refusing is a decision on the merits, not laziness: geometry arrives either from the phone's own
-  editor or through `mergeRemoteRigs`, which never deletes a rig this phone is publishing and never
+  editor or through `mergeRemotePlatforms`, which never deletes a platform this phone is publishing and never
   takes remote *policy* — an unauthenticated `set_config` from anyone on the fleet bus goes around all
   of it. The code is `PERMISSION_DENIED` because `ErrorResponse.Code` **has no `UNSUPPORTED`**, which is
   what §3.6 actually asks for here; the description says "permanent" in words so a consumer's operator
   is not invited to retry, and `ConfigurableRpcTest` pins that wording. Do not soften it to
   `UNAVAILABLE`, which reads as "not ready yet".
-- **The RPC interface token lives and dies with the rig screens**, because `PlatformSync` does. §3.5
+- **The RPC interface token lives and dies with the platform screens**, because `PlatformSync` does. §3.5
   forbids holding a token for an interface a source does not currently serve, so that is correct rather
   than a bug — but it does mean a fleet tool probing a phone that is *logging* finds no configurable
   interface at all. The intermittency is now visible instead of silent, which is the improvement; making
@@ -732,23 +738,23 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   `voyage`. The library lives under a *config* entity (`platforms`), not a platform's: filing a list of
   platforms under one platform's entity is a category error, and filing it under the phone's would make
   each phone's library private.
-- **A remote library replaces documents and never local policy**, and **never deletes a rig this phone
+- **A remote library replaces documents and never local policy**, and **never deletes a platform this phone
   is publishing**. The first stops one operator's save silently starting every phone in the fleet
   publishing geometry under entity ids nobody told them about; the second is a knowing deviation from
-  crowsnest's whole-map replace, because taking a rig out from under a live publisher is the one case
-  where last-writer-wins is unacceptable. `rigRegistryOrigin` drops this phone's own echoes — a
+  crowsnest's whole-map replace, because taking a platform out from under a live publisher is the one case
+  where last-writer-wins is unacceptable. `platformRegistryOrigin` drops this phone's own echoes — a
   publisher's sample cache re-delivers, so without it the version ratchets on every reconnect.
 - **The router needs a storage for the library key** or a station joining late sees nothing;
   `../keelson-router/docker-compose.keelson-router-rise.yml` has one now. Crowsnest does not publish its
   own overlay yet, so sharing is one-way until it does.
-- **The three calibration status rows aggregate across rigs.** `statusStore.tick(subject)` is keyed on
-  the registry entry, and re-keying it on (entry, rig) would ripple into the notification total, the
+- **The three calibration status rows aggregate across platforms.** `statusStore.tick(subject)` is keyed on
+  the registry entry, and re-keying it on (entry, platform) would ripple into the notification total, the
   group badges, the live rings and `SubjectQosScreen` for a 0.1 Hz loop. `configuration_json`'s plotted
-  value is therefore the **whole library's** sensor count, not each rig's — a per-rig count would have
-  three rigs writing three numbers into one series and the plot would oscillate.
-- **Still one `calibration` collector.** N rigs is a fan-out *inside* it, not N collectors, so
-  `COLLECTOR_GROUPS` and `CollectorGroupsTest` are untouched. The per-rig `SubjectSink` carries a key
-  override, which is what gives each rig its own MCAP channels rather than merging two rigs' transforms
+  value is therefore the **whole library's** sensor count, not each platform's — a per-platform count would have
+  three platforms writing three numbers into one series and the plot would oscillate.
+- **Still one `calibration` collector.** N platforms is a fan-out *inside* it, not N collectors, so
+  `COLLECTOR_GROUPS` and `CollectorGroupsTest` are untouched. The per-platform `SubjectSink` carries a key
+  override, which is what gives each platform its own MCAP channels rather than merging two platforms' transforms
   onto one topic.
 
 ## Gotchas
@@ -1274,7 +1280,7 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   is what keeps a settings profile out of the Recordings tab: `savedRecordings()` matches
   `RELATIVE_PATH` for *exactly* `Download/Logline/`, so anything a level down is excluded by
   construction rather than by a filter somebody has to remember to keep working. `saveToDownloads` takes
-  the folder; `CONFIG_FOLDER` is used by the settings profile, the rig geometry and the rig library, and
+  the folder; `CONFIG_FOLDER` is used by the settings profile, the platform geometry and the platform library, and
   `RecordingsQueryTest` pins that the two folders stay nested — as siblings every export would be back
   in the list. Files written before this still sit among the recordings and are still labelled by
   `recordingKindOf`, which is why that classification stays worth having.
@@ -1282,11 +1288,11 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   Four things write there — the recorder, `exportSettingsProfile`, `exportPlatformGeometry` and
   `exportPlatformRegistry` — and the query filters on `RELATIVE_PATH` with **no extension test**, so all
   four appear in the Files tab. `recordingKindOf(name)` names them, which is what stops an export being
-  read as a recording that failed: a rig-geometry export used to read `982 B · no summary`, describing a
+  read as a recording that failed: a platform-geometry export used to read `982 B · no summary`, describing a
   broken recording rather than a file that is exactly as it should be.
   **`RecordingFacts.isComplete` is therefore `Boolean?`, and the null is load-bearing.** While it was a
   plain `Boolean` every JSON in the folder was *incomplete*, so a bulk delete built on the Incomplete set
-  would have destroyed a hand-surveyed rig geometry document — a thing no amount of re-recording brings
+  would have destroyed a hand-surveyed platform geometry document — a thing no amount of re-recording brings
   back, only a tape measure. Null means "not a recording, the question does not apply", and because both
   filter arms compare against a value (`== true`, `== false`) those files fall out of each without the
   query logic knowing kinds exist. `RecordingsQueryTest` pins it; that test is the one that fails if
@@ -1314,7 +1320,7 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   to find the fixes. That is why the track is on the detail screen and not a thumbnail in every row, and
   why the two are loaded separately — the figures must never wait for the picture.
   Three things in `McapTrack` are load-bearing. **It picks the fix channel by source and excludes
-  `calibration`**: two registry entries publish `location_fix`, and a rig's surveyed zero point is a
+  `calibration`**: two registry entries publish `location_fix`, and a platform's surveyed zero point is a
   jetty somebody stood on with a tape measure — including it draws a line from the boat to the shore and
   calls it a track. **No fix channel means the scan never starts**, which is what makes an IMU-only run
   free rather than a full decompress that finds nothing. And **`0, 0` is dropped**, because proto3 cannot
@@ -1515,8 +1521,8 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   the gap is open* — reporting it only after the reconnect would mean the one screen anybody looks at
   during an outage says nothing, and then says "Replayed 32 768 samples" as if it had caught up.
 - **A settings profile carries everything except the five fields that identify the install.** `entityId`,
-  `operatorId` and `rigRegistryOrigin` are each documented in `Settings` as generated once and never
-  changed — that is exactly what makes copying them a bug — plus `rigRegistryVersion` (sync ordering)
+  `operatorId` and `platformRegistryOrigin` are each documented in `Settings` as generated once and never
+  changed — that is exactly what makes copying them a bug — plus `platformRegistryVersion` (sync ordering)
   and `batteryExemptionAsked` (a device fact). They are **not in `SettingsProfile` at all**, so an
   import cannot touch them even by mistake; `SettingsProfileTest` asserts the round trip field by field
   rather than with `copy`, so a field added to `Settings` later fails the test until somebody decides
@@ -1803,8 +1809,8 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   button list is also the one preference where **an absent key and an empty value differ**: absent means
   "never configured" and reads as the defaults, empty means the user deleted them all. If both fell back
   to the defaults, deleting the last button would put three back on the next launch.
-- **The rig calibration is the only thing published under a different `entity_id`.** `entity_id` names
-  the physical thing the data is *about*, and a rig's geometry is about the rig, not the phone that
+- **The platform calibration is the only thing published under a different `entity_id`.** `entity_id` names
+  the physical thing the data is *about*, and a platform's geometry is about the platform, not the phone that
   surveyed it. `Settings.entityFor(entry)` is the one place that resolves it — the counterpart to
   `sourceFor(entry)` — and `declareLiveliness()` therefore declares one token per **(entity, source)
   pair** rather than per source. Publishing the geometry under `pixel_6` would file a vessel's layout
@@ -1820,25 +1826,25 @@ crowsnest's own-ship selector. Lives in `calibrate/` and `platform/`.
   document adds a `calibration` block with the zero point, the heading source, and each offset's capture
   method and accuracy. Upstream has nowhere to put uncertainty, and a calibration without it is half a
   measurement — `docs/calibration.md` proposes the block. Do not "tidy" the two variants into one.
-- **All of a rig's transforms share one key**, with the sensor named by `child_frame_id` inside the
+- **All of a platform's transforms share one key**, with the sensor named by `child_frame_id` inside the
   message — upstream's shape, not an oversight. Zenoh's latest-value store therefore holds only the last
   transform of each round, which is exactly why `runCalibration()` republishes on a ten-second loop
   rather than publishing once at start-up. Its "rate" is that interval, the same reading `audio` gives
   its chunk length.
 - **`location_fix` is published by two registry entries, and the difference is entity + source.** The
-  phone's live fix is `{phone}/pubsub/location_fix/phone`; the rig's surveyed zero is
-  `{rig}/pubsub/location_fix/calibration`. Three things stop the second being read as a live position,
+  phone's live fix is `{phone}/pubsub/location_fix/phone`; the platform's surveyed zero is
+  `{platform}/pubsub/location_fix/calibration`. Three things stop the second being read as a live position,
   and none of them is optional: the key differs, the payload timestamp is the **survey** time (the
   opposite choice from `frame_transform` beside it, and for the opposite reason — here the age of the
   measurement is the point), and `labelOf()` names it "Zero point" rather than "Position", keyed on the
   *entry* because that is the only way to tell two entries of one subject apart. It stays silent until a
-  position exists: `Settings.offSubjects()` gates it on `RigZero.hasPosition`, because a tape-measured
-  rig and a heading-only zero both have geometry worth publishing and no position, and 0°N 0°E is the
+  position exists: `Settings.offSubjects()` gates it on `PlatformZero.hasPosition`, because a tape-measured
+  platform and a heading-only zero both have geometry worth publishing and no position, and 0°N 0°E is the
   most confident possible way of being wrong.
 - **A captured offset smaller than its own fix accuracy is noise, and the UI says so.** Averaging twenty
   seconds of fixes cuts *scatter*, not *bias* — GNSS multipath holds still for minutes — so
   `AveragedFix` reports both numbers and `SensorMount.accuracyExceedsOffset` drives a red line on the
-  row. A phone is honest for platform-scale geometry; decimetre offsets on a small rig want a tape
+  row. A phone is honest for platform-scale geometry; decimetre offsets on a small platform want a tape
   measure, which is why manual entry is the primary path rather than the fallback.
 - **`connectedDebugAndroidTest` reinstalls the app, which wipes `filesDir` — and that takes the mTLS
   credentials with it.** Learned the hard way: after an instrumented run the next Start failed with

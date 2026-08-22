@@ -53,8 +53,8 @@ private fun groupTitle(source: SourceKind, sourceId: String?): String {
         SourceKind.IMU -> "IMU"
         SourceKind.DEVICE -> "Device"
         SourceKind.RADIO -> "Radio"
-        // Not a sensor group: these two describe the rig the phone is mounted on, not the phone.
-        SourceKind.CALIBRATION -> "Rig calibration"
+        // Not a sensor group: these two describe the platform the phone is mounted on, not the phone.
+        SourceKind.CALIBRATION -> "Platform calibration"
     }
     return sourceId?.let { "$head · $it" } ?: head
 }

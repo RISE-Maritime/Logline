@@ -52,10 +52,10 @@ data class CapturedOffset(
 )
 
 /**
- * One sensor's pose on the rig.
+ * One sensor's pose on the platform.
  *
  * Translation can be captured — walk the phone to the sensor and the offset falls out of two positions
- * and the rig's heading — or typed, which for anything under a few metres is the only honest option.
+ * and the platform's heading — or typed, which for anything under a few metres is the only honest option.
  * **Rotation is always typed.** A phone held against a radar can measure where the radar is; it cannot
  * measure where the radar is looking, and a capture button for it would be inventing a measurement.
  *
@@ -65,7 +65,7 @@ data class CapturedOffset(
  */
 @Composable
 fun SensorMountScreen(
-    rigName: String,
+    platformName: String,
     initial: SensorMount?,
     hasZero: Boolean,
     capture: CaptureState,
@@ -108,7 +108,7 @@ fun SensorMountScreen(
         z = z.toDoubleOrNull() ?: 0.0,
     )
     val numbersParse = listOf(x, y, z, yaw, pitch, roll).all { it.toDoubleOrNull() != null }
-    val effectiveFrameId = frameId.ifBlank { defaultFrameId(rigName, label) }
+    val effectiveFrameId = frameId.ifBlank { defaultFrameId(platformName, label) }
     val valid = label.isNotBlank() && numbersParse
 
     var info by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -198,7 +198,7 @@ fun SensorMountScreen(
                 "Where it is",
                 onInfo = {
                     info = "Where it is" to
-                        "Metres from the rig's zero point: x forward, y to starboard, z DOWN — " +
+                        "Metres from the platform's zero point: x forward, y to starboard, z DOWN — " +
                         "maritime convention, not robotics.\n\n" +
                         "Capture measures the offset by walking to the sensor, which needs a zero " +
                         "point first. A tape measure beats a phone at decimetre scale."
@@ -225,7 +225,7 @@ fun SensorMountScreen(
                 StatusLine(
                     text = "No zero point yet",
                     tone = StatusTone.Neutral,
-                    detail = "Capture the rig's zero first, or type the offsets — a tape measure beats " +
+                    detail = "Capture the platform's zero first, or type the offsets — a tape measure beats " +
                         "a phone fix for anything under about five metres anyway.",
                 )
             }
@@ -270,7 +270,7 @@ fun SensorMountScreen(
     if (confirmDelete && onDelete != null) {
         ConfirmDialog(
             title = "Remove ${label.ifBlank { "this sensor" }}?",
-            body = "It stops being published with the rest of the rig's geometry.",
+            body = "It stops being published with the rest of the platform's geometry.",
             confirmLabel = "Remove",
             onConfirm = {
                 confirmDelete = false

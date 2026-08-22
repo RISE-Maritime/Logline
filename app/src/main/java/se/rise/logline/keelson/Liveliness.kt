@@ -22,8 +22,8 @@ package se.rise.logline.keelson
  *   "MUST NOT be retracted because data is momentarily absent", so `heading_true_north_deg` holds one
  *   while it waits for the first fix, and `log_message` holds one through a run nobody annotates.
  *
- * @param keyMaps the phone's key map, then one per publishing rig — a rig's three calibration subjects
- *   publish under the *rig's* entity id, so the same registry entry appears once per rig with a
+ * @param keyMaps the phone's key map, then one per publishing platform — a platform's three calibration subjects
+ *   publish under the *platform's* entity id, so the same registry entry appears once per platform with a
  *   different key, and all of them are claimed.
  */
 fun subjectLivelinessKeys(

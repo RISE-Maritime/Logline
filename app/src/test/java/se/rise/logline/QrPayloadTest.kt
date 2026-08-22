@@ -99,7 +99,7 @@ class QrPayloadTest {
         assertTrue("code is $modules modules across", matrix.width <= 720)
     }
 
-    /** Non-ASCII in a source id or realm must survive, or a Swedish rig name breaks the QR quietly. */
+    /** Non-ASCII in a source id or realm must survive, or a Swedish platform name breaks the QR quietly. */
     @Test
     fun `non-ASCII survives the trip`() {
         val payload = settings(listOf("tcp/örnsköldsvik.example:7447"))

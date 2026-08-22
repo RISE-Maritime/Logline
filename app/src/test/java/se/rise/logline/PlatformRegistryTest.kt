@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.rise.logline.calibrate.CaptureMethod
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
 import se.rise.logline.calibrate.Vec3M
@@ -15,7 +15,7 @@ import se.rise.logline.platform.PlatformRegistry
 import se.rise.logline.platform.RemotePlatformRegistry
 import se.rise.logline.platform.decodePlatformRegistry
 import se.rise.logline.platform.encodePlatformRegistry
-import se.rise.logline.platform.mergeRemoteRigs
+import se.rise.logline.platform.mergeRemotePlatforms
 import se.rise.logline.platform.shouldApplyRemote
 
 /**
@@ -27,8 +27,8 @@ import se.rise.logline.platform.shouldApplyRemote
  */
 class PlatformRegistryTest {
 
-    private fun rig(name: String, capture: CaptureMethod = CaptureMethod.GNSS_AVERAGE) =
-        RigCalibration.forName(name, atEpochMillis = 1_700_000_000_000L).copy(
+    private fun platform(name: String, capture: CaptureMethod = CaptureMethod.GNSS_AVERAGE) =
+        PlatformCalibration.forName(name, atEpochMillis = 1_700_000_000_000L).copy(
             sensors = listOf(
                 SensorMount(
                     label = "Lidar",
@@ -64,18 +64,18 @@ class PlatformRegistryTest {
     /** What goes out comes back, provenance included — a share that lost it would lose uncertainty. */
     @Test
     fun `a library round-trips through the wire form`() {
-        val rigs = listOf(rig("SSRS18"), rig("Manatee", CaptureMethod.MANUAL))
+        val platforms = listOf(platform("SSRS18"), platform("Manatee", CaptureMethod.MANUAL))
 
         val decoded = decodePlatformRegistry(
-            encodePlatformRegistry(7L, "origin-a", 1_700_000_009_000L, rigs)
+            encodePlatformRegistry(7L, "origin-a", 1_700_000_009_000L, platforms)
         )!!
 
         assertEquals(7L, decoded.version)
         assertEquals("origin-a", decoded.origin)
         assertEquals(1_700_000_009_000L, decoded.updatedAtEpochMillis)
-        assertEquals(rigs, decoded.rigs)
-        assertEquals(CaptureMethod.GNSS_AVERAGE, decoded.rigs.first().sensors.single().capture)
-        assertEquals(3.2, decoded.rigs.first().sensors.single().accuracyM!!, 1e-9)
+        assertEquals(platforms, decoded.platforms)
+        assertEquals(CaptureMethod.GNSS_AVERAGE, decoded.platforms.first().sensors.single().capture)
+        assertEquals(3.2, decoded.platforms.first().sensors.single().accuracyM!!, 1e-9)
     }
 
     @Test
@@ -93,7 +93,7 @@ class PlatformRegistryTest {
      */
     @Test
     fun `a phone never applies its own library back over itself`() {
-        val own = RemotePlatformRegistry(99L, "origin-a", 0L, listOf(rig("SSRS18")))
+        val own = RemotePlatformRegistry(99L, "origin-a", 0L, listOf(platform("SSRS18")))
 
         assertFalse(shouldApplyRemote(own, localVersion = 1L, ownOrigin = "origin-a"))
         assertTrue(shouldApplyRemote(own, localVersion = 1L, ownOrigin = "origin-b"))
@@ -102,7 +102,7 @@ class PlatformRegistryTest {
     /** Last-writer-wins by version, and "the same version" is not newer. */
     @Test
     fun `only a strictly newer library is applied`() {
-        val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(rig("SSRS18")))
+        val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(platform("SSRS18")))
 
         assertTrue(shouldApplyRemote(remote, localVersion = 4L, ownOrigin = "origin-a"))
         assertFalse(shouldApplyRemote(remote, localVersion = 5L, ownOrigin = "origin-a"))
@@ -114,15 +114,15 @@ class PlatformRegistryTest {
      * The rule that matters most: a remote library replaces documents and never local publish policy.
      *
      * One operator saving a library must not silently start every phone in the fleet publishing
-     * geometry under entity ids nobody told them about — so the merge returns rigs, and the caller's
+     * geometry under entity ids nobody told them about — so the merge returns platforms, and the caller's
      * active selection and publish set are never in its argument list to begin with.
      */
     @Test
     fun `a remote library brings documents and takes nothing else`() {
-        val local = listOf(rig("SSRS18"), rig("Manatee"))
-        val remote = listOf(rig("SSRS18").copy(description = "edited elsewhere"), rig("Gota"))
+        val local = listOf(platform("SSRS18"), platform("Manatee"))
+        val remote = listOf(platform("SSRS18").copy(description = "edited elsewhere"), platform("Gota"))
 
-        val merged = mergeRemoteRigs(local, remote, protectedEntityIds = emptySet())
+        val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = emptySet())
 
         assertEquals(listOf("ssrs18", "gota"), merged.map { it.entityId })
         assertEquals("edited elsewhere", merged.first().description)
@@ -131,16 +131,16 @@ class PlatformRegistryTest {
     /**
      * A knowing deviation from crowsnest's whole-map replace.
      *
-     * Taking a rig out from under a live publisher is the one case where last-writer-wins is not
-     * acceptable: the run would keep a publisher and a liveliness token for a rig the library no
+     * Taking a platform out from under a live publisher is the one case where last-writer-wins is not
+     * acceptable: the run would keep a publisher and a liveliness token for a platform the library no
      * longer has. It comes back as soon as it is switched off.
      */
     @Test
-    fun `a rig this phone is publishing is never deleted by a remote library`() {
-        val local = listOf(rig("SSRS18"), rig("Manatee"))
-        val remote = listOf(rig("Gota"))
+    fun `a platform this phone is publishing is never deleted by a remote library`() {
+        val local = listOf(platform("SSRS18"), platform("Manatee"))
+        val remote = listOf(platform("Gota"))
 
-        val merged = mergeRemoteRigs(local, remote, protectedEntityIds = setOf("manatee"))
+        val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = setOf("manatee"))
 
         assertEquals(listOf("gota", "manatee"), merged.map { it.entityId })
         // ...and the one nothing was publishing is gone, as the remote said.
@@ -150,17 +150,17 @@ class PlatformRegistryTest {
     /**
      * Applying a merged library must not republish it at the sender's own version.
      *
-     * `mergeRemoteRigs` keeps rigs this phone is publishing, so what comes out of an apply is not what
+     * `mergeRemotePlatforms` keeps platforms this phone is publishing, so what comes out of an apply is not what
      * arrived. Republishing that at `remote.version` would leave the shared key holding two different
      * libraries both claiming to be the same one, and neither station able to accept the other's —
      * `shouldApplyRemote` needs strictly greater. The applier therefore bumps past it.
      */
     @Test
     fun `a merged library is ordered after the one it was merged from`() {
-        val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(rig("Gota")))
-        val merged = mergeRemoteRigs(
-            local = listOf(rig("SSRS18")),
-            remote = remote.rigs,
+        val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(platform("Gota")))
+        val merged = mergeRemotePlatforms(
+            local = listOf(platform("SSRS18")),
+            remote = remote.platforms,
             protectedEntityIds = setOf("ssrs18"),
         )
         // What the applier stores: the remote's version, then bumped.
@@ -178,11 +178,11 @@ class PlatformRegistryTest {
     }
 
     @Test
-    fun `a protected rig the remote also has is not duplicated`() {
-        val local = listOf(rig("SSRS18"))
-        val remote = listOf(rig("SSRS18").copy(description = "edited elsewhere"))
+    fun `a protected platform the remote also has is not duplicated`() {
+        val local = listOf(platform("SSRS18"))
+        val remote = listOf(platform("SSRS18").copy(description = "edited elsewhere"))
 
-        val merged = mergeRemoteRigs(local, remote, protectedEntityIds = setOf("ssrs18"))
+        val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = setOf("ssrs18"))
 
         assertEquals(1, merged.size)
         assertEquals("edited elsewhere", merged.single().description)

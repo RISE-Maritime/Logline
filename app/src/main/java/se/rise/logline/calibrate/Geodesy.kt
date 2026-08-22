@@ -8,7 +8,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * The coordinate maths behind a rig calibration, and the only place any of it lives.
+ * The coordinate maths behind a platform calibration, and the only place any of it lives.
  *
  * Everything here is pure and unit-tested against physical constants, for the same reason
  * `sensors/Units.kt` is: the failure mode of a wrong sign or a wrong radius is a plausible number that
@@ -16,13 +16,13 @@ import kotlin.math.sqrt
  *
  * Two frames are involved and they are not the same:
  *
- * - **ENU** — the local tangent plane at the rig zero: east, north, up. This is what the difference
+ * - **ENU** — the local tangent plane at the platform zero: east, north, up. This is what the difference
  *   between two WGS84 positions naturally produces.
- * - **The rig frame** — X forward, Y to starboard, **Z down**, per
+ * - **The platform frame** — X forward, Y to starboard, **Z down**, per
  *   `keelson/connectors/platform/README.md`. Maritime convention, not ROS: getting Z's sign wrong puts
  *   every mast below the waterline.
  *
- * [bodyOffsetMetres] is the crossing between them and takes the rig's heading to do it.
+ * [bodyOffsetMetres] is the crossing between them and takes the platform's heading to do it.
  */
 
 /** WGS84, the datum every GNSS fix on this phone is already in. */
@@ -37,16 +37,16 @@ data class LatLonAlt(
     val altitudeM: Double = 0.0,
 )
 
-/** A local tangent-plane offset in metres. East, north, up — not the rig frame. */
+/** A local tangent-plane offset in metres. East, north, up — not the platform frame. */
 data class Enu(val eastM: Double, val northM: Double, val upM: Double)
 
-/** A point in the rig frame: X forward, Y starboard, Z down, metres. */
+/** A point in the platform frame: X forward, Y starboard, Z down, metres. */
 data class Vec3M(val x: Double, val y: Double, val z: Double) {
     companion object {
         val ZERO = Vec3M(0.0, 0.0, 0.0)
     }
 
-    /** Distance from the rig origin — what the fix accuracy has to be compared against. */
+    /** Distance from the platform origin — what the fix accuracy has to be compared against. */
     fun magnitude(): Double = sqrt(x * x + y * y + z * z)
 }
 
@@ -72,12 +72,12 @@ fun primeVerticalRadiusM(latitudeDeg: Double): Double {
 /**
  * The offset from [from] to [to] on the local tangent plane, in metres.
  *
- * Flat-earth on purpose, and honest about it: over the tens of metres a rig spans, the curvature error
+ * Flat-earth on purpose, and honest about it: over the tens of metres a platform spans, the curvature error
  * is sub-millimetre, and the alternative — full ECEF round-tripping — would trade that for a lot of
  * arithmetic nobody can check by hand. The radii are evaluated at the *mean* latitude of the two
  * points, which is what keeps a long baseline symmetric.
  *
- * Not valid across the antimeridian; a rig that spans ±180° longitude is not a rig.
+ * Not valid across the antimeridian; a platform that spans ±180° longitude is not a platform.
  */
 fun enuOffsetMetres(from: LatLonAlt, to: LatLonAlt): Enu {
     val meanLat = (from.latitude + to.latitude) / 2.0
@@ -93,7 +93,7 @@ fun enuOffsetMetres(from: LatLonAlt, to: LatLonAlt): Enu {
 /**
  * Initial great-circle bearing from [from] to [to], degrees true, in `[0, 360)`.
  *
- * This is how the two-point baseline establishes the rig's forward axis: stand at the zero, walk to a
+ * This is how the two-point baseline establishes the platform's forward axis: stand at the zero, walk to a
  * point ahead on the centreline, and the bearing between them is the heading of +X.
  */
 fun initialBearingDegrees(from: LatLonAlt, to: LatLonAlt): Double {
@@ -106,7 +106,7 @@ fun initialBearingDegrees(from: LatLonAlt, to: LatLonAlt): Double {
 }
 
 /**
- * Rotate a local ENU offset into the rig frame, given the true heading of the rig's +X axis.
+ * Rotate a local ENU offset into the platform frame, given the true heading of the platform's +X axis.
  *
  * ```
  * x =  dN·cos h + dE·sin h      forward
@@ -117,8 +117,8 @@ fun initialBearingDegrees(from: LatLonAlt, to: LatLonAlt): Double {
  * The sign flip on Z is the whole difference between ENU and the maritime frame, and it is the easiest
  * thing here to get silently wrong — a mast measured 3 m up would be published 3 m below the keel.
  */
-fun bodyOffsetMetres(enu: Enu, rigHeadingDeg: Double): Vec3M {
-    val h = Math.toRadians(rigHeadingDeg)
+fun bodyOffsetMetres(enu: Enu, platformHeadingDeg: Double): Vec3M {
+    val h = Math.toRadians(platformHeadingDeg)
     return Vec3M(
         x = enu.northM * cos(h) + enu.eastM * sin(h),
         y = -enu.northM * sin(h) + enu.eastM * cos(h),

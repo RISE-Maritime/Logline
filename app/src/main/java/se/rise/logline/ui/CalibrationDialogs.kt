@@ -19,7 +19,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.HeadingSource
-import se.rise.logline.calibrate.RigZero
+import se.rise.logline.calibrate.PlatformZero
 
 /**
  * Typing the zero in by hand — from a chart, a survey, or another receiver.
@@ -33,9 +33,9 @@ import se.rise.logline.calibrate.RigZero
  */
 @Composable
 fun TypedPositionDialog(
-    zero: RigZero?,
+    zero: PlatformZero?,
     onDismiss: () -> Unit,
-    onConfirm: (RigZero) -> Unit,
+    onConfirm: (PlatformZero) -> Unit,
 ) {
     var latitude by remember { mutableStateOf(zero?.latitude?.toString().orEmpty()) }
     var longitude by remember { mutableStateOf(zero?.longitude?.toString().orEmpty()) }
@@ -89,7 +89,7 @@ fun TypedPositionDialog(
                 enabled = valid,
                 onClick = {
                     onConfirm(
-                        RigZero(
+                        PlatformZero(
                             latitude = lat ?: 0.0,
                             longitude = lon ?: 0.0,
                             altitudeM = altitude.toDoubleOrNull(),
@@ -111,7 +111,7 @@ fun TypedPositionDialog(
     )
 }
 
-/** The rig's forward axis, typed — from a chart, a drawing, or a surveyed heading. */
+/** The platform's forward axis, typed — from a chart, a drawing, or a surveyed heading. */
 @Composable
 fun TypedHeadingDialog(
     initial: Double?,
@@ -128,7 +128,7 @@ fun TypedHeadingDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Degrees true, 0-360, of the direction the rig's +X axis points.",
+                    "Degrees true, 0-360, of the direction the platform's +X axis points.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

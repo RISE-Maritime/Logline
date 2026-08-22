@@ -1,18 +1,18 @@
-# Rig calibration
+# Platform calibration
 
-How to describe a sensor rig with this phone, what goes on the Keelson bus when you do, and — the part
+How to describe a sensor platform with this phone, what goes on the Keelson bus when you do, and — the part
 that matters most — what a phone-measured calibration is actually worth.
 
-A calibration here is two things: **where the rig's zero point is**, and **where each sensor sits
-relative to it**. Nothing else. It is what lets a consumer of the rig's radar, lidar and GNSS relate
+A calibration here is two things: **where the platform's zero point is**, and **where each sensor sits
+relative to it**. Nothing else. It is what lets a consumer of the platform's radar, lidar and GNSS relate
 them to each other and to a common reference point, instead of treating each as if it were mounted at
 the centre of the world.
 
-The phone holds a **library** of them. A rig is a keelson *platform* — `entity_id` is, in the protocol
-specification's words, "normally the platform name" — so the library is a platform list, the direct
-counterpart to crowsnest's own-ship selector. One rig is **active** (the rig the phone is on) and any
+The phone holds a **library** of them. `entity_id` is, in the protocol specification's words, "normally
+the platform name", so the library is a platform list, the direct counterpart to crowsnest's own-ship
+selector. One platform is **active** (the platform the phone is on) and any
 number of others can be switched on alongside it, because a campaign often wants the geometry of every
-rig in the water logged rather than only the one the phone is bolted to.
+platform in the water logged rather than only the one the phone is bolted to.
 
 ## The contract
 
@@ -23,19 +23,19 @@ is a reference publisher to match:
 | --- | --- |
 | `frame_transform` | `foxglove.FrameTransform` — one message per sensor |
 | `configuration_json` | `keelson.TimestampedString` — the whole geometry as one document |
-| `location_fix` | `foxglove.LocationFix` — the rig's zero point, where it was surveyed |
+| `location_fix` | `foxglove.LocationFix` — the platform's zero point, where it was surveyed |
 | Document shape | [`connectors/platform/config-schema.json`](../../keelson/connectors/platform/config-schema.json) |
 | Reference publisher | `connectors/platform/bin/platform-geometry2keelson.py` |
 
-Keys, with the **rig** as the entity — not the phone:
+Keys, with the **platform** as the entity — not the phone:
 
 ```
-{realm}/@v0/{rig_entity_id}/pubsub/frame_transform/{calibration_source}
-{realm}/@v0/{rig_entity_id}/pubsub/configuration_json/{calibration_source}
-{realm}/@v0/{rig_entity_id}/pubsub/location_fix/{calibration_source}     ← the surveyed zero
+{realm}/@v0/{platform_entity_id}/pubsub/frame_transform/{calibration_source}
+{realm}/@v0/{platform_entity_id}/pubsub/configuration_json/{calibration_source}
+{realm}/@v0/{platform_entity_id}/pubsub/location_fix/{calibration_source}     ← the surveyed zero
 ```
 
-`entity_id` names the physical thing the data is *about*, and a rig's geometry belongs to the rig even
+`entity_id` names the physical thing the data is *about*, and a platform's geometry belongs to the platform even
 though a phone measured it. The source id defaults to `calibration`, because this source is a survey
 rather than a piece of hardware. Both are editable on the calibration screen.
 
@@ -55,10 +55,10 @@ Reference Point — sits at that origin unless `ccrp_m` says otherwise.
 
 ## The procedure
 
-1. **Name the rig.** The entity id and the parent frame id follow the name (`SSRS18` → `ssrs18`,
+1. **Name the platform.** The entity id and the parent frame id follow the name (`SSRS18` → `ssrs18`,
    `ssrs18-frame-ccrp`) until you edit one of them by hand.
-2. **Set the zero point.** Stand at the rig's reference point and *Capture position* — twenty seconds
-   of fixes, averaged — or *Type position* from a chart or a survey. A rig you intend to measure
+2. **Set the zero point.** Stand at the platform's reference point and *Capture position* — twenty seconds
+   of fixes, averaged — or *Type position* from a chart or a survey. A platform you intend to measure
    entirely with a tape needs no zero point at all.
 3. **Establish the forward axis.** Three ways, and the calibration records which was used:
    - **Baseline** — capture the zero, walk forward along the centreline, capture again. The geodesic
@@ -90,7 +90,7 @@ minutes at a time, so a capture can report 0.3 m of scatter and still be three m
 The app shows both numbers side by side for exactly that reason, and they routinely disagree.
 
 The consequence: **an offset smaller than the fix accuracy that produced it is noise**, and the app says
-so in the error colour rather than showing six confident decimal places. A rig 1.8 m long has sensor
+so in the error colour rather than showing six confident decimal places. A platform 1.8 m long has sensor
 offsets of a few decimetres; those must be measured with a tape and typed. Capture is honest for
 platform-scale geometry — masts, containers, a ship's bridge to its bow — or with an RTK-corrected
 receiver, where the numbers are centimetres and this whole caveat goes away.
@@ -167,19 +167,19 @@ Two things there are deliberate:
 
 ## The zero point on the bus
 
-The transforms are relative geometry: they say a lidar is 0.22 m ahead of the rig's reference point,
+The transforms are relative geometry: they say a lidar is 0.22 m ahead of the platform's reference point,
 and nothing about where that point is on the earth. The zero is what anchors them, so it is published
-too — as `foxglove.LocationFix`, under the rig's entity and the `calibration` source:
+too — as `foxglove.LocationFix`, under the platform's entity and the `calibration` source:
 
 ```
 rise/@v0/ssrs18/pubsub/location_fix/calibration
 ```
 
-Three things keep it from being mistaken for the rig's live position, and all three matter:
+Three things keep it from being mistaken for the platform's live position, and all three matter:
 
 1. **It is a different key.** The phone's own fix is `rise/@v0/pixel_6/pubsub/location_fix/phone` —
    different entity, different source. Nothing ever overwrites the other, and a consumer that wants the
-   live position of a moving rig subscribes to whatever GNSS that rig actually carries.
+   live position of a moving platform subscribes to whatever GNSS that platform actually carries.
 2. **Its payload timestamp is the survey time, not the publish time.** This is the opposite choice from
    `frame_transform` above, and deliberately so: a transform's timestamp is machinery for building a
    frame tree, while this one is the *age of a measurement*. A consumer that checks it gets a straight
@@ -193,7 +193,7 @@ vertical on up, tagged `APPROXIMATED` because a phone reports a radius and not a
 everywhere else in this app it is **both or nothing**: a typed position has no accuracy to state, so it
 states none rather than putting a zero in the up slot and claiming the altitude was known perfectly.
 
-It publishes only once a position has actually been captured or typed. A rig measured entirely with a
+It publishes only once a position has actually been captured or typed. A platform measured entirely with a
 tape has sensors worth publishing and no position at all, and a heading typed before any capture is
 stored as a zero with no position — in both cases `location_fix` stays silent rather than putting
 0°N 0°E on the bus, which would be the most confident possible way of being wrong.
@@ -210,7 +210,7 @@ cosmetic:
 
 - **The exported file** — strictly upstream's schema, nothing else. It can be handed to
   `platform-geometry2keelson.py --config <file>` unchanged, which is the point of exporting: the phone
-  surveys the rig once, and a connector on the vessel publishes the result from then on.
+  surveys the platform once, and a connector on the vessel publishes the result from then on.
 - **`configuration_json` on the wire** — the same document plus the `calibration` block above, carrying
   the zero point, the heading and its provenance, and how each sensor's offset was arrived at.
 
@@ -230,14 +230,14 @@ uv run connectors/platform/bin/platform-geometry2keelson.py \
   --interval 10
 ```
 
-Use `--entity-id` matching the rig entity the phone published under, or the fleet ends up with the same
-rig's geometry under two names.
+Use `--entity-id` matching the platform entity the phone published under, or the fleet ends up with the same
+platform's geometry under two names.
 
 ## Verifying a calibration
 
 - The recording is the complete copy: every transform published is written to the run's MCAP, on the
   same key. Read it back with the `mcap` Python library and the channel decodes as `foxglove.FrameTransform`.
-- Open the MCAP in Foxglove and add a 3D panel: the sensors appear at their offsets from the rig frame.
+- Open the MCAP in Foxglove and add a 3D panel: the sensors appear at their offsets from the platform frame.
   A sensor below the waterline means a sign error on `z`; a sensor abeam when it should be ahead means
   the forward axis is wrong, not the offset.
 - `jsonschema` the exported file against `connectors/platform/config-schema.json` before handing it on.
@@ -252,9 +252,9 @@ has no wire-level list of platforms at all** — no subject, no interface, no we
 bus-derived enumeration is Zenoh liveliness, which yields entity ids and presence and no metadata.
 
 So there is nothing to subscribe to for "the platforms". Four things bridge the gap instead, and each
-is a separate control on the rig list:
+is a separate control on the platform list:
 
-**Same shape, keyed the same way.** A rig's entity id is the registry key on both sides, and a
+**Same shape, keyed the same way.** A platform's entity id is the registry key on both sides, and a
 crowsnest entry is upstream's `config-schema.json` plus `realm` — which is what this app already
 writes. **Export all** produces that object-of-platforms; **Import** reads it, or a single
 platform-geometry file, or one of the older `keelson-platforms` `config.json` documents whose
@@ -270,12 +270,12 @@ not ask, which is what makes a passive listen sufficient. A router `get` is deli
 storage covers `configuration_json`, so a query returns an empty list that looks exactly like an empty
 bus. A discovered platform is offered for adoption and never added silently.
 
-**Answering `get_config`.** While a rig screen is open the phone serves the configuration of every rig
-in its library, on two keys per rig:
+**Answering `get_config`.** While a platform screen is open the phone serves the configuration of every platform
+in its library, on two keys per platform:
 
 ```
-{realm}/@v0/{rig}/@rpc/configurable/v1/get_config/{calibration_source}   ← the specification's shape
-{realm}/@v0/{rig}/@rpc/get_config/connector_platform                    ← what crowsnest actually probes
+{realm}/@v0/{platform}/@rpc/configurable/v1/get_config/{calibration_source}   ← the specification's shape
+{realm}/@v0/{platform}/@rpc/get_config/connector_platform                    ← what crowsnest actually probes
 ```
 
 The second is a **pre-interface layout** with no `{interface}/{version}` chunks. Crowsnest builds it in
@@ -299,11 +299,11 @@ already plays for `dataflow_config`, `route` and `voyage`. Last-writer-wins by `
 `shouldApplyRemote` so the two sides settle a disagreement the same way. Two rules are ours, and both
 are deliberate:
 
-- **A remote library replaces documents and never local policy.** Which rig is active and which rigs
+- **A remote library replaces documents and never local policy.** Which platform is active and which platforms
   publish stay this phone's own. Without that, one operator's save would silently start every phone in
   the fleet publishing geometry under entity ids nobody told them about.
-- **A rig this phone is publishing is never deleted by a remote update**, a knowing deviation from
-  crowsnest's whole-map replace: taking a rig out from under a live publisher is the one case where
+- **A platform this phone is publishing is never deleted by a remote update**, a knowing deviation from
+  crowsnest's whole-map replace: taking a platform out from under a live publisher is the one case where
   last-writer-wins is not acceptable.
 
 Two things outside this repo are needed for the last one to be worth much. The router needs a storage

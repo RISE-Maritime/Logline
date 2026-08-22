@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.HeadingSource
 import se.rise.logline.calibrate.PlatformType
-import se.rise.logline.calibrate.RigCalibration
-import se.rise.logline.calibrate.RigZero
+import se.rise.logline.calibrate.PlatformCalibration
+import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.defaultEntityId
 import se.rise.logline.calibrate.defaultParentFrameId
@@ -76,7 +76,7 @@ const val HEADING_SECONDS = 4
 const val NEW_SENSOR = -1
 
 /**
- * The rig calibration: where the rig's zero is, and where each sensor sits relative to it.
+ * The platform calibration: where the platform's zero is, and where each sensor sits relative to it.
  *
  * Stateless, like every screen here — the working calibration lives in `MainActivity.App()`, because a
  * capture is a coroutine whose result has to survive a trip into the sensor editor and back.
@@ -89,8 +89,8 @@ const val NEW_SENSOR = -1
  */
 @Composable
 fun CalibrationScreen(
-    calibration: RigCalibration,
-    onChange: (RigCalibration) -> Unit,
+    calibration: PlatformCalibration,
+    onChange: (PlatformCalibration) -> Unit,
     /** True while a run is going, which is when these subjects actually publish. */
     publishing: Boolean,
     /** The key `frame_transform` goes out on, so the wire name is visible where it is configured. */
@@ -105,9 +105,9 @@ fun CalibrationScreen(
     /**
      * Why this entity id cannot be used, if it cannot.
      *
-     * Only ever a collision with another rig in the library. It blocks Save rather than warning:
-     * every key this rig publishes on is built from the id, so two rigs sharing one would put two
-     * rigs' geometry on the same three keys and neither would be readable.
+     * Only ever a collision with another platform in the library. It blocks Save rather than warning:
+     * every key this platform publishes on is built from the id, so two platforms sharing one would put two
+     * platforms' geometry on the same three keys and neither would be readable.
      */
     entityIdError: String? = null,
     onSave: () -> Unit,
@@ -135,7 +135,7 @@ fun CalibrationScreen(
     var loa by remember { mutableStateOf(calibration.lengthOverAllM?.toString().orEmpty()) }
     var boa by remember { mutableStateOf(calibration.breadthOverAllM?.toString().orEmpty()) }
 
-    // The one form screen that had no guard on it: a system-back with a half-surveyed rig in the
+    // The one form screen that had no guard on it: a system-back with a half-surveyed platform in the
     // draft discarded it silently. Same `leave()` shape as `SettingsScreen`, and it matters more here
     // — twenty seconds of standing still at a point is not something to lose to a stray gesture.
     var info by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -145,7 +145,7 @@ fun CalibrationScreen(
     if (confirmDiscard) {
         ConfirmDialog(
             title = "Discard changes?",
-            body = "This rig has been edited and not saved.",
+            body = "This platform has been edited and not saved.",
             confirmLabel = "Discard",
             onConfirm = {
                 confirmDiscard = false
@@ -156,7 +156,7 @@ fun CalibrationScreen(
     }
 
     ScreenScaffold(
-        title = "Rig calibration",
+        title = "Platform calibration",
         onBack = leave,
         bottomBar = {
             FormActions(
@@ -166,7 +166,7 @@ fun CalibrationScreen(
                     calibration.entityId.isNotBlank() && entityIdError == null,
                 hint = when {
                     entityIdError != null -> entityIdError
-                    calibration.name.isBlank() -> "Give the rig a name first."
+                    calibration.name.isBlank() -> "Give the platform a name first."
                     !calibration.isPublishable -> "Add at least one sensor before this can publish."
                     else -> "Saving restarts publishing so the new geometry goes out."
                 },
@@ -192,12 +192,12 @@ fun CalibrationScreen(
 
             when (step) {
                 0 -> {
-                    SectionHeader("Rig", onInfo = { showFrameHelp = true })
+                    SectionHeader("Platform", onInfo = { showFrameHelp = true })
                     OutlinedTextField(
                         value = calibration.name,
                         onValueChange = { name ->
                             // The ids follow the name until somebody edits one of them by hand. Without this a
-                            // rig named after the fact keeps the entity id of whatever it was called first.
+                            // platform named after the fact keeps the entity id of whatever it was called first.
                             val followedEntity = calibration.entityId == defaultEntityId(calibration.name)
                             val followedFrame = calibration.parentFrameId == defaultParentFrameId(calibration.name)
                             onChange(
@@ -212,7 +212,7 @@ fun CalibrationScreen(
                                 )
                             )
                         },
-                        label = { Text("Rig name") },
+                        label = { Text("Platform name") },
                         supportingText = { Text("What the platform is called, e.g. SSRS18.") },
                         isError = calibration.name.isBlank(),
                         singleLine = true,
@@ -221,12 +221,12 @@ fun CalibrationScreen(
                     OutlinedTextField(
                         value = calibration.entityId,
                         onValueChange = { onChange(calibration.copy(entityId = it)) },
-                        label = { Text("Rig entity ID") },
+                        label = { Text("Platform entity ID") },
                         supportingText = {
                             Text(
                                 entityIdError
                                     ?: ("The geometry publishes under this rather than under the phone — it " +
-                                        "is the rig the data is about.")
+                                        "is the platform the data is about.")
                             )
                         },
                         isError = calibration.entityId.isBlank() || entityIdError != null,
@@ -288,9 +288,9 @@ fun CalibrationScreen(
                         trailing = if (calibration.zero?.hasPosition == true) "set" else null,
                         onInfo = {
                             info = "Zero point" to
-                                "Every sensor offset is measured from here, so this is the rig's " +
+                                "Every sensor offset is measured from here, so this is the platform's " +
                                 "origin rather than a position report.\n\n" +
-                                "A rig measured entirely with a tape needs no position at all — the " +
+                                "A platform measured entirely with a tape needs no position at all — the " +
                                 "offsets are what matter, and a captured zero only lets you place " +
                                 "sensors by walking to them.\n\n" +
                                 "Averaging reduces scatter, not bias: multipath holds still for " +
@@ -300,7 +300,7 @@ fun CalibrationScreen(
                     // The instruction stays — it is the only thing saying where to stand. The
                     // reasoning behind it is now one tap away.
                     Text(
-                        "Stand at the rig's reference point and capture.",
+                        "Stand at the platform's reference point and capture.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -325,7 +325,7 @@ fun CalibrationScreen(
                         },
                     )
                     Text(
-                        "Which way the rig's +X points, true. Baseline: capture the zero, then a point ahead " +
+                        "Which way the platform's +X points, true. Baseline: capture the zero, then a point ahead " +
                             "on the centreline. Compass: hold the phone flat, screen up, top edge forward.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -382,7 +382,7 @@ fun CalibrationScreen(
                                 "position has been captured — the zero point itself on location_fix, " +
                                 "stamped with the time it was surveyed rather than the time it was " +
                                 "sent.\n\n" +
-                                "All of a rig's transforms share one key, with the sensor named " +
+                                "All of a platform's transforms share one key, with the sensor named " +
                                 "inside the message, which is why they are republished on a loop " +
                                 "rather than once."
                         },
@@ -429,8 +429,8 @@ fun CalibrationScreen(
     }
     if (showFrameHelp) {
         InfoDialog(
-            title = "The rig frame",
-            body = "Describe a sensor rig once, with this phone: mark the rig's zero point, then " +
+            title = "The platform frame",
+            body = "Describe a platform once, with this phone: mark the platform's zero point, then " +
                 "place each sensor relative to it. The result publishes as frame_transform and " +
                 "configuration_json, and exports as a file keelson's platform connector reads.\n\n" +
                 "X is positive forward, Y is positive to starboard, and Z is positive DOWN — " +
@@ -445,7 +445,7 @@ fun CalibrationScreen(
     if (confirmClear) {
         ConfirmDialog(
             title = "Delete this calibration?",
-            body = "The rig, its zero point and all ${calibration.sensors.size} sensors are removed " +
+            body = "The platform, its zero point and all ${calibration.sensors.size} sensors are removed " +
                 "from this phone. Anything already exported or published stays where it is.",
             confirmLabel = "Delete",
             onConfirm = {
@@ -490,7 +490,7 @@ fun CalibrationScreen(
  * typed heading is kept rather than discarded for want of a position. Latitude and longitude of zero
  * would be the Gulf of Guinea, so the capture method says plainly that nothing was measured.
  */
-private fun typedOnlyHeading(heading: Double) = RigZero(
+private fun typedOnlyHeading(heading: Double) = PlatformZero(
     latitude = 0.0,
     longitude = 0.0,
     altitudeM = null,
@@ -504,23 +504,23 @@ private fun typedOnlyHeading(heading: Double) = RigZero(
 )
 
 /** The five steps, in order. The rail and the `when` in the body read from this one list. */
-private val CALIBRATION_STEPS = listOf("Rig", "Zero", "Forward", "Sensors", "Review")
+private val CALIBRATION_STEPS = listOf("Platform", "Zero", "Forward", "Sensors", "Review")
 
 /**
  * Where you are in the survey, and a way to any other part of it.
  *
  * Deliberately navigation rather than a gate: every step is reachable at any time, in any order, for
- * a rig being described for the first time and for one being corrected two months later. A wizard
+ * a platform being described for the first time and for one being corrected two months later. A wizard
  * that made somebody walk five screens to fix a typo in a name would be worse than the single long
  * form this replaced. [StepNav] below is the obvious path for a first survey; it never blocks.
  *
  * The tick is *completeness*, not validity — a step with nothing in it yet reads as undone, which is
- * the one thing a person coming back to a half-finished rig wants to know.
+ * the one thing a person coming back to a half-finished platform wants to know.
  */
 @Composable
 private fun StepRail(
     step: Int,
-    calibration: RigCalibration,
+    calibration: PlatformCalibration,
     enabled: Boolean,
     onStepChange: (Int) -> Unit,
 ) {
@@ -547,7 +547,7 @@ private fun StepRail(
     }
 }
 
-/** Back and Next, for somebody working through a rig for the first time. */
+/** Back and Next, for somebody working through a platform for the first time. */
 @Composable
 private fun StepNav(step: Int, onStepChange: (Int) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -567,9 +567,9 @@ private fun StepNav(step: Int, onStepChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun ZeroCard(zero: RigZero?) {
+private fun ZeroCard(zero: PlatformZero?) {
     // A heading typed before anything was captured is stored as a zero with no position — see
-    // [RigZero.hasPosition]. Drawing it as a position would put the rig at 0°N 0°E in the Gulf of
+    // [PlatformZero.hasPosition]. Drawing it as a position would put the platform at 0°N 0°E in the Gulf of
     // Guinea, which is the most confident possible way of being wrong.
     if (zero == null || !zero.hasPosition) {
         StatusLine(
@@ -612,7 +612,7 @@ private fun ZeroCard(zero: RigZero?) {
             // Said here rather than only in the docs: this position goes on the bus, and anyone
             // capturing one should know that before they do it.
             Text(
-                "Published on location_fix under the rig, stamped with the time it was surveyed — " +
+                "Published on location_fix under the platform, stamped with the time it was surveyed — " +
                     "not a live position.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

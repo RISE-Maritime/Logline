@@ -32,7 +32,7 @@ import java.nio.ByteOrder
 class McapTrackTest {
 
     private val phoneFix = "rise/@v0/pixel_6/pubsub/location_fix/phone"
-    private val rigZero = "rise/@v0/ssrs18/pubsub/location_fix/calibration"
+    private val platformZero = "rise/@v0/ssrs18/pubsub/location_fix/calibration"
     private val pressure = "rise/@v0/pixel_6/pubsub/air_pressure_pa/phone"
 
     private fun fix(lat: Double, lon: Double): ByteArray =
@@ -96,9 +96,9 @@ class McapTrackTest {
     }
 
     /**
-     * **A rig's surveyed zero point is not a track.**
+     * **A platform's surveyed zero point is not a track.**
      *
-     * Two registry entries publish `location_fix`: the phone's live position and a rig's zero point,
+     * Two registry entries publish `location_fix`: the phone's live position and a platform's zero point,
      * which is a jetty somebody stood on with a tape measure. Reading both would draw a line from the
      * boat to the shore and call it a run.
      */
@@ -109,7 +109,7 @@ class McapTrackTest {
             recording(
                 file,
                 listOf(
-                    rigZero to listOf(fix(57.99, 11.99)),
+                    platformZero to listOf(fix(57.99, 11.99)),
                     phoneFix to listOf(fix(57.10, 12.10), fix(57.20, 12.20)),
                 ),
             )
@@ -122,12 +122,12 @@ class McapTrackTest {
         }
     }
 
-    /** A rig zero point on its own is no track at all, rather than a one-point one. */
+    /** A platform zero point on its own is no track at all, rather than a one-point one. */
     @Test
     fun `a recording with only a calibration fix has no track channel`() {
         val file = File.createTempFile("track", ".mcap")
         try {
-            recording(file, listOf(rigZero to listOf(fix(57.99, 11.99))))
+            recording(file, listOf(platformZero to listOf(fix(57.99, 11.99))))
 
             val details = RandomAccessFile(file, "r").use { readMcapDetails(it.channel) }!!
             assertNull(McapTrack.fixChannel(details.topics))
@@ -295,7 +295,7 @@ class McapTrackTest {
                 listOf(
                     pressure to List(200) { byteArrayOf(9, 9, 9) },
                     phoneFix to listOf(fix(57.10, 12.10)),
-                    rigZero to listOf(fix(57.99, 11.99)),
+                    platformZero to listOf(fix(57.99, 11.99)),
                 ),
             )
             unchunk(chunked, flat)
@@ -392,12 +392,12 @@ class McapTrackTest {
         }
     }
 
-    /** Discovery applies the same rule as the summary path: a rig's zero point is not the track. */
+    /** Discovery applies the same rule as the summary path: a platform's zero point is not the track. */
     @Test
     fun `discovery skips the calibration channel`() {
         val file = File.createTempFile("track", ".mcap")
         try {
-            recording(file, listOf(rigZero to listOf(fix(57.99, 11.99))))
+            recording(file, listOf(platformZero to listOf(fix(57.99, 11.99))))
 
             val scan = file.inputStream().use { McapTrack.read(it, null) }
 

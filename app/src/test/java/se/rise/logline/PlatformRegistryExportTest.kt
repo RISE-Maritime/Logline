@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.rise.logline.calibrate.ImportDisposition
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
 import se.rise.logline.calibrate.Vec3M
@@ -22,7 +22,7 @@ import se.rise.logline.calibrate.platformRegistryJson
  */
 class PlatformRegistryExportTest {
 
-    private fun rig(name: String, sensor: String) = RigCalibration.forName(name).copy(
+    private fun platform(name: String, sensor: String) = PlatformCalibration.forName(name).copy(
         sensors = listOf(
             SensorMount(
                 label = sensor,
@@ -35,7 +35,7 @@ class PlatformRegistryExportTest {
 
     @Test
     fun `the registry is an object keyed by entity id`() {
-        val json = platformRegistryJson(listOf(rig("SSRS18", "Lidar"), rig("Stora Krabban", "Radar")), "rise")
+        val json = platformRegistryJson(listOf(platform("SSRS18", "Lidar"), platform("Stora Krabban", "Radar")), "rise")
 
         assertTrue(json.trimStart().startsWith("{"))
         assertTrue(json.contains("\"ssrs18\": {"))
@@ -53,47 +53,47 @@ class PlatformRegistryExportTest {
      */
     @Test
     fun `an entry carries no entity id of its own`() {
-        val json = platformRegistryJson(listOf(rig("SSRS18", "Lidar")), "rise")
+        val json = platformRegistryJson(listOf(platform("SSRS18", "Lidar")), "rise")
         assertFalse(json.contains("entity_id"))
     }
 
     /** Provenance is ours, not crowsnest's — the registry entry is the strict document plus `realm`. */
     @Test
     fun `the registry entry carries no calibration provenance block`() {
-        val json = platformRegistryJson(listOf(rig("SSRS18", "Lidar")), "rise")
+        val json = platformRegistryJson(listOf(platform("SSRS18", "Lidar")), "rise")
         assertFalse(json.contains("\"calibration\""))
     }
 
     /** The round trip that matters: what this writes, this reads. */
     @Test
-    fun `an exported registry parses back to the same rigs`() {
-        val rigs = listOf(rig("SSRS18", "Lidar"), rig("Stora Krabban", "Radar"))
+    fun `an exported registry parses back to the same platforms`() {
+        val platforms = listOf(platform("SSRS18", "Lidar"), platform("Stora Krabban", "Radar"))
 
-        val read = parsePlatformDocument(platformRegistryJson(rigs, "rise"))
+        val read = parsePlatformDocument(platformRegistryJson(platforms, "rise"))
 
-        assertEquals(rigs.map { it.entityId }, read.map { it.entityId })
-        assertEquals(rigs.map { it.name }, read.map { it.name })
+        assertEquals(platforms.map { it.entityId }, read.map { it.entityId })
+        assertEquals(platforms.map { it.name }, read.map { it.name })
         assertEquals(
-            rigs.map { r -> r.sensors.map { it.frameId } },
+            platforms.map { r -> r.sensors.map { it.frameId } },
             read.map { r -> r.sensors.map { it.frameId } },
         )
     }
 
     @Test
     fun `an empty library exports an empty object rather than nothing`() {
-        assertEquals(emptyList<RigCalibration>(), parsePlatformDocument(platformRegistryJson(emptyList(), "rise")))
+        assertEquals(emptyList<PlatformCalibration>(), parsePlatformDocument(platformRegistryJson(emptyList(), "rise")))
     }
 
     /**
-     * A rig already in the library is a replacement, and replacements are opt-out.
+     * A platform already in the library is a replacement, and replacements are opt-out.
      *
      * A silent merge is how somebody's surveyed zero disappears — the screen asks before overwriting,
      * and this is the data that question is built from.
      */
     @Test
-    fun `an import names which rigs it would replace`() {
-        val existing = listOf(rig("SSRS18", "Lidar"))
-        val incoming = listOf(rig("SSRS18", "Radar"), rig("Manatee", "Camera"))
+    fun `an import names which platforms it would replace`() {
+        val existing = listOf(platform("SSRS18", "Lidar"))
+        val incoming = listOf(platform("SSRS18", "Radar"), platform("Manatee", "Camera"))
 
         val candidates = importCandidates(incoming, existing)
 
@@ -106,7 +106,7 @@ class PlatformRegistryExportTest {
 
     @Test
     fun `a purely additive import has nothing to confirm`() {
-        val candidates = importCandidates(listOf(rig("Manatee", "Camera")), listOf(rig("SSRS18", "Lidar")))
+        val candidates = importCandidates(listOf(platform("Manatee", "Camera")), listOf(platform("SSRS18", "Lidar")))
         assertTrue(candidates.none { it.disposition == ImportDisposition.REPLACES })
     }
 }

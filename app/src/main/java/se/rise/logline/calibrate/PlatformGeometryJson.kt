@@ -25,18 +25,18 @@ import java.math.RoundingMode
  * without a stated uncertainty is half a measurement — see `docs/calibration.md`, which proposes the
  * block upstream.
  */
-fun RigCalibration.toPlatformGeometryJson(provenance: Boolean = false): String =
+fun PlatformCalibration.toPlatformGeometryJson(provenance: Boolean = false): String =
     platformGeometryJson(provenance = provenance)
 
 /**
- * The form the phone stores and shares: the wire document plus the two fields that identify the rig.
+ * The form the phone stores and shares: the wire document plus the two fields that identify the platform.
  *
  * `entity_id` and `parent_frame_id` are **not** in upstream's schema, which is why they cannot go in
- * the export — but they are the rig's identity here, and a library of rigs keyed on entity id cannot
+ * the export — but they are the platform's identity here, and a library of platforms keyed on entity id cannot
  * round-trip without them. `parent_frame_id` is recoverable from any frame transform and is written
- * anyway, because a rig with no sensors yet has none to recover it from.
+ * anyway, because a platform with no sensors yet has none to recover it from.
  */
-fun RigCalibration.toStoredJson(): String =
+fun PlatformCalibration.toStoredJson(): String =
     platformGeometryJson(provenance = true, identity = true)
 
 /**
@@ -47,10 +47,10 @@ fun RigCalibration.toStoredJson(): String =
  * own bookkeeping, and inventing key expressions the phone has not verified would put wrong ones in
  * front of an operator. Crowsnest discovers streams from the wire itself.
  */
-fun RigCalibration.toRegistryEntryJson(realm: String): String =
+fun PlatformCalibration.toRegistryEntryJson(realm: String): String =
     platformGeometryJson(provenance = false, realm = realm)
 
-private fun RigCalibration.platformGeometryJson(
+private fun PlatformCalibration.platformGeometryJson(
     provenance: Boolean,
     identity: Boolean = false,
     realm: String? = null,
@@ -78,7 +78,7 @@ private fun RigCalibration.platformGeometryJson(
     return out.toString()
 }
 
-private fun RigCalibration.frameTransformsJson(): String {
+private fun PlatformCalibration.frameTransformsJson(): String {
     if (sensors.isEmpty()) return "[]"
     return sensors.joinToString(
         separator = ",\n",
@@ -105,7 +105,7 @@ private fun RigCalibration.frameTransformsJson(): String {
  * Absent fields are omitted rather than written as `null` or `0`: a typed offset has no accuracy, and
  * saying `"accuracy_m": 0` would claim a perfect one.
  */
-private fun RigCalibration.calibrationJson(): String {
+private fun PlatformCalibration.calibrationJson(): String {
     val parts = mutableListOf<String>()
     parts += "    \"frame\": \"x-forward, y-starboard, z-down; rotations yaw-pitch-roll\""
     zero?.let { z ->

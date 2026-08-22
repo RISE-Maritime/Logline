@@ -23,7 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.platform.DiscoveredPlatform
 import se.rise.logline.platform.DiscoveryState
 import se.rise.logline.ui.components.ConfirmDialog
@@ -36,39 +36,39 @@ import se.rise.logline.ui.components.StatusLine
 import se.rise.logline.ui.components.StatusTone
 
 /**
- * The route segment that means "a rig that does not exist yet".
+ * The route segment that means "a platform that does not exist yet".
  *
  * A path segment rather than a nullable argument because the editor route is keyed on entity id: an
  * import or a remote library update can reorder the list while the editor sits on the back stack, and
- * an index would then quietly edit a different rig. [NEW_SENSOR] is the same idea one level down.
+ * an index would then quietly edit a different platform. [NEW_SENSOR] is the same idea one level down.
  */
-const val NEW_RIG = "new"
+const val NEW_PLATFORM = "new"
 
 /**
- * The rig library — the phone's platform list, and the counterpart to crowsnest's own-ship selector.
+ * The platform library — the phone's platform list, and the counterpart to crowsnest's own-ship selector.
  *
- * A rig here is a keelson **platform**: its entity id is the `{entity_id}` chunk of every key its
+ * A platform here is a keelson **platform**: its entity id is the `{entity_id}` chunk of every key its
  * geometry travels on, which is why the screen shows the id under the name rather than hiding it. Two
  * controls per row, and they answer different questions:
  *
- * - the radio is **which rig this phone is on**, the same single choice crowsnest's selector makes;
- * - the switch is **whether this rig's geometry goes on the bus**, which is not the same question. A
- *   campaign may want the geometry of every rig in the water logged, not only the one the phone is
+ * - the radio is **which platform this phone is on**, the same single choice crowsnest's selector makes;
+ * - the switch is **whether this platform's geometry goes on the bus**, which is not the same question. A
+ *   campaign may want the geometry of every platform in the water logged, not only the one the phone is
  *   bolted to.
  *
- * The active rig's switch is on and disabled: saying "the phone is on this rig" and then not
+ * The active platform's switch is on and disabled: saying "the phone is on this platform" and then not
  * publishing its geometry is a contradiction, and a control that can express it is a control somebody
  * will use by accident.
  */
 @Composable
-fun RigListScreen(
-    rigs: List<RigCalibration>,
+fun PlatformListScreen(
+    platforms: List<PlatformCalibration>,
     activeEntityId: String,
     publishingEntityIds: Set<String>,
     /** True while a run is going: the switches restart it, so they are read-only until it stops. */
     publishing: Boolean,
-    onOpenRig: (String) -> Unit,
-    onAddRig: () -> Unit,
+    onOpenPlatform: (String) -> Unit,
+    onAddPlatform: () -> Unit,
     onSetActive: (String) -> Unit,
     onSetPublishing: (String, Boolean) -> Unit,
     /** Write the whole library as a crowsnest-shaped `platform_registry.json`. */
@@ -78,7 +78,7 @@ fun RigListScreen(
     /** The last export or import's outcome, good or bad. Cleared when the screen is left. */
     message: String?,
     /**
-     * Names of rigs an import is about to overwrite, when it is about to overwrite any.
+     * Names of platforms an import is about to overwrite, when it is about to overwrite any.
      *
      * Non-empty puts a confirmation in front of the merge. A surveyed zero is twenty minutes of
      * somebody standing still holding a phone; replacing one has to be a deliberate tap rather than a
@@ -93,23 +93,23 @@ fun RigListScreen(
     /** Why the platform session could not open — a missing TLS credential, a bad endpoint. */
     linkFailure: String?,
     onDiscover: () -> Unit,
-    /** Copy a discovered platform into the library as an ordinary rig. */
+    /** Copy a discovered platform into the library as an ordinary platform. */
     onAdopt: (DiscoveredPlatform) -> Unit,
-    /** Share the library with other stations. Off by default — it publishes this phone's rigs. */
+    /** Share the library with other stations. Off by default — it publishes this phone's platforms. */
     shareLibrary: Boolean,
     onSetShareLibrary: (Boolean) -> Unit,
     /** A library another station published, waiting to be applied or dismissed. */
-    incomingRigCount: Int?,
+    incomingPlatformCount: Int?,
     onApplyIncoming: () -> Unit,
     onDismissIncoming: () -> Unit,
     onBack: () -> Unit,
 ) {
     if (pendingReplacements.isNotEmpty()) {
         ConfirmDialog(
-            title = "Replace ${pendingReplacements.size} rig${if (pendingReplacements.size == 1) "" else "s"}?",
+            title = "Replace ${pendingReplacements.size} platform${if (pendingReplacements.size == 1) "" else "s"}?",
             body = "The file describes ${pendingReplacements.joinToString(", ")}, which " +
                 "${if (pendingReplacements.size == 1) "is" else "are"} already in the library. " +
-                "Importing replaces the geometry, the zero point and every sensor pose. Which rigs " +
+                "Importing replaces the geometry, the zero point and every sensor pose. Which platforms " +
                 "this phone publishes is left as it is.",
             confirmLabel = "Replace",
             onConfirm = onConfirmImport,
@@ -125,7 +125,7 @@ fun RigListScreen(
         InfoDialog(title = title, body = body, onDismiss = { info = null })
     }
 
-    ScreenScaffold(title = "Rigs", onBack = onBack) { padding ->
+    ScreenScaffold(title = "Platforms", onBack = onBack) { padding ->
         Column(
             Modifier
                 .padding(padding)
@@ -133,34 +133,34 @@ fun RigListScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionHeader("Platforms", trailing = summaryOf(rigs, activeEntityId, publishingEntityIds))
+            SectionHeader("Platforms", trailing = summaryOf(platforms, activeEntityId, publishingEntityIds))
 
-            if (rigs.isEmpty()) {
-                // The first thing a new install sees here, so it says what a rig is *for* and offers
+            if (platforms.isEmpty()) {
+                // The first thing a new install sees here, so it says what a platform is *for* and offers
                 // both ways out of the state — describing one, or taking one somebody else wrote.
                 EmptyState(
-                    title = "No rigs yet",
-                    body = "A rig records where a sensor rig's zero point is and where each sensor " +
+                    title = "No platforms yet",
+                    body = "A platform records where its zero point is and where each sensor " +
                         "sits relative to it. Nothing publishes until one is described.",
-                    primary = { Button(onClick = onAddRig) { Text("Add rig") } },
+                    primary = { Button(onClick = onAddPlatform) { Text("Add platform") } },
                     secondary = {
                         OutlinedButton(onClick = onImport, enabled = !publishing) { Text("Import…") }
                     },
                 )
             }
 
-            rigs.forEach { rig ->
-                RigRow(
-                    rig = rig,
-                    active = rig.entityId == activeEntityId,
-                    publishing = rig.entityId == activeEntityId || rig.entityId in publishingEntityIds,
-                    // A rig with no sensors has nothing to say, so its switch would be a promise the
-                    // publisher does not keep — see Settings.publishingRigs.
-                    publishable = rig.isPublishable,
+            platforms.forEach { platform ->
+                PlatformRow(
+                    platform = platform,
+                    active = platform.entityId == activeEntityId,
+                    publishing = platform.entityId == activeEntityId || platform.entityId in publishingEntityIds,
+                    // A platform with no sensors has nothing to say, so its switch would be a promise the
+                    // publisher does not keep — see Settings.publishingPlatforms.
+                    publishable = platform.isPublishable,
                     locked = publishing,
-                    onOpen = { onOpenRig(rig.entityId) },
-                    onSetActive = { onSetActive(rig.entityId) },
-                    onSetPublishing = { onSetPublishing(rig.entityId, it) },
+                    onOpen = { onOpenPlatform(platform.entityId) },
+                    onSetActive = { onSetActive(platform.entityId) },
+                    onSetPublishing = { onSetPublishing(platform.entityId, it) },
                 )
             }
 
@@ -168,16 +168,16 @@ fun RigListScreen(
                 StatusLine(
                     "Publishing",
                     StatusTone.Neutral,
-                    detail = "Which rigs publish is fixed when a run starts — each one declares its " +
+                    detail = "Which platforms publish is fixed when a run starts — each one declares its " +
                         "own publishers and its own liveliness token. Stop to change it.",
                 )
             }
 
             // Only when there is a list to add to: the empty state above already offers this, and
-            // two "Add rig" buttons a thumb apart is worse than either on its own.
-            if (rigs.isNotEmpty()) {
-                OutlinedButton(onClick = onAddRig, modifier = Modifier.fillMaxWidth()) {
-                    Text("Add rig")
+            // two "Add platform" buttons a thumb apart is worse than either on its own.
+            if (platforms.isNotEmpty()) {
+                OutlinedButton(onClick = onAddPlatform, modifier = Modifier.fillMaxWidth()) {
+                    Text("Add platform")
                 }
             }
 
@@ -198,7 +198,7 @@ fun RigListScreen(
                 ) { Text("Import…") }
                 OutlinedButton(
                     onClick = onExportRegistry,
-                    enabled = rigs.isNotEmpty(),
+                    enabled = platforms.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                 ) { Text("Export all") }
             }
@@ -260,17 +260,17 @@ fun RigListScreen(
             discovered.forEach { platform ->
                 DiscoveredRow(
                     platform = platform,
-                    // Already in the library: adopting again would overwrite a rig somebody may have
+                    // Already in the library: adopting again would overwrite a platform somebody may have
                     // corrected by hand since.
-                    known = rigs.any { it.entityId == platform.entityId },
+                    known = platforms.any { it.entityId == platform.entityId },
                     onAdopt = { onAdopt(platform) },
                 )
             }
 
             SectionHeader("Shared library")
             Text(
-                "Publishes this phone's rigs where other stations can read them, and applies theirs " +
-                    "when they are newer. Which rig is active and which ones publish stay this " +
+                "Publishes this phone's platforms where other stations can read them, and applies theirs " +
+                    "when they are newer. Which platform is active and which ones publish stay this " +
                     "phone's own — a library arriving over the air never changes what goes on the bus.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -283,11 +283,11 @@ fun RigListScreen(
                 Text("Share with other stations", style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = shareLibrary, onCheckedChange = onSetShareLibrary)
             }
-            incomingRigCount?.let { count ->
+            incomingPlatformCount?.let { count ->
                 StatusLine(
                     "A newer library is available",
                     StatusTone.Neutral,
-                    detail = "$count rig${if (count == 1) "" else "s"} from another station.",
+                    detail = "$count platform${if (count == 1) "" else "s"} from another station.",
                     action = {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = onDismissIncoming) { Text("Ignore") }
@@ -301,20 +301,20 @@ fun RigListScreen(
 }
 
 private fun summaryOf(
-    rigs: List<RigCalibration>,
+    platforms: List<PlatformCalibration>,
     activeEntityId: String,
     publishingEntityIds: Set<String>,
 ): String? {
-    if (rigs.isEmpty()) return null
-    val publishing = rigs.count {
+    if (platforms.isEmpty()) return null
+    val publishing = platforms.count {
         it.isPublishable && (it.entityId == activeEntityId || it.entityId in publishingEntityIds)
     }
-    return "$publishing of ${rigs.size} publishing"
+    return "$publishing of ${platforms.size} publishing"
 }
 
 @Composable
-private fun RigRow(
-    rig: RigCalibration,
+private fun PlatformRow(
+    platform: PlatformCalibration,
     active: Boolean,
     publishing: Boolean,
     publishable: Boolean,
@@ -335,17 +335,17 @@ private fun RigRow(
                     .clickable(onClick = onOpen)
                     .padding(vertical = 12.dp),
             ) {
-                Text(rig.name.ifBlank { rig.entityId }, style = MaterialTheme.typography.titleMedium)
+                Text(platform.name.ifBlank { platform.entityId }, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    subtitleOf(rig),
+                    subtitleOf(platform),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(
                 checked = publishing && publishable,
-                // The active rig always publishes, so its switch states a fact rather than offering a
-                // choice; a rig with no sensors has nothing to publish at all.
+                // The active platform always publishes, so its switch states a fact rather than offering a
+                // choice; a platform with no sensors has nothing to publish at all.
                 onCheckedChange = if (active || !publishable || locked) null else onSetPublishing,
                 enabled = !active && publishable && !locked,
                 modifier = Modifier.clearAndSetSemantics { },
@@ -363,14 +363,14 @@ private fun DiscoveredRow(platform: DiscoveredPlatform, known: Boolean, onAdopt:
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    platform.rig?.name?.ifBlank { platform.entityId } ?: platform.entityId,
+                    platform.geometry?.name?.ifBlank { platform.entityId } ?: platform.entityId,
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
                     // Liveliness gives an id and nothing else, so an entity with no document is worth
                     // showing and not worth adopting — there is no geometry to copy.
                     if (platform.hasGeometry) {
-                        "${platform.entityId} · ${platform.rig!!.sensors.size} sensors"
+                        "${platform.entityId} · ${platform.geometry!!.sensors.size} sensors"
                     } else {
                         "${platform.entityId} · alive, no geometry published"
                     },
@@ -390,17 +390,17 @@ private fun DiscoveredRow(platform: DiscoveredPlatform, known: Boolean, onAdopt:
     }
 }
 
-private fun subtitleOf(rig: RigCalibration): String = buildList {
-    add(rig.entityId)
-    rig.platformType?.let { add(it.wire) }
+private fun subtitleOf(platform: PlatformCalibration): String = buildList {
+    add(platform.entityId)
+    platform.platformType?.let { add(it.wire) }
     add(
-        when (rig.sensors.size) {
+        when (platform.sensors.size) {
             0 -> "no sensors"
             1 -> "1 sensor"
-            else -> "${rig.sensors.size} sensors"
+            else -> "${platform.sensors.size} sensors"
         }
     )
-    // The zero is what anchors the transforms to the earth; a rig without one is legitimate and worth
+    // The zero is what anchors the transforms to the earth; a platform without one is legitimate and worth
     // distinguishing at a glance from one that has been surveyed.
-    if (rig.zero?.hasPosition == true) add("surveyed") else add("no zero")
+    if (platform.zero?.hasPosition == true) add("surveyed") else add("no zero")
 }.joinToString(" · ")

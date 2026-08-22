@@ -29,9 +29,9 @@ const val SETTINGS_PROFILE_VERSION = 1
  *   byte-identical keys, and their samples interleave on the bus with nothing to tell them apart.
  * * [Settings.operatorId] is what de-duplicates this phone's own presence heartbeat coming back on the
  *   wildcard subscription. Two phones sharing one each read the other's heartbeat as their own.
- * * [Settings.rigRegistryOrigin] does the same job for the rig library: without a distinct origin a
+ * * [Settings.platformRegistryOrigin] does the same job for the platform library: without a distinct origin a
  *   phone applies its own library back over itself on every reconnect and the version ratchets.
- * * [Settings.rigRegistryVersion] is sync bookkeeping. An imported version would claim a place in the
+ * * [Settings.platformRegistryVersion] is sync bookkeeping. An imported version would claim a place in the
  *   last-writer-wins ordering that this phone has not earned.
  * * [Settings.batteryExemptionAsked] records that *this* device was asked a question. A new phone
  *   should still be asked it.
@@ -39,8 +39,8 @@ const val SETTINGS_PROFILE_VERSION = 1
  * All three identities are documented in `Settings` as "generated once and never changed", which is
  * exactly the property that makes copying them a bug rather than a convenience.
  *
- * The rig library is out too, for a different reason: it already has two sharing paths — over the bus
- * via `shareRigLibrary`, and as a platform-geometry document — and a third would bring its own
+ * The platform library is out too, for a different reason: it already has two sharing paths — over the bus
+ * via `sharePlatformLibrary`, and as a platform-geometry document — and a third would bring its own
  * version-ordering questions.
  *
  * Composite fields carry **the same strings DataStore stores**, produced by the same serialisers, so

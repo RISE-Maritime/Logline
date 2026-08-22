@@ -48,9 +48,9 @@ Every sample is serialised as its payload type, wrapped in `core.Envelope` (whic
 | `image_compressed` | `foxglove.CompressedImage` | CameraX `ImageCapture`, JPEG | off by default; 1 frame/2 s at 720p when on |
 | `video_compressed` | `foxglove.CompressedVideo` | `MediaCodec` H.264, Annex B | off by default; 10 fps at 640x480 when on, replaces the time-lapse |
 | `log_message` | `foxglove.Log` | an operator pressing a button | only when marked |
-| `frame_transform` | `foxglove.FrameTransform` | a rig calibration, one message per sensor | every 10 s, only when a rig is calibrated |
+| `frame_transform` | `foxglove.FrameTransform` | a platform calibration, one message per sensor | every 10 s, only when a platform is calibrated |
 | `configuration_json` | `keelson.TimestampedString` | the same calibration as one document | with `frame_transform` |
-| `location_fix` | `foxglove.LocationFix` | the rig's surveyed zero point, under the rig's entity | with `frame_transform`, once a zero is set |
+| `location_fix` | `foxglove.LocationFix` | the platform's surveyed zero point, under the platform's entity | with `frame_transform`, once a zero is set |
 
 **The units on the wire are keelson's, not Android's**, and they differ for most of these: gauss rather
 than microtesla, pascals rather than hectopascals, knots rather than metres per second, volts rather
@@ -367,7 +367,7 @@ Two things to know before reading any of them:
 
 - **They describe the phone, not the vessel.** Pitch turns about the device's +X axis, roll about +Y,
   yaw about +Z — Android's own convention, the same one the heading uses. What that means for the boat
-  the phone is strapped to is the rig calibration's `frame_transform`. The subject's own screen says so.
+  the phone is strapped to is the platform calibration's `frame_transform`. The subject's own screen says so.
 - **They run at 10 Hz by default, not the IMU's 50.** Their own dial, on their own sensor
   registration, because riding the rotation vector would have put ~150 messages a second on the bus for
   three subjects describing motion with a period of seconds. Six subjects at 10 Hz is ~60/s and about
@@ -524,7 +524,7 @@ since boot, deep sleep included, because the phone was up and merely asleep.
 
 It earns its place months later. A gap in a recording has two explanations that are indistinguishable
 from the data — the app was stopped and started, or the phone went down and came back — and for an
-unattended rig they mean very different things. Uptime resetting across the gap says which.
+unattended platform they mean very different things. Uptime resetting across the gap says which.
 
 ### Speed and course are always published
 
@@ -636,7 +636,7 @@ rise/@v0/pixel_6/*/wifi
 
 `cellular` and `wifi` are not configurable — they name which radio measured the value, which is a
 hardware fact rather than a preference. Configuring distinct location, IMU and device source ids yields
-one token each on top, and each publishing rig adds one under the rig's own entity id.
+one token each on top, and each publishing platform adds one under the platform's own entity id.
 
 **Subject tier** — one token per subject the phone claims, on exactly the key that subject publishes on:
 
@@ -659,11 +659,11 @@ silence. That is the one place a per-subject switch is visible beyond the phone:
 off now withdraws the claim, so a monitor sees it retracted rather than waiting for samples that are
 never coming.
 
-**RPC interface tier** — while a rig screen is open, each rig also advertises the `configurable/v1`
+**RPC interface tier** — while a platform screen is open, each platform also advertises the `configurable/v1`
 interface it answers on:
 
 ```
-rise/@v0/{rig}/@rpc/configurable/v1/*/calibration
+rise/@v0/{platform}/@rpc/configurable/v1/*/calibration
 ```
 
 No wildcard crosses `@rpc` any more than it crosses `@v0`, so this token is invisible to every pattern
@@ -671,9 +671,9 @@ that finds the others — a discovery client needs a second subscription spellin
 token obliges the app to answer *every* procedure in the interface, so `get_config` returns the
 platform document and **`set_config` returns a typed refusal** — a serialised
 `keelson.interfaces.ErrorResponse` with `PERMISSION_DENIED` and a description saying the refusal is
-permanent. A rig's geometry is edited on the phone or taken from a shared library under rules that
-protect a rig this phone is publishing; a remote write would bypass them. The token is declared only
-while `PlatformSync` has a session, which is while a rig screen is up — a phone that is merely logging
+permanent. A platform's geometry is edited on the phone or taken from a shared library under rules that
+protect a platform this phone is publishing; a remote write would bypass them. The token is declared only
+while `PlatformSync` has a session, which is while a platform screen is up — a phone that is merely logging
 advertises no RPC, which is what the specification asks for and worth knowing before you go looking.
 
 **Legacy coarse token** — the pre-3-tier shape, still declared beside the source tier:
@@ -866,7 +866,7 @@ rather than hanging or failing obscurely later.
 The app has five tabs across the bottom — **Session**, **Live**, **Events**, **Files** and **Setup**.
 Session is the dashboard and the start/stop control, Live is the map and the plots, Events is where a
 moment is marked, Files is what has been recorded, and Setup holds everything that is configured
-rather than operated: Settings, Rigs, the annotation buttons and (when enabled) Checklists.
+rather than operated: Settings, Platforms, the annotation buttons and (when enabled) Checklists.
 
 Start and Stop sit pinned above the tab bar rather than in the scroll, because the page below them is
 thirty-nine subjects long. The card at the top is the session summary — what the last run left behind
@@ -1018,8 +1018,8 @@ something different if it does:
 | --- | --- |
 | `entity_id` | Names *this hardware*. Two phones sharing one publish on byte-identical keys and their samples interleave with nothing to tell them apart. |
 | `operator_id` | De-duplicates this phone's own presence heartbeat coming back on the wildcard subscription. |
-| `rig_registry_origin` | The same job for the rig library: without a distinct origin a phone applies its own library back over itself on every reconnect. |
-| `rig_registry_version` | Sync bookkeeping — an imported version would claim a place in the last-writer-wins ordering it has not earned. |
+| `platform_registry_origin` | The same job for the platform library: without a distinct origin a phone applies its own library back over itself on every reconnect. |
+| `platform_registry_version` | Sync bookkeeping — an imported version would claim a place in the last-writer-wins ordering it has not earned. |
 | `battery_exemption_asked` | A record that *this* device was asked; a new phone should still be asked. |
 
 The operator's **name, role and site** do travel, with a tick on the import screen to leave them
@@ -1069,34 +1069,35 @@ Checklist traffic uses its own Zenoh session, open only while a checklist screen
 and entity (`crowsnest/@v0/checklist/...`) — not the ones this phone publishes sensor data under.
 Checklist activity is **not** written to the MCAP recording.
 
-## Rig calibration
+## Platform calibration
 
-Optional, and nothing publishes until a rig is described. **Setup → Rigs** (while stopped) records
-where a sensor rig's zero point is and where each sensor sits relative to it: X forward, Y to
+Optional, and nothing publishes until a platform is described. **Setup → Platforms** (while stopped) records
+where a sensor platform's zero point is and where each sensor sits relative to it: X forward, Y to
 starboard, **Z down**, metres, with rotations in degrees applied yaw → pitch → roll.
 
-Describing one rig is a five-step flow — **Rig**, **Zero**, **Forward**, **Sensors**, **Review** —
+Describing one platform is a five-step flow — **Platform**, **Zero**, **Forward**, **Sensors**, **Review** —
 with the steps shown as a row of chips at the top. They are navigation rather than a sequence: any
-step is reachable at any time, which is what makes correcting an existing rig as quick as it should
+step is reachable at any time, which is what makes correcting an existing platform as quick as it should
 be, and **Save** stays available throughout, so a survey interrupted halfway is not lost. A step
 carrying a ✓ has something in it. The wire details — the key the transforms go out on,
 `frame_transform`, `configuration_json` — live on the Review step and behind the ⓘ, not above the
 name field.
 
-The phone holds a **library** of rigs, not one. A rig is a keelson *platform* — `entity_id` is the
-platform name — so the list is the counterpart to crowsnest's own-ship selector: one rig is **active**
-(the rig the phone is on), and any number of others can be switched on beside it, because a campaign
-often wants every rig in the water logged and not only the one the phone is bolted to. Each publishing
-rig gets its own publishers, its own keys and its own liveliness token, so changing the selection
+The phone holds a **library** of platforms, not one. A platform is keelson's own word for the thing
+being measured — `entity_id` is the platform name — so the list is the counterpart to crowsnest's
+own-ship selector: one platform is **active**
+(the platform the phone is on), and any number of others can be switched on beside it, because a campaign
+often wants every platform in the water logged and not only the one the phone is bolted to. Each publishing
+platform gets its own publishers, its own keys and its own liveliness token, so changing the selection
 restarts a run — unlike the per-subject switches, which do not.
 
-Offsets are either **typed** — a tape measure, and for a small rig the only honest option — or
+Offsets are either **typed** — a tape measure, and for a small platform the only honest option — or
 **captured**, by standing the phone at the sensor and averaging twenty seconds of fixes. The screen
 shows the fix accuracy behind every captured number and flags in red any offset smaller than the
 accuracy that produced it, because that offset is GNSS noise rather than geometry. Rotations are always
 typed: a phone can measure where a radar is, not where it is aimed.
 
-The result goes out under the **rig's** entity id, not the phone's — `entity_id` names the thing the
+The result goes out under the **platform's** entity id, not the phone's — `entity_id` names the thing the
 data is about — and exports as a file keelson's own `connectors/platform` reads unchanged:
 
 ```
@@ -1105,22 +1106,22 @@ rise/@v0/ssrs18/pubsub/configuration_json/calibration
 rise/@v0/ssrs18/pubsub/location_fix/calibration
 ```
 
-The phone's own sensors are unaffected by which rig is selected: a battery reading is about the phone
-whichever rig it is bolted to, so everything it measures stays under the phone's entity id.
+The phone's own sensors are unaffected by which platform is selected: a battery reading is about the phone
+whichever platform it is bolted to, so everything it measures stays under the phone's entity id.
 
 Four things line the library up with crowsnest's platform list, each its own control on the screen:
 **Export all** writes the whole library in crowsnest's registry shape and **Import** reads it back (or
 a single platform-geometry file, or an older `keelson-platforms` `config.json`); **Scan the bus** finds
 platforms already publishing and offers them for adoption; the phone **answers `get_config`** for every
-rig it holds while a rig screen is open; and an opt-in **shared library** publishes the whole list on a
+platform it holds while a platform screen is open; and an opt-in **shared library** publishes the whole list on a
 deliberately non-keelson key, last-writer-wins, where other stations can read it. What each of those
 does and does not carry — and why crowsnest's `get_config` key shape needs the phone to serve two — is
 in [docs/calibration.md](docs/calibration.md).
 
-The third one is the rig's **zero point**, which anchors the transforms to the earth. It is stamped
+The third one is the platform's **zero point**, which anchors the transforms to the earth. It is stamped
 with the time it was surveyed rather than the time it was published, sits on a different key from the
 phone's own fix, and is called "Zero point" on screen — three separate reasons it cannot be read as
-where the rig is *now*. It publishes only once a position has been captured or typed; a rig measured
+where the platform is *now*. It publishes only once a position has been captured or typed; a platform measured
 entirely with a tape publishes its geometry and no position.
 
 Full procedure, the frame conventions, a worked example and an honest account of what a phone fix can
@@ -1203,7 +1204,7 @@ they restart at each 512 MB rotation, which is what the file count is there to c
 ### Getting recordings off the phone
 
 The **Files** tab. It lists everything the app has put
-in `Downloads/Logline` — recordings and the rig calibration's platform-geometry export — newest first,
+in `Downloads/Logline` — recordings and the platform calibration's platform-geometry export — newest first,
 with size, message count and duration, and offers a share sheet and a delete.
 
 The count and duration come out of each file's own MCAP `Statistics` record, read through the footer:
@@ -1352,7 +1353,7 @@ nothing announces a change to it.
 
 Off by default; **Settings → Background running → Start on boot**. `START_STICKY` already brings a run
 back when the process is killed, and nothing brought it back after a restart — which for a phone wired
-into a rig is the difference between an unattended install and one somebody has to go and visit.
+into a platform is the difference between an unattended install and one somebody has to go and visit.
 
 A boot start is narrower than one you press Start for, and both limits are the platform's:
 
@@ -1412,7 +1413,7 @@ app/src/main/java/se/rise/logline/
   publish/SensorPublisher.kt  Owns the session, the publishers, and the per-subject status
   publish/PublisherService.kt Foreground service — notification, wake lock, run lifetime
   checklist/               Shared checklists — own session, reducer, reminders (see Checklists)
-  calibrate/               Rig geometry — model, geodesy, quaternions, platform-geometry JSON
+  calibrate/               Platform geometry — model, geodesy, quaternions, platform-geometry JSON
   ui/                      MainScreen, LiveScreen, AnnotationScreen, SettingsScreen, theme
 app/src/main/proto/        Vendored copies of Keelson protobuf definitions
 art/                       Source artwork + the launcher-icon generator

@@ -2,8 +2,8 @@ package se.rise.logline
 
 import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.HeadingSource
-import se.rise.logline.calibrate.RigCalibration
-import se.rise.logline.calibrate.RigZero
+import se.rise.logline.calibrate.PlatformCalibration
+import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
 import se.rise.logline.calibrate.Vec3M
@@ -24,28 +24,28 @@ class CalibrationTest {
         assertEquals("ssrs18", slugify("SSRS18"))
         assertEquals("ouster-os-lidar", slugify("Ouster OS lidar"))
         assertEquals("r-v-svea", slugify("R/V Svea"))
-        assertEquals("rig-2", slugify("  Rig #2!  "))
+        assertEquals("platform-2", slugify("  Platform #2!  "))
         assertEquals("", slugify("!!!"))
     }
 
     @Test
-    fun `a rig with an unusable name still gets usable ids`() {
+    fun `a platform with an unusable name still gets usable ids`() {
         // Never an empty key segment: a frame id of "-frame-" or an entity id of "" would publish on a
         // malformed key rather than fail, which is the worst of both.
-        assertEquals("rig", defaultEntityId("!!!"))
-        assertEquals("rig-frame-ccrp", defaultParentFrameId(""))
-        assertEquals("rig-frame-sensor", defaultFrameId("", ""))
+        assertEquals("platform", defaultEntityId("!!!"))
+        assertEquals("platform-frame-ccrp", defaultParentFrameId(""))
+        assertEquals("platform-frame-sensor", defaultFrameId("", ""))
     }
 
     @Test
-    fun `frame ids read as rig then sensor`() {
+    fun `frame ids read as platform then sensor`() {
         assertEquals("ssrs18-frame-ccrp", defaultParentFrameId("SSRS18"))
         assertEquals("ssrs18-frame-ouster-os-lidar", defaultFrameId("SSRS18", "Ouster OS lidar"))
     }
 
     @Test
-    fun `a rig with no sensors has nothing to publish`() {
-        val empty = RigCalibration.forName("SSRS18")
+    fun `a platform with no sensors has nothing to publish`() {
+        val empty = PlatformCalibration.forName("SSRS18")
         assertFalse(empty.isPublishable)
         assertTrue(empty.copy(sensors = listOf(mount(Vec3M(1.0, 0.0, 0.0)))).isPublishable)
     }
@@ -69,9 +69,9 @@ class CalibrationTest {
     @Test
     fun `a heading typed before any capture is a zero with no position`() {
         // The forward axis is useful on its own, so it is kept — but it must not read as a surveyed
-        // position, or the screen draws the rig at 0N 0E and an offset capture measures the distance
+        // position, or the screen draws the platform at 0N 0E and an offset capture measures the distance
         // to the Gulf of Guinea.
-        val headingOnly = RigZero(
+        val headingOnly = PlatformZero(
             latitude = 0.0,
             longitude = 0.0,
             altitudeM = null,
@@ -93,7 +93,7 @@ class CalibrationTest {
         accuracyM: Double? = null,
     ) = SensorMount(
         label = "Sensor",
-        frameId = "rig-frame-sensor",
+        frameId = "platform-frame-sensor",
         sensorType = SensorType.OTHER,
         translation = translation,
         capture = capture,

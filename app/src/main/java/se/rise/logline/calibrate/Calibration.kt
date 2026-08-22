@@ -1,7 +1,7 @@
 package se.rise.logline.calibrate
 
 /**
- * A sensor rig's geometry: where the rig's zero is, and where each sensor sits relative to it.
+ * A sensor platform's geometry: where the platform's zero is, and where each sensor sits relative to it.
  *
  * This is the model behind the calibration screen and behind the two subjects that carry it —
  * `frame_transform` (one message per sensor) and `configuration_json` (the whole document). It is pure
@@ -13,25 +13,25 @@ package se.rise.logline.calibrate
  * not collect — `operational_limits`, `vessel_outlines`, MMSI/IMO/call sign — are simply omitted;
  * every one of them is optional.
  */
-data class RigCalibration(
-    /** Human name of the rig, e.g. `SSRS18`. Everything else defaults from this. */
+data class PlatformCalibration(
+    /** Human name of the platform, e.g. `SSRS18`. Everything else defaults from this. */
     val name: String,
     /**
      * The `entity_id` the calibration publishes under.
      *
-     * **The rig, not the phone.** `entity_id` names the physical thing the data is about, and the
-     * geometry of a rig belongs to the rig even though a phone measured it. Defaults to the slugified
+     * **The platform, not the phone.** `entity_id` names the physical thing the data is about, and the
+     * geometry of a platform belongs to the platform even though a phone measured it. Defaults to the slugified
      * name; leaving it equal to the phone's own entity id is legal, just less useful.
      */
     val entityId: String,
-    /** The frame every sensor hangs off. Upstream's example names it `<rig>-frame-ccrp`. */
+    /** The frame every sensor hangs off. Upstream's example names it `<platform>-frame-ccrp`. */
     val parentFrameId: String,
     val platformType: PlatformType? = null,
     val description: String = "",
     val lengthOverAllM: Double? = null,
     val breadthOverAllM: Double? = null,
     /**
-     * Where the CCRP sits in the rig frame.
+     * Where the CCRP sits in the platform frame.
      *
      * Zero by default, which says the CCRP *is* the zero point — the usual case, and the one that
      * makes [parentFrameId]'s name true. Upstream's note is worth repeating: the CCRP is the common
@@ -41,10 +41,10 @@ data class RigCalibration(
     /**
      * The surveyed origin, when there is one.
      *
-     * Null is a perfectly good calibration: a rig measured with a tape needs no position at all. The
+     * Null is a perfectly good calibration: a platform measured with a tape needs no position at all. The
      * zero only exists so that a *GNSS-captured* sensor offset has something to be relative to.
      */
-    val zero: RigZero? = null,
+    val zero: PlatformZero? = null,
     val sensors: List<SensorMount> = emptyList(),
     val updatedAtEpochMillis: Long = 0L,
 ) {
@@ -52,7 +52,7 @@ data class RigCalibration(
     val isPublishable: Boolean get() = sensors.isNotEmpty()
 
     companion object {
-        fun forName(name: String, atEpochMillis: Long = 0L) = RigCalibration(
+        fun forName(name: String, atEpochMillis: Long = 0L) = PlatformCalibration(
             name = name,
             entityId = defaultEntityId(name),
             parentFrameId = defaultParentFrameId(name),
@@ -62,14 +62,14 @@ data class RigCalibration(
 }
 
 /**
- * The rig's origin: a position, and which way the rig points.
+ * The platform's origin: a position, and which way the platform points.
  *
  * The heading is the part that turns a pair of positions into an offset — without it "10 m north" says
  * nothing about whether that is ahead or abeam. All three ways of establishing it are recorded rather
  * than reduced to a number, because they are worth very different amounts: a baseline over 20 m is
  * good to a degree or so, a phone compass is good to five or ten and worse near steel.
  */
-data class RigZero(
+data class PlatformZero(
     val latitude: Double,
     val longitude: Double,
     val altitudeM: Double?,
@@ -86,7 +86,7 @@ data class RigZero(
     val verticalAccuracyM: Double? = null,
     /** How far the averaged samples fell from their own mean. See [AveragedFix]. */
     val scatterM: Double?,
-    /** True heading of the rig's +X (forward) axis, degrees. */
+    /** True heading of the platform's +X (forward) axis, degrees. */
     val headingDeg: Double,
     val headingSource: HeadingSource,
     val capture: CaptureMethod,
@@ -107,9 +107,9 @@ data class RigZero(
 }
 
 /**
- * One sensor's pose on the rig.
+ * One sensor's pose on the platform.
  *
- * Translation is in the rig frame — X forward, Y starboard, Z down, metres — and rotation is how the
+ * Translation is in the platform frame — X forward, Y starboard, Z down, metres — and rotation is how the
  * sensor is aimed, in the yaw → pitch → roll order upstream applies them.
  *
  * The rotation is always typed. A phone held next to a radar can measure where the radar *is*; it
@@ -158,7 +158,7 @@ enum class SensorType(val wire: String, val label: String) {
     OTHER("other", "Other"),
 }
 
-/** How the rig's forward axis was established. */
+/** How the platform's forward axis was established. */
 enum class HeadingSource(val label: String) {
     /** Bearing from the zero to a second point ahead on the centreline. */
     BASELINE("Baseline"),
@@ -178,7 +178,7 @@ enum class CaptureMethod(val label: String) {
  * Lowercase, hyphen-separated, no leading or trailing hyphen.
  *
  * Hyphens rather than the underscores `slugifyModel()` uses for the phone's entity id: keelson's own
- * examples spell rig entities and frame ids `vessel-example` and `ssrs18-demo-frame-ccrp`, and these
+ * examples spell platform entities and frame ids `vessel-example` and `ssrs18-demo-frame-ccrp`, and these
  * strings end up beside those.
  */
 fun slugify(text: String): String =
@@ -196,12 +196,12 @@ private val ENTITY_ID = Regex("^[a-z0-9][a-z0-9_-]*$")
 
 fun isValidEntityId(entityId: String): Boolean = ENTITY_ID.matches(entityId)
 
-fun defaultEntityId(rigName: String): String = slugify(rigName).ifEmpty { "rig" }
+fun defaultEntityId(platformName: String): String = slugify(platformName).ifEmpty { "platform" }
 
-fun defaultParentFrameId(rigName: String): String = "${defaultEntityId(rigName)}-frame-ccrp"
+fun defaultParentFrameId(platformName: String): String = "${defaultEntityId(platformName)}-frame-ccrp"
 
 /** `SSRS18` + `Ouster OS lidar` → `ssrs18-frame-ouster-os-lidar`. */
-fun defaultFrameId(rigName: String, sensorLabel: String): String {
+fun defaultFrameId(platformName: String, sensorLabel: String): String {
     val sensor = slugify(sensorLabel).ifEmpty { "sensor" }
-    return "${defaultEntityId(rigName)}-frame-$sensor"
+    return "${defaultEntityId(platformName)}-frame-$sensor"
 }

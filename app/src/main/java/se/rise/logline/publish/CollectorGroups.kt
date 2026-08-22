@@ -118,7 +118,7 @@ val RADIO_SUBJECTS = setOf(
 )
 
 /**
- * The rig calibration: two subjects, one ten-second loop.
+ * The platform calibration: two subjects, one ten-second loop.
  *
  * Not a sensor, and the only collector here that has no listener to release — but it belongs on the
  * list all the same, because switching it off should stop the loop rather than leave it re-serialising

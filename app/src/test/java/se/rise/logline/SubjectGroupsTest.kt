@@ -61,7 +61,7 @@ class SubjectGroupsTest {
     @Test
     fun `groups are the five sources, with radio split by link`() {
         assertEquals(
-            listOf("GNSS", "IMU", "Device", "Radio · cellular", "Radio · wifi", "Rig calibration"),
+            listOf("GNSS", "IMU", "Device", "Radio · cellular", "Radio · wifi", "Platform calibration"),
             subjectGroups().map { it.title },
         )
     }
@@ -74,7 +74,7 @@ class SubjectGroupsTest {
      * - `radio_rssi_dbm` is published from both links and both rows are called just "RSSI", so the
      *   *heading* carries it — `Radio · cellular` against `Radio · wifi`. That is what `sourceInTitle`
      *   promises, and a row name that short is only honest while it holds.
-     * - `location_fix` is the phone's live position under GNSS and the rig's surveyed zero under Rig
+     * - `location_fix` is the phone's live position under GNSS and the platform's surveyed zero under Platform
      *   calibration. Those headings do not name a source id, so the *rows* differ instead: "Position"
      *   against "Zero point". Two rows both reading "Position", one of them a fix from a survey days
      *   ago, is the confusion this exists to prevent.

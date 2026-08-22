@@ -265,7 +265,7 @@ fun SettingsScreen(
                 SettingSwitch(
                     title = "Start on boot",
                     description = "Begin a run again after the phone restarts, for a phone left wired into " +
-                        "a rig. Needs the location permission — Android will not allow an IMU-only run to " +
+                        "a platform. Needs the location permission — Android will not allow an IMU-only run to " +
                         "start itself — and never brings audio or the camera with it, which that same rule " +
                         "forbids. A run stopped by hand stays stopped until the next restart.",
                     checked = startOnBoot,

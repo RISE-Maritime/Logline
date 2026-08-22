@@ -1,6 +1,6 @@
 package se.rise.logline
 
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.config.Settings
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.SourceKind
@@ -92,25 +92,25 @@ class LivelinessTest {
     }
 
     /**
-     * Three rigs publish `frame_transform` under three entity ids, so one registry entry becomes three
+     * Three platforms publish `frame_transform` under three entity ids, so one registry entry becomes three
      * claims. Collapsing them to one — the shape `entityFor()` used to encourage — would leave two
-     * rigs' geometry on the bus under keys nothing claims.
+     * platforms' geometry on the bus under keys nothing claims.
      */
     @Test
-    fun `each rig claims its own entity's calibration keys`() {
-        val rigs = listOf("rig_a", "rig_b", "rig_c").map { entityId ->
-            settings.rigKeys(RigCalibration(name = entityId, entityId = entityId, parentFrameId = "$entityId-frame-ccrp"))
+    fun `each platform claims its own entity's calibration keys`() {
+        val platforms = listOf("platform_a", "platform_b", "platform_c").map { entityId ->
+            settings.platformKeys(PlatformCalibration(name = entityId, entityId = entityId, parentFrameId = "$entityId-frame-ccrp"))
         }
 
-        val claimed = subjectLivelinessKeys(listOf(phoneKeys()) + rigs, emptySet(), emptySet())
+        val claimed = subjectLivelinessKeys(listOf(phoneKeys()) + platforms, emptySet(), emptySet())
 
         val transforms = claimed.filter { it.contains("/${Subjects.FRAME_TRANSFORM}/") }
         assertEquals(3, transforms.size)
         assertEquals(
             setOf(
-                "rise/@v0/rig_a/pubsub/frame_transform/survey",
-                "rise/@v0/rig_b/pubsub/frame_transform/survey",
-                "rise/@v0/rig_c/pubsub/frame_transform/survey",
+                "rise/@v0/platform_a/pubsub/frame_transform/survey",
+                "rise/@v0/platform_b/pubsub/frame_transform/survey",
+                "rise/@v0/platform_c/pubsub/frame_transform/survey",
             ),
             transforms.toSet(),
         )

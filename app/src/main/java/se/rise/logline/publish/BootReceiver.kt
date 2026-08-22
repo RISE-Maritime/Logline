@@ -18,7 +18,7 @@ private const val TAG = "BootReceiver"
  * Starts a run again after a reboot, when the user has asked for that.
  *
  * `START_STICKY` already brings a run back after the *process* is killed; nothing brought it back
- * after a restart, which for a phone wired into a rig is the difference between an unattended
+ * after a restart, which for a phone wired into a platform is the difference between an unattended
  * install and one somebody has to go and visit.
  *
  * **Two things narrow what a boot start can be**, and both are the platform's rules rather than

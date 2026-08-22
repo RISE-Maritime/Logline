@@ -144,7 +144,7 @@ class LocationProvider(context: Context) {
     /**
      * Fixes only, for a caller that has nothing to report and nowhere to report it.
      *
-     * The rig calibration averages a fixed number of seconds of position with the user watching a
+     * The platform calibration averages a fixed number of seconds of position with the user watching a
      * countdown; if location is off it collects nothing and says so in its own words, so the reasons
      * would have no home there.
      */

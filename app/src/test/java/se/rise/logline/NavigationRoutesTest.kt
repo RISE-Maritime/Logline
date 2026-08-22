@@ -18,7 +18,7 @@ import se.rise.logline.ui.components.TopLevel
  * That works, and it fails **silently** when it stops working. A route renamed without touching its
  * prefix leaves a screen that opens, draws and scans perfectly while never opening a session at all —
  * no crash, no error state, no log line, just an empty result that is indistinguishable from an empty
- * bus. It survived moving Rigs and Checklists under the Setup tab; nothing about the code said it
+ * bus. It survived moving Platforms and Checklists under the Setup tab; nothing about the code said it
  * would, and the only check was opening the screen on a phone and watching for the native library to
  * load.
  *
@@ -48,10 +48,10 @@ class NavigationRoutesTest {
     }
 
     @Test
-    fun `the platform session is scoped to exactly the rig screens`() {
+    fun `the platform session is scoped to exactly the platform screens`() {
         assertEquals(
-            setOf(Routes.RIGS, Routes.RIG, Routes.SENSOR_MOUNT),
-            Routes.ALL.filter { Routes.inRigScreens(it) }.toSet(),
+            setOf(Routes.PLATFORMS, Routes.PLATFORM, Routes.SENSOR_MOUNT),
+            Routes.ALL.filter { Routes.inPlatformScreens(it) }.toSet(),
         )
     }
 
@@ -66,21 +66,21 @@ class NavigationRoutesTest {
             Routes.ALL.any { Routes.inChecklists(it) },
         )
         assertTrue(
-            "no route starts with the rig prefix — that session can never open",
-            Routes.ALL.any { Routes.inRigScreens(it) },
+            "no route starts with the platform prefix — that session can never open",
+            Routes.ALL.any { Routes.inPlatformScreens(it) },
         )
     }
 
     /**
      * The Setup tab must not be caught by either prefix.
      *
-     * It is where Rigs and Checklists are now reached from, so it sits one tap from both — and if it
+     * It is where Platforms and Checklists are now reached from, so it sits one tap from both — and if it
      * ever began with `calibration` or `checklist` it would hold both sessions open for as long as
      * somebody left the app on that tab, which is the opposite of what §3.5 asks for.
      */
     @Test
     fun `the Setup tab holds no session open`() {
-        assertTrue(!Routes.inChecklists(Routes.SETUP) && !Routes.inRigScreens(Routes.SETUP))
+        assertTrue(!Routes.inChecklists(Routes.SETUP) && !Routes.inPlatformScreens(Routes.SETUP))
     }
 
     /** A duplicate would mean two `composable` declarations racing for one route. */
@@ -160,23 +160,23 @@ class NavigationRoutesTest {
     @Test
     fun `the platform session needs only the route`() {
         val bare = settings(enabled = false, operatorId = "", operatorName = "")
-        assertTrue(Routes.shouldSyncPlatforms(Routes.RIGS))
+        assertTrue(Routes.shouldSyncPlatforms(Routes.PLATFORMS))
         assertTrue(Routes.shouldSyncPlatforms(Routes.SENSOR_MOUNT))
         assertTrue(!Routes.shouldSyncPlatforms(Routes.SETUP))
         assertTrue(!Routes.shouldSyncPlatforms(null))
         // Nothing about the operator reaches this decision.
-        assertTrue(Routes.shouldSyncPlatforms(Routes.RIG) && !bare.hasChecklistIdentity())
+        assertTrue(Routes.shouldSyncPlatforms(Routes.PLATFORM) && !bare.hasChecklistIdentity())
     }
 
     /** The built paths substitute the argument rather than respelling the pattern. */
     @Test
     fun `paths are built from their patterns`() {
         assertEquals("qos/LOCATION_FIX", Routes.subjectQos("LOCATION_FIX"))
-        assertEquals("calibration/rig/ssrs18", Routes.rig("ssrs18"))
-        assertEquals("calibration/rig/ssrs18/sensor/2", Routes.sensorMount("ssrs18", 2))
+        assertEquals("calibration/platform/ssrs18", Routes.platform("ssrs18"))
+        assertEquals("calibration/platform/ssrs18/sensor/2", Routes.sensorMount("ssrs18", 2))
         // And a built path is still scoped to the session its pattern belongs to.
-        assertTrue(Routes.inRigScreens(Routes.rig("ssrs18")))
-        assertTrue(Routes.inRigScreens(Routes.sensorMount("ssrs18", 0)))
+        assertTrue(Routes.inPlatformScreens(Routes.platform("ssrs18")))
+        assertTrue(Routes.inPlatformScreens(Routes.sensorMount("ssrs18", 0)))
         // The detail route must miss both session prefixes, or opening a plot would tear down a
         // checklist or platform session — silently, since a broken prefix match still opens the screen.
         assertEquals("plot/AIR_PRESSURE", Routes.subjectDetail("AIR_PRESSURE"))
@@ -187,8 +187,8 @@ class NavigationRoutesTest {
             Routes.recordingDetail("content%3A%2F%2Fmedia%2F42"),
         )
         assertFalse(Routes.inChecklists(Routes.recordingDetail("x")))
-        assertFalse(Routes.inRigScreens(Routes.recordingDetail("x")))
+        assertFalse(Routes.inPlatformScreens(Routes.recordingDetail("x")))
         assertFalse(Routes.inChecklists(Routes.subjectDetail("AIR_PRESSURE")))
-        assertFalse(Routes.inRigScreens(Routes.subjectDetail("AIR_PRESSURE")))
+        assertFalse(Routes.inPlatformScreens(Routes.subjectDetail("AIR_PRESSURE")))
     }
 }

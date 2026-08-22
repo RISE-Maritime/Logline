@@ -1,12 +1,12 @@
 package se.rise.logline
 
-// The single-rig writer as it stood in the previous build, lifted verbatim from git so the migration
+// The single-platform writer as it stood in the previous build, lifted verbatim from git so the migration
 // test runs against bytes the shipped app actually produced rather than a hand-written imitation of
 // them. Do not "tidy" this: the moment it stops being a copy it stops testing anything.
 
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.config.Keys
 
 private val LEGACY_SENSOR_FIELDS = listOf(
@@ -14,7 +14,7 @@ private val LEGACY_SENSOR_FIELDS = listOf(
     "capture", "accuracy", "captured_at",
 )
 
-fun writeLegacyCalibration(prefs: MutablePreferences, calibration: RigCalibration?) {
+fun writeLegacyCalibration(prefs: MutablePreferences, calibration: PlatformCalibration?) {
     val previousCount = prefs[Keys.CALIB_SENSOR_COUNT]?.toIntOrNull() ?: 0
 
     fun set(key: Preferences.Key<String>, value: String?) {

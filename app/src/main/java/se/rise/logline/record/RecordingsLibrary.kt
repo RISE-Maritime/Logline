@@ -14,7 +14,7 @@ private const val TAG = "RecordingsLibrary"
 /**
  * One file this app has put in `Downloads/Logline`.
  *
- * [summary] is null for anything that is not a readable MCAP — the rig calibration's platform-geometry
+ * [summary] is null for anything that is not a readable MCAP — the platform calibration's platform-geometry
  * export shares this folder, and so does a recording rescued from a killed process, which has no
  * statistics section. Both are listed; neither claims a message count.
  */
@@ -47,9 +47,9 @@ interface RecordingFacts {
      * False is what `McapRecovery.finalise` leaves behind for a run a killed process interrupted: every
      * message present, the figures never written.
      *
-     * Null is the load-bearing one. `Downloads/Logline` holds settings profiles and rig-geometry exports
+     * Null is the load-bearing one. `Downloads/Logline` holds settings profiles and platform-geometry exports
      * as well as recordings, and every one of them lacks an MCAP summary — so while this was a plain
-     * `Boolean`, the Incomplete filter counted a hand-surveyed rig geometry document as a broken
+     * `Boolean`, the Incomplete filter counted a hand-surveyed platform geometry document as a broken
      * recording, and a bulk delete built on that set would have destroyed it. Nullable here means those
      * files fall out of both Complete and Incomplete without the query logic knowing kinds exist.
      */
@@ -59,16 +59,16 @@ interface RecordingFacts {
 /**
  * What a file in `Downloads/Logline` actually is.
  *
- * Four things write into that folder — the recorder, the settings-profile export, a rig's geometry
- * export and the rig library export — and [savedRecordings] lists the folder rather than a file type,
+ * Four things write into that folder — the recorder, the settings-profile export, a platform's geometry
+ * export and the platform library export — and [savedRecordings] lists the folder rather than a file type,
  * so all four appear in the Files tab. Naming them is what stops an export being read as a recording
  * that failed.
  */
 enum class RecordingKind {
     Recording,
     SettingsProfile,
-    RigGeometry,
-    RigLibrary,
+    PlatformGeometry,
+    PlatformLibrary,
 
     /** Something else somebody put in the folder. Shown, never assumed to be ours. */
     Other,
@@ -87,8 +87,8 @@ fun recordingKindOf(name: String): RecordingKind {
         lower.endsWith(".mcap") -> RecordingKind.Recording
         lower.startsWith("logline-settings-") && lower.endsWith(".json") ->
             RecordingKind.SettingsProfile
-        lower == "logline-platform-registry.json" -> RecordingKind.RigLibrary
-        lower.endsWith("-platform-geometry.json") -> RecordingKind.RigGeometry
+        lower == "logline-platform-registry.json" -> RecordingKind.PlatformLibrary
+        lower.endsWith("-platform-geometry.json") -> RecordingKind.PlatformGeometry
         else -> RecordingKind.Other
     }
 }

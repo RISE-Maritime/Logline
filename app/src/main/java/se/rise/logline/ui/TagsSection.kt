@@ -59,7 +59,7 @@ fun TagsSection(
                 "Whatever is switched on when a recording closes is written into the file itself, so " +
                 "it travels with the recording rather than staying on this phone — a copy on a " +
                 "laptop still says what it was.\n\n" +
-                "The words and which of them are on both persist between runs, so a rig that is " +
+                "The words and which of them are on both persist between runs, so a platform that is " +
                 "always the same needs telling once. A run that rotates through several files gives " +
                 "each file the tags that were on as it closed.",
             onDismiss = { showHelp = false },

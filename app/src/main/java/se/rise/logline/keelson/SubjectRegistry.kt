@@ -23,11 +23,11 @@ enum class SourceKind {
     RADIO,
 
     /**
-     * The rig calibration.
+     * The platform calibration.
      *
      * The odd one out, and not only in its source id: these two subjects are the only ones published
      * under a **different entity**. `entity_id` names the physical thing the data is about, and a
-     * rig's geometry is about the rig, not about the phone that surveyed it — see
+     * platform's geometry is about the platform, not about the phone that surveyed it — see
      * [se.rise.logline.config.Settings.entityFor].
      */
     CALIBRATION,
@@ -499,7 +499,7 @@ enum class PublishedSubject(
      *
      * Months later, a gap in a recording has two explanations that look identical from the data — the
      * app was stopped and started, or the phone went down and came back — and they mean very different
-     * things about an unattended rig. Uptime resetting across the gap says which.
+     * things about an unattended platform. Uptime resetting across the gap says which.
      *
      * `elapsedRealtime`, so deep sleep counts: the phone was up, it was merely asleep. Rides the
      * battery poll because it is the same kind of question about the same device, and because a
@@ -628,7 +628,7 @@ enum class PublishedSubject(
     ),
 
     /**
-     * One sensor's pose on the rig, as `foxglove.FrameTransform`.
+     * One sensor's pose on the platform, as `foxglove.FrameTransform`.
      *
      * The rate is a **republish interval**, not a sampling rate — the same reading of the control that
      * [AUDIO] gives it as a chunk length and [IMAGE_COMPRESSED] as a time-lapse interval. Nothing is
@@ -651,10 +651,10 @@ enum class PublishedSubject(
     ),
 
     /**
-     * Where the rig's zero point *was when it was surveyed*, as `foxglove.LocationFix`.
+     * Where the platform's zero point *was when it was surveyed*, as `foxglove.LocationFix`.
      *
      * The second entry publishing `location_fix`, and the reason this is safe is the key: it goes out
-     * under the **rig's** entity and the `calibration` source, beside the transforms it anchors, while
+     * under the **platform's** entity and the `calibration` source, beside the transforms it anchors, while
      * the phone's live fix stays under the phone's entity and its own source. The two are never the
      * same key.
      *
@@ -676,7 +676,7 @@ enum class PublishedSubject(
     ),
 
     /**
-     * The whole rig geometry as one JSON document, on the same ten-second loop.
+     * The whole platform geometry as one JSON document, on the same ten-second loop.
      *
      * `rateOwner` because it rides [FRAME_TRANSFORM]'s ticker: they are two views of one calibration
      * and publishing them at different intervals would let a consumer see a document that disagrees
@@ -704,7 +704,7 @@ enum class PublishedSubject(
      * entry: `location_fix` is published by both [LOCATION_FIX] and [CALIBRATION_ZERO], so
      * [forSubject] would answer with whichever of the two comes first in the enum. That happens to be
      * the right one today, which is precisely why it is worth pinning — a reordering of the entries
-     * would silently point the rig's surveyed zero point at the phone's live fix.
+     * would silently point the platform's surveyed zero point at the phone's live fix.
      *
      * One hop always reaches the head: no entry names an owner that has an owner, and
      * `SubjectRegistryTest` holds that.

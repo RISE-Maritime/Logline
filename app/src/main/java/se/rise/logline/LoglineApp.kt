@@ -30,10 +30,10 @@ class LoglineApp : Application() {
     val checklist: ChecklistSync by lazy { ChecklistSync(this, checklistRepository) }
 
     /**
-     * The platform peer: discovery, `get_config`, and the shared rig library.
+     * The platform peer: discovery, `get_config`, and the shared platform library.
      *
      * Here for the same reason [checklist] is, and with the same lifetime rule — its own Zenoh
-     * session, opened when a rig screen asks for it and closed when the last one leaves. Rigs are
+     * session, opened when a platform screen asks for it and closed when the last one leaves. Platforms are
      * surveyed with logging stopped, so it deliberately shares nothing with [publisher].
      */
     val platforms: PlatformSync by lazy { PlatformSync(this) }

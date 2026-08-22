@@ -202,7 +202,7 @@ fun SubjectQosScreen(
                         "y north, z up. The axes it rotates from are the ones drawn below."
                 SensorFrame.DeviceAngle ->
                     "An angle about one of the phone's own axes — pitch about +X, roll about +Y, yaw " +
-                        "about +Z — not the vessel's. What it means for the boat is the rig " +
+                        "about +Z — not the vessel's. What it means for the boat is the platform " +
                         "calibration's frame transform."
                 SensorFrame.Bearing ->
                     "Degrees clockwise from ${if (subject == Subjects.HEADING_TRUE_NORTH_DEG) "true" else "magnetic"} " +

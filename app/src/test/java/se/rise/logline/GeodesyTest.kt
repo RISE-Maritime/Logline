@@ -74,24 +74,24 @@ class GeodesyTest {
     }
 
     @Test
-    fun `with the rig pointing north a point to the north is dead ahead`() {
-        val body = bodyOffsetMetres(Enu(eastM = 0.0, northM = 10.0, upM = 0.0), rigHeadingDeg = 0.0)
+    fun `with the platform pointing north a point to the north is dead ahead`() {
+        val body = bodyOffsetMetres(Enu(eastM = 0.0, northM = 10.0, upM = 0.0), platformHeadingDeg = 0.0)
         assertEquals(10.0, body.x, 1e-9)
         assertEquals(0.0, body.y, 1e-9)
     }
 
     @Test
-    fun `with the rig pointing east a point to the north is to port`() {
+    fun `with the platform pointing east a point to the north is to port`() {
         // The test that catches a flipped Y. Facing east, north is on the left — port — and port is
         // negative, because Y is positive to starboard.
-        val body = bodyOffsetMetres(Enu(eastM = 0.0, northM = 10.0, upM = 0.0), rigHeadingDeg = 90.0)
+        val body = bodyOffsetMetres(Enu(eastM = 0.0, northM = 10.0, upM = 0.0), platformHeadingDeg = 90.0)
         assertEquals(0.0, body.x, 1e-9)
         assertEquals(-10.0, body.y, 1e-9)
     }
 
     @Test
-    fun `with the rig pointing east a point to the east is ahead`() {
-        val body = bodyOffsetMetres(Enu(eastM = 10.0, northM = 0.0, upM = 0.0), rigHeadingDeg = 90.0)
+    fun `with the platform pointing east a point to the east is ahead`() {
+        val body = bodyOffsetMetres(Enu(eastM = 10.0, northM = 0.0, upM = 0.0), platformHeadingDeg = 90.0)
         assertEquals(10.0, body.x, 1e-9)
         assertEquals(0.0, body.y, 1e-9)
     }
@@ -99,13 +99,13 @@ class GeodesyTest {
     @Test
     fun `up becomes negative Z`() {
         // Maritime convention: Z is positive *down*. Three metres up the mast is minus three.
-        val body = bodyOffsetMetres(Enu(eastM = 0.0, northM = 0.0, upM = 3.0), rigHeadingDeg = 0.0)
+        val body = bodyOffsetMetres(Enu(eastM = 0.0, northM = 0.0, upM = 3.0), platformHeadingDeg = 0.0)
         assertEquals(-3.0, body.z, 1e-9)
     }
 
     @Test
     fun `a captured offset round-trips through both conversions`() {
-        // Stand at the zero, walk 4 m forward and 2 m to starboard on a rig heading 035, and the two
+        // Stand at the zero, walk 4 m forward and 2 m to starboard on a platform heading 035, and the two
         // conversions together have to give those numbers back.
         val heading = 35.0
         val zero = LatLonAlt(57.7089, 11.9746, 12.0)

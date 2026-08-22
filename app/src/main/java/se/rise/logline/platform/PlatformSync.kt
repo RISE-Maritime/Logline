@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
 import core.EnvelopeOuterClass.Envelope
 import keelson.Primitives.TimestampedString
 import keelson.interfaces.ErrorResponseOuterClass.ErrorResponse
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.parsePlatformGeometry
 import se.rise.logline.calibrate.toPlatformGeometryJson
 import se.rise.logline.config.TlsCredentialStore
@@ -39,8 +39,8 @@ data class PlatformSyncConfig(
     val endpoints: List<String>,
     val realm: String,
     val calibrationSource: String,
-    /** The rigs this phone holds, offered over `get_config` and shared as the library. */
-    val rigs: List<RigCalibration>,
+    /** The platforms this phone holds, offered over `get_config` and shared as the library. */
+    val platforms: List<PlatformCalibration>,
     /** This install's identity, so its own library echoes are dropped. */
     val origin: String,
     val registryVersion: Long,
@@ -51,9 +51,9 @@ data class PlatformSyncConfig(
 data class DiscoveredPlatform(
     val entityId: String,
     /** Null until a `configuration_json` for it has been decoded — liveliness carries no name. */
-    val rig: RigCalibration?,
+    val geometry: PlatformCalibration?,
 ) {
-    val hasGeometry: Boolean get() = rig != null
+    val hasGeometry: Boolean get() = geometry != null
 }
 
 enum class DiscoveryState { Idle, Scanning, Done, Failed }
@@ -70,7 +70,7 @@ data class PlatformSyncState(
  * The phone as a platform peer: discoverable, askable, and sharing its library.
  *
  * **It owns its own [KeelsonSession], separate from `SensorPublisher`'s** — the same arrangement, and
- * the same argument, as `ChecklistSync`. Rigs are surveyed and edited with logging *stopped*, and the
+ * the same argument, as `ChecklistSync`. Platforms are surveyed and edited with logging *stopped*, and the
  * publisher's session lives and dies with a run, so tying platform work to it would mean discovery
  * only working while data was already going out. Three sessions in one process are fine;
  * `initZenohLogOnce()` already guards the one thing that may only happen once.
@@ -95,10 +95,10 @@ class PlatformSync(private val appContext: Context) {
     private var queryables: List<Queryable<Unit>> = emptyList()
 
     /**
-     * The `configurable/v1` interface tokens, one per rig — held apart from [queryables] only because
+     * The `configurable/v1` interface tokens, one per platform — held apart from [queryables] only because
      * they are a different Zenoh type, not a different lifetime. Undeclared on the same path: §3.5 says
      * a source MUST NOT hold a token for an interface it does not currently serve, and this session
-     * lives only while a rig screen is up.
+     * lives only while a platform screen is up.
      */
     private var interfaceTokens: List<LivelinessToken> = emptyList()
 
@@ -255,10 +255,10 @@ class PlatformSync(private val appContext: Context) {
             val reader = launch {
                 for ((key, payload) in documents) {
                     val entityId = entityIdFromKey(key) ?: continue
-                    val rig = decodeConfigurationJson(payload)?.let { parsePlatformGeometry(it, entityId) }
+                    val platform = decodeConfigurationJson(payload)?.let { parsePlatformGeometry(it, entityId) }
                     // A document always wins over a bare liveliness sighting of the same entity.
-                    if (rig != null || entityId !in found) {
-                        found[entityId] = DiscoveredPlatform(entityId, rig)
+                    if (platform != null || entityId !in found) {
+                        found[entityId] = DiscoveredPlatform(entityId, platform)
                     }
                     publishFound(found)
                 }
@@ -303,23 +303,23 @@ class PlatformSync(private val appContext: Context) {
     // ── get_config ──────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Answer a configuration query for every rig in the library, on both key shapes.
+     * Answer a configuration query for every platform in the library, on both key shapes.
      *
      * The **wire** document, provenance included — the same string `configuration_json` carries, so one
-     * rig cannot give two different answers depending on how it was asked.
+     * platform cannot give two different answers depending on how it was asked.
      *
      * Rendered once here rather than in the callback: that callback runs on a Zenoh thread, on its
      * receive path, and serialising a document there would put JSON generation in front of every other
      * query the session is handling.
      */
     private fun declareConfigQueryables(open: KeelsonSession, current: PlatformSyncConfig) {
-        queryables = current.rigs.flatMap { rig ->
-            val document = rig.toPlatformGeometryJson(provenance = true).toByteArray(Charsets.UTF_8)
+        queryables = current.platforms.flatMap { platform ->
+            val document = platform.toPlatformGeometryJson(provenance = true).toByteArray(Charsets.UTF_8)
             val keys = listOf(
-                rpcKey(current.realm, rig.entityId, "configurable", "v1", "get_config", current.calibrationSource),
+                rpcKey(current.realm, platform.entityId, "configurable", "v1", "get_config", current.calibrationSource),
                 // Useful today rather than only correct: crowsnest probes a pre-interface shape and
                 // nothing else answers it. See legacyPlatformConfigKey.
-                legacyPlatformConfigKey(current.realm, rig.entityId),
+                legacyPlatformConfigKey(current.realm, platform.entityId),
             )
             val answering = keys.mapNotNull { key ->
                 runCatching { open.declareQueryable(key) { document } }
@@ -330,7 +330,7 @@ class PlatformSync(private val appContext: Context) {
             // reason: that callback runs on Zenoh's receive path.
             val refusal = setConfigRefusal().toByteArray()
             val setConfigKey =
-                rpcKey(current.realm, rig.entityId, "configurable", "v1", "set_config", current.calibrationSource)
+                rpcKey(current.realm, platform.entityId, "configurable", "v1", "set_config", current.calibrationSource)
             val refusing = runCatching { open.declareRefusingQueryable(setConfigKey, refusal) }
                 .onFailure { Log.w(TAG, "queryable for $setConfigKey failed; continuing without it", it) }
                 .getOrNull()
@@ -340,10 +340,10 @@ class PlatformSync(private val appContext: Context) {
         // The interface token, once the procedures behind it are up — §3.5 asks for exactly that
         // ordering, and it is what stops a consumer discovering the interface a moment before anything
         // answers on it.
-        interfaceTokens = current.rigs.mapNotNull { rig ->
+        interfaceTokens = current.platforms.mapNotNull { platform ->
             val key = rpcInterfaceLivelinessKey(
                 current.realm,
-                rig.entityId,
+                platform.entityId,
                 "configurable",
                 "v1",
                 current.calibrationSource,
@@ -381,12 +381,12 @@ class PlatformSync(private val appContext: Context) {
      * a person edited a library, not when a sensor observed anything.
      */
     private fun publishLibrary(open: KeelsonSession, current: PlatformSyncConfig) {
-        if (current.rigs.isEmpty()) return
+        if (current.platforms.isEmpty()) return
         val bytes = encodePlatformRegistry(
             version = current.registryVersion,
             origin = current.origin,
             updatedAtEpochMillis = System.currentTimeMillis(),
-            rigs = current.rigs,
+            platforms = current.platforms,
         )
         // Raw JSON, not an envelope — the whole point of the token not being a keelson subject.
         runCatching {
@@ -432,9 +432,9 @@ internal fun decodeConfigurationJson(bytes: ByteArray): String? {
  * **The app serves `configurable/v1` read-only, and this is what makes that legal.** §3.6's
  * full-interface rule says a source advertising an interface must answer every procedure in it —
  * with a typed response naming the limitation "never silence" — so declaring the token obliges the
- * phone to reply to `set_config` whether or not it will ever comply. It will not: a rig's geometry
- * is edited on the phone or taken from the shared library through [mergeRemoteRigs], which
- * deliberately never deletes a rig this phone is publishing and never accepts remote *policy*. An
+ * phone to reply to `set_config` whether or not it will ever comply. It will not: a platform's geometry
+ * is edited on the phone or taken from the shared library through [mergeRemotePlatforms], which
+ * deliberately never deletes a platform this phone is publishing and never accepts remote *policy*. An
  * unauthenticated write from anyone on the fleet bus would go around all of that.
  *
  * `PERMISSION_DENIED` is the closest the enum comes — its upstream comment reads "lock-down rules".
@@ -448,7 +448,7 @@ internal fun setConfigRefusal(): ErrorResponse = ErrorResponse.newBuilder()
     .setCode(ErrorResponse.Code.PERMISSION_DENIED)
     .setErrorDescription(
         "This platform is configured on the phone and never remotely; the refusal is permanent " +
-            "and by design, not a transient condition. Read it with get_config, or share a rig " +
+            "and by design, not a transient condition. Read it with get_config, or share a platform " +
             "library on platform_registry.",
     )
     .build()

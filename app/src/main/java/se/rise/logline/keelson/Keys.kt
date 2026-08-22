@@ -62,7 +62,7 @@ object Subjects {
     // is why a mark's category goes in `name` rather than being spelled into the message.
     const val LOG_MESSAGE = "log_message"
 
-    // Rig calibration. `frame_transform` carries one sensor's pose relative to the rig's reference
+    // Platform calibration. `frame_transform` carries one sensor's pose relative to the platform's reference
     // frame, and `configuration_json` the whole geometry document — the same pair, and the same
     // document shape, that keelson's own `connectors/platform` publishes. See `docs/calibration.md`.
     const val FRAME_TRANSFORM = "frame_transform"

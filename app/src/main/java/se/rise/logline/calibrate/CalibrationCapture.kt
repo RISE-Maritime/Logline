@@ -56,12 +56,12 @@ class CalibrationCapture(private val context: Context) {
      * The phone's own heading, averaged over [seconds].
      *
      * **The angle is the direction the phone's +Y axis points** — its top edge — which is why the
-     * screen says to hold it flat with the top edge along the rig's centreline. Held any other way the
-     * number is still a heading, just not the rig's.
+     * screen says to hold it flat with the top edge along the platform's centreline. Held any other way the
+     * number is still a heading, just not the platform's.
      *
      * True north needs a position, because declination is a property of where you are. Without one the
      * reading comes back magnetic-only rather than silently passing off magnetic as true: on this coast
-     * that is around 5° of error, and a rig's forward axis is exactly the thing that should not carry
+     * that is around 5° of error, and a platform's forward axis is exactly the thing that should not carry
      * an unannounced 5°.
      */
     suspend fun heading(near: LatLonAlt?, seconds: Int = 4): HeadingReading? {

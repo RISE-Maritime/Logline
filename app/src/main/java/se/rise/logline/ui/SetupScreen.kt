@@ -28,26 +28,26 @@ import se.rise.logline.ui.components.readAsOneItem
  * Everything that is configured rather than operated.
  *
  * This screen exists so the start screen can stop being a menu. Home used to carry six full-width
- * outlined buttons under its status card — Settings, Rigs, Recordings, Checklists and the rest — which
+ * outlined buttons under its status card — Settings, Platforms, Recordings, Checklists and the rest — which
  * made the first thing anyone sees both a dashboard and a table of contents, and made `Start
  * publishing` compete with five controls that do nothing during a run.
  *
  * The rows here are rows, not buttons, and each carries as a subtitle the state its old button label
- * used to smuggle into itself (`Rigs · SSRS18`). That is the whole of this app's button hierarchy
+ * used to smuggle into itself (`Platforms · SSRS18`). That is the whole of this app's button hierarchy
  * problem: with these gone, `START Publish & REC` is the only filled button in the resting state.
  *
  * Like every screen here it takes data and lambdas — no repository, no `Context`.
  */
 @Composable
 fun SetupScreen(
-    /** The active rig and how many others publish, from `rigSummaryOf`. Null when there are none. */
-    rigSummary: String?,
+    /** The active platform and how many others publish, from `platformSummaryOf`. Null when there are none. */
+    platformSummary: String?,
     /** Hidden rather than shown-and-inert: most installs never turn checklists on. */
     checklistsEnabled: Boolean,
     /** Which bus this phone is on, shown so the commonest question needs no tap. */
     identity: String,
     onOpenSettings: () -> Unit,
-    onOpenRigs: () -> Unit,
+    onOpenPlatforms: () -> Unit,
     onOpenChecklists: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
 ) {
@@ -60,17 +60,17 @@ fun SetupScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // **The rig comes first, and it is not "this phone".** `entity_id` names the physical
-            // thing the data is about, and a rig's geometry is about the rig — so filing it under the
+            // **The platform comes first, and it is not "this phone".** `entity_id` names the physical
+            // thing the data is about, and a platform's geometry is about the platform — so filing it under the
             // phone was a category error as well as a matter of order. It is also the thing most of
-            // this screen exists for: a phone's own settings are typed once, a rig is surveyed,
+            // this screen exists for: a phone's own settings are typed once, a platform is surveyed,
             // corrected and swapped.
-            SectionHeader("Rigs")
+            SectionHeader("Platforms")
             Card(Modifier.fillMaxWidth()) {
                 NavRow(
-                    title = "Rig library",
-                    subtitle = rigSummary ?: "No rigs described yet",
-                    onClick = onOpenRigs,
+                    title = "Platform library",
+                    subtitle = platformSummary ?: "No platforms described yet",
+                    onClick = onOpenPlatforms,
                 )
             }
 

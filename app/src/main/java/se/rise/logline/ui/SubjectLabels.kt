@@ -22,7 +22,7 @@ data class SubjectLabel(val name: String, val unit: String? = null)
 
 fun labelOf(entry: PublishedSubject): SubjectLabel = when (entry) {
     // Keyed on the *entry* rather than the subject, and the only one that has to be: `location_fix` is
-    // published twice — the phone's live position, and the rig's surveyed zero point. Two rows both
+    // published twice — the phone's live position, and the platform's surveyed zero point. Two rows both
     // called "Position" would be a genuinely dangerous thing to read.
     PublishedSubject.CALIBRATION_ZERO -> SubjectLabel("Zero point")
     else -> labelOfSubject(entry.subject)
@@ -105,12 +105,12 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     Subjects.RADIO_BAND -> SubjectLabel("Band")
     Subjects.RADIO_DOWNLINK_BANDWIDTH_MHZ -> SubjectLabel("Downlink bandwidth", "MHz")
 
-    // The rig, not the phone. "Sensor pose" rather than "Frame transform" because that is what the
+    // The platform, not the phone. "Sensor pose" rather than "Frame transform" because that is what the
     // message says about the world; the wire name is still on the subject's own screen.
     Subjects.FRAME_TRANSFORM -> SubjectLabel("Sensor pose")
     // The row's value is how many sensors the published document describes — see `runCalibration`,
     // which hands the count to the sink as the sample's value.
-    Subjects.CONFIGURATION_JSON -> SubjectLabel("Rig geometry", "sensors")
+    Subjects.CONFIGURATION_JSON -> SubjectLabel("Platform geometry", "sensors")
 
     else -> SubjectLabel(derivedName(subject))
 }

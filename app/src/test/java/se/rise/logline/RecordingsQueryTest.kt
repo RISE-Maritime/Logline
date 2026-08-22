@@ -187,8 +187,8 @@ class RecordingsQueryTest {
             RecordingKind.SettingsProfile,
             recordingKindOf("logline-settings-2026-08-19T133226.json"),
         )
-        assertEquals(RecordingKind.RigLibrary, recordingKindOf("logline-platform-registry.json"))
-        assertEquals(RecordingKind.RigGeometry, recordingKindOf("ssrs18-platform-geometry.json"))
+        assertEquals(RecordingKind.PlatformLibrary, recordingKindOf("logline-platform-registry.json"))
+        assertEquals(RecordingKind.PlatformGeometry, recordingKindOf("ssrs18-platform-geometry.json"))
         assertEquals(RecordingKind.Other, recordingKindOf("holiday-snap.jpg"))
         assertEquals("case is not the file system's promise", RecordingKind.Recording, recordingKindOf("LOGLINE.MCAP"))
     }
@@ -212,9 +212,9 @@ class RecordingsQueryTest {
     /**
      * **The regression test for the reason any of this changed.**
      *
-     * A settings profile and a rig-geometry export have no MCAP summary, and while `isComplete` was a
+     * A settings profile and a platform-geometry export have no MCAP summary, and while `isComplete` was a
      * plain `Boolean` that made them *incomplete recordings* — so a bulk delete built on the Incomplete
-     * set would have destroyed a rig's surveyed geometry, which cannot be recovered without going back
+     * set would have destroyed a platform's surveyed geometry, which cannot be recovered without going back
      * out with a tape measure. They must appear under All and under neither of the other two.
      */
     @Test
@@ -270,11 +270,11 @@ class RecordingsQueryTest {
             recordingSubtitle(export("logline-settings-2026-08-21T120000.json")),
         )
         assertEquals(
-            "982 bytes · Rig geometry export",
+            "982 bytes · Platform geometry export",
             recordingSubtitle(export("ssrs18-platform-geometry.json")),
         )
         assertEquals(
-            "982 bytes · Rig library export",
+            "982 bytes · Platform library export",
             recordingSubtitle(export("logline-platform-registry.json")),
         )
         assertEquals("982 bytes · Not a recording", recordingSubtitle(export("holiday-snap.jpg")))

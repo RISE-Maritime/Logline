@@ -11,7 +11,7 @@ import java.io.OutputStream
 const val DOWNLOADS_FOLDER = "Logline"
 
 /**
- * Where the documents this app exports turn up: settings profiles, a rig's geometry, the rig library.
+ * Where the documents this app exports turn up: settings profiles, a platform's geometry, the platform library.
  *
  * **A subfolder, and that is what keeps them out of the Recordings tab.** `savedRecordings()` matches
  * `RELATIVE_PATH` for exactly `Download/Logline/`, so anything a level down is not a row in that list

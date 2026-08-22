@@ -189,7 +189,7 @@ fun RecordingsScreen(
                     EmptyState(
                         title = "Nothing saved yet",
                         body = "Finished recordings are copied to Downloads/Logline and appear here. " +
-                            "Exported settings and rig geometry go to Downloads/Logline/config " +
+                            "Exported settings and platform geometry go to Downloads/Logline/config " +
                             "instead, so they do not clutter this list.\n\n" +
                             "Files saved by an earlier install of this app are not listed — Android " +
                             "ties them to the install that wrote them. They are still in " +

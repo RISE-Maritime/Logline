@@ -27,7 +27,7 @@ import org.junit.Test
  *
  * Three fields are generated once per install and each breaks something different when copied: the
  * entity id makes two phones publish on identical keys, the operator id makes each read the other's
- * presence heartbeat as its own, and the rig registry origin makes a phone apply its own library back
+ * presence heartbeat as its own, and the platform registry origin makes a phone apply its own library back
  * over itself. None of them is in the profile at all, which is stronger than remembering not to write
  * them — but only a test says so out loud.
  */
@@ -88,8 +88,8 @@ class SettingsProfileTest {
         rocSiteId = "deck",
         checklistRealm = "crowsnest",
         checklistEntityId = "checklist",
-        rigRegistryVersion = 42L,
-        rigRegistryOrigin = "b7c1-origin-of-this-install",
+        platformRegistryVersion = 42L,
+        platformRegistryOrigin = "b7c1-origin-of-this-install",
         batteryExemptionAsked = true,
     )
 
@@ -202,7 +202,7 @@ class SettingsProfileTest {
     /**
      * The test that matters most: a second phone keeps its own identity.
      *
-     * Importing a colleague's profile must leave this phone's entity id, operator id and rig registry
+     * Importing a colleague's profile must leave this phone's entity id, operator id and platform registry
      * origin exactly as they were — the three things that tell one install from another on the bus.
      */
     @Test
@@ -214,8 +214,8 @@ class SettingsProfileTest {
             locationSource = "phone",
             imuSource = "phone",
             operatorId = "aaaa-this-phone-only",
-            rigRegistryOrigin = "cccc-this-install-only",
-            rigRegistryVersion = 7L,
+            platformRegistryOrigin = "cccc-this-install-only",
+            platformRegistryVersion = 7L,
             batteryExemptionAsked = true,
         )
         val fromElsewhere = requireNotNull(parseSettingsProfile(configured().toProfile().encode()))
@@ -224,8 +224,8 @@ class SettingsProfileTest {
 
         assertEquals("pixel_9", out.entityId)
         assertEquals("aaaa-this-phone-only", out.operatorId)
-        assertEquals("cccc-this-install-only", out.rigRegistryOrigin)
-        assertEquals(7L, out.rigRegistryVersion)
+        assertEquals("cccc-this-install-only", out.platformRegistryOrigin)
+        assertEquals(7L, out.platformRegistryVersion)
         assertEquals(true, out.batteryExemptionAsked)
         // …while the shareable half did arrive.
         assertEquals(listOf("tls/router.example.com:443", "tcp/192.168.0.10:7447"), out.routerEndpoints)
@@ -238,7 +238,7 @@ class SettingsProfileTest {
 
         assertFalse("entity id leaked", text.contains("pixel_6"))
         assertFalse("operator id leaked", text.contains("3f2b0c7e-0000-4000-8000-000000000001"))
-        assertFalse("rig origin leaked", text.contains("b7c1-origin-of-this-install"))
+        assertFalse("platform origin leaked", text.contains("b7c1-origin-of-this-install"))
         assertFalse("registry version leaked", text.contains("\"42\"") || text.contains(": 42"))
     }
 

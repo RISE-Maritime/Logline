@@ -84,18 +84,18 @@ import se.rise.logline.ui.components.readAsOneItem
  * the age as small print beneath it, and the screen stays visually quiet until something is wrong.
  */
 /**
- * What the Rigs button says: the active rig, and how many others are also on the bus.
+ * What the Platforms button says: the active platform, and how many others are also on the bus.
  *
- * Named rather than counted when there is one thing to name — "Rigs · SSRS18" is what somebody is
+ * Named rather than counted when there is one thing to name — "Platforms · SSRS18" is what somebody is
  * checking for. The `+2` matters because those two are publishing geometry under entity ids that are
  * nowhere else on this screen.
  */
-internal fun rigSummaryOf(settings: Settings): String? {
-    val publishing = settings.publishingRigs()
-    val active = settings.activeRig()
+internal fun platformSummaryOf(settings: Settings): String? {
+    val publishing = settings.publishingPlatforms()
+    val active = settings.activePlatform()
     return when {
-        settings.rigs.isEmpty() -> null
-        active == null -> "${settings.rigs.size} rigs"
+        settings.platforms.isEmpty() -> null
+        active == null -> "${settings.platforms.size} platforms"
         publishing.size > 1 -> "${active.name} +${publishing.size - 1}"
         else -> active.name
     }
@@ -573,7 +573,7 @@ private fun StatusCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // Said out loud, because on an unattended rig "is it actually charging" is the
+                    // Said out loud, because on an unattended platform "is it actually charging" is the
                     // question, and a missing estimate would otherwise look like a broken one. Only
                     // reached when the disk has nothing to say either, since a charging phone still
                     // fills its storage.
@@ -1064,7 +1064,7 @@ private fun RateModeRow(
  * What to do next, and nothing else.
  *
  * This used to be six full-width buttons that made the start screen a menu as much as a dashboard.
- * Settings, Rigs, Recordings and Checklists now live on the Setup tab, one tap away in the bar, which
+ * Settings, Platforms, Recordings and Checklists now live on the Setup tab, one tap away in the bar, which
  * leaves exactly one filled button in the resting state.
  *
  * Drawn as a `Surface` for the same reason [se.rise.logline.ui.components.FormActions] is: it is

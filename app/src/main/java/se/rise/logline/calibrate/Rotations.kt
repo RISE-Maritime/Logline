@@ -47,7 +47,7 @@ fun quaternionFromYawPitchRollDegrees(yaw: Double, pitch: Double, roll: Double):
 fun EulerDeg.toQuaternion(): Quat = quaternionFromYawPitchRollDegrees(yaw, pitch, roll)
 
 /**
- * Apply a rotation to a point in the rig frame.
+ * Apply a rotation to a point in the platform frame.
  *
  * Only the tests use this — it is what lets them assert the *meaning* of a quaternion ("yaw 90° takes
  * forward to starboard") rather than four numbers that could be wrong together.

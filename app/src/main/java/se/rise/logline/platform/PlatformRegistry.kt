@@ -4,12 +4,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.toStoredJson
 import se.rise.logline.keelson.escaped
 
 /**
- * The shared rig library on the bus: keys, encoding, and who wins when two phones disagree.
+ * The shared platform library on the bus: keys, encoding, and who wins when two phones disagree.
  *
  * Pure — no Android, no Zenoh — so the conflict rules are testable, which is the half of this that can
  * silently do the wrong thing. `PlatformSync` is the part with a session in it.
@@ -50,14 +50,14 @@ data class RemotePlatformRegistry(
     val version: Long,
     val origin: String,
     val updatedAtEpochMillis: Long,
-    val rigs: List<RigCalibration>,
+    val platforms: List<PlatformCalibration>,
 )
 
 /**
  * Encode the library for the bus: raw JSON, no protobuf and no envelope.
  *
  * Hand-written like the geometry writer beside it, and for the same reason — a small fixed shape that
- * is only ever written here. The rigs go in as the **stored** form, provenance and identity included:
+ * is only ever written here. The platforms go in as the **stored** form, provenance and identity included:
  * a library that dropped how each offset was measured would turn every share into a set of numbers
  * with no stated uncertainty.
  */
@@ -65,11 +65,11 @@ fun encodePlatformRegistry(
     version: Long,
     origin: String,
     updatedAtEpochMillis: Long,
-    rigs: List<RigCalibration>,
+    platforms: List<PlatformCalibration>,
 ): ByteArray {
-    val entries = rigs.joinToString(",\n", prefix = "{\n", postfix = "\n  }") { rig ->
-        val body = rig.toStoredJson().trim()
-        "    \"${rig.entityId.escaped()}\": $body"
+    val entries = platforms.joinToString(",\n", prefix = "{\n", postfix = "\n  }") { platform ->
+        val body = platform.toStoredJson().trim()
+        "    \"${platform.entityId.escaped()}\": $body"
     }
     val json = """
         {
@@ -77,7 +77,7 @@ fun encodePlatformRegistry(
           "version": $version,
           "origin": "${origin.escaped()}",
           "updatedAtEpochMillis": $updatedAtEpochMillis,
-          "rigs": $entries
+          "platforms": $entries
         }
     """.trimIndent()
     return json.toByteArray(Charsets.UTF_8)
@@ -88,12 +88,12 @@ fun decodePlatformRegistry(bytes: ByteArray): RemotePlatformRegistry? {
     val root = runCatching {
         Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)) as? JsonObject
     }.getOrNull() ?: return null
-    val rigsObject = root["rigs"] as? JsonObject ?: return null
+    val platformsObject = root["platforms"] as? JsonObject ?: return null
     return RemotePlatformRegistry(
         version = (root["version"] as? JsonPrimitive)?.longOrNull ?: 0L,
         origin = (root["origin"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty(),
         updatedAtEpochMillis = (root["updatedAtEpochMillis"] as? JsonPrimitive)?.longOrNull ?: 0L,
-        rigs = rigsObject.entries.mapNotNull { (entityId, value) ->
+        platforms = platformsObject.entries.mapNotNull { (entityId, value) ->
             se.rise.logline.calibrate.parsePlatformGeometry(value.toString(), entityId)
         },
     )
@@ -119,21 +119,21 @@ fun shouldApplyRemote(remote: RemotePlatformRegistry?, localVersion: Long, ownOr
 /**
  * Merge a remote library into the local one.
  *
- * **Documents only.** Which rig is active and which rigs publish are this phone's local policy and are
+ * **Documents only.** Which platform is active and which platforms publish are this phone's local policy and are
  * never moved by something that arrived over the air — one operator saving a library must not silently
  * start every phone in the fleet publishing geometry under entity ids nobody told them about. That is
  * the single most important rule in this file.
  *
- * A rig this phone is publishing is also **never removed** by a remote update, which is a knowing
- * deviation from crowsnest's whole-map replace: taking a rig out from under a live publisher is the
+ * A platform this phone is publishing is also **never removed** by a remote update, which is a knowing
+ * deviation from crowsnest's whole-map replace: taking a platform out from under a live publisher is the
  * one case where last-writer-wins is not acceptable. It comes back as soon as it is switched off.
  */
-fun mergeRemoteRigs(
-    local: List<RigCalibration>,
-    remote: List<RigCalibration>,
-    /** Entity ids this phone must keep whatever the remote says — the active rig and any opted in. */
+fun mergeRemotePlatforms(
+    local: List<PlatformCalibration>,
+    remote: List<PlatformCalibration>,
+    /** Entity ids this phone must keep whatever the remote says — the active platform and any opted in. */
     protectedEntityIds: Set<String>,
-): List<RigCalibration> {
+): List<PlatformCalibration> {
     val incoming = remote.associateBy { it.entityId }
     val kept = local.filter { it.entityId !in incoming && it.entityId in protectedEntityIds }
     return remote + kept

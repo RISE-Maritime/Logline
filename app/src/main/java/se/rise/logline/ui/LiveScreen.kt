@@ -319,7 +319,7 @@ fun LiveScreen(
                 batteryPercent = latest(PublishedSubject.BATTERY_STATE_OF_CHARGE),
             )
             HealthChips(
-                // Not the same list as the plot sections below, deliberately. A rig's calibration is
+                // Not the same list as the plot sections below, deliberately. A platform's calibration is
                 // surveyed once and republished on a ten-second loop; it is configuration the phone is
                 // announcing rather than telemetry it is measuring, and a health chip for it sits in
                 // the one row that is meant to answer "is this run going well". The group keeps its

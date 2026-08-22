@@ -141,14 +141,14 @@ class KeysTest {
      */
     @Test
     fun `the rpc interface token wildcards the procedure slot`() {
-        val key = rpcInterfaceLivelinessKey("rise", "rig_a", "configurable", "v1", "survey")
+        val key = rpcInterfaceLivelinessKey("rise", "platform_a", "configurable", "v1", "survey")
 
-        assertEquals("rise/@v0/rig_a/@rpc/configurable/v1/*/survey", key)
+        assertEquals("rise/@v0/platform_a/@rpc/configurable/v1/*/survey", key)
         val chunks = key.split("/")
         assertEquals("@rpc", chunks[3])
         assertEquals("*", chunks[6])
         // One chunk further along than the legacy token's star — the thing worth pinning.
-        assertEquals("*", legacyLivelinessKey("rise", "rig_a", "survey").split("/")[4])
+        assertEquals("*", legacyLivelinessKey("rise", "platform_a", "survey").split("/")[4])
     }
 
     /**
@@ -159,14 +159,14 @@ class KeysTest {
      */
     @Test
     fun `the rpc token sits behind two verbatim chunks`() {
-        val chunks = rpcInterfaceLivelinessKey("rise", "rig_a", "configurable", "v1", "gnss/0").split("/")
+        val chunks = rpcInterfaceLivelinessKey("rise", "platform_a", "configurable", "v1", "gnss/0").split("/")
 
         assertEquals("@v0", chunks[1])
         assertEquals("@rpc", chunks[3])
         // A multi-chunk source id survives unescaped, as everywhere else.
         assertEquals(
-            "rise/@v0/rig_a/@rpc/configurable/v1/*/gnss/0",
-            rpcInterfaceLivelinessKey("rise", "rig_a", "configurable", "v1", "gnss/0"),
+            "rise/@v0/platform_a/@rpc/configurable/v1/*/gnss/0",
+            rpcInterfaceLivelinessKey("rise", "platform_a", "configurable", "v1", "gnss/0"),
         )
     }
 }

@@ -143,15 +143,15 @@ The protocol layer. Three small files, deliberately free of Android imports:
 
 ### `calibrate/`
 
-The rig geometry, and the only part of the app that is *about something other than the phone*. Free of
+The platform geometry, and the only part of the app that is *about something other than the phone*. Free of
 Android except for `CalibrationCapture`, which is the two sensor reads the rest of it is built from:
 
-- **`Calibration.kt`** — `RigCalibration`, `RigZero` and `SensorMount` as plain value types, plus the
+- **`Calibration.kt`** — `PlatformCalibration`, `PlatformZero` and `SensorMount` as plain value types, plus the
   slug helpers that turn `SSRS18` into `ssrs18` and `ssrs18-frame-ccrp`. The enums spell upstream's
   `platform_type` and `sensor_type` vocabularies verbatim.
 - **`Geodesy.kt`** — WGS84 radii of curvature, a local tangent-plane offset between two fixes, the
-  great-circle bearing the two-point baseline uses, and the ENU → rig-frame rotation. The Z sign flip
-  lives here: ENU is up-positive and the rig frame is down-positive, which is the whole difference
+  great-circle bearing the two-point baseline uses, and the ENU → platform-frame rotation. The Z sign flip
+  lives here: ENU is up-positive and the platform frame is down-positive, which is the whole difference
   between a mast and a keel. Also `averageFix`, which reports the platform's accuracy and the samples'
   own scatter as two separate numbers, because they routinely disagree by a factor of ten.
 - **`Rotations.kt`** — yaw/pitch/roll to quaternion, intrinsic Z-Y-X, matching what `squaternion`
@@ -163,7 +163,7 @@ Android except for `CalibrationCapture`, which is the two sensor reads the rest 
   the MCAP recorder also uses.
 
 `SensorPublisher.runCalibration()` publishes it, on a ten-second loop, under the entity
-`Settings.entityFor()` resolves — the rig's, not the phone's.
+`Settings.entityFor()` resolves — the platform's, not the phone's.
 
 ### `sensors/`
 
@@ -400,7 +400,7 @@ navigation and actions sit in the same place on all of them:
   vocabulary for *global* state. It was written twice before this and the two drifted: the start
   screen said `Idle` and the live view said `IDLE`, from unrelated implementations.
 - `EmptyState(title, body, primary, secondary)` — one shape for "nothing here yet", where there had
-  been three (a `StatusLine` on the rig list, a centred column on the recordings list, a bare line of
+  been three (a `StatusLine` on the platform list, a centred column on the recordings list, a bare line of
   body text on the annotation screen).
 - `SectionHeader`, `StatusLine` (icon + colour + text, never colour alone) and `ConfirmDialog`.
 - `Modifier.readAsOneItem(description)` — collapses a row into one TalkBack node, because a subject
@@ -450,11 +450,11 @@ only when a file is actually being written: publishing and recording are two fac
 them leaves something to take off the phone afterwards.
 
 **Navigation is four tabs, and everything else is pushed on top of one of them.** Home used to carry
-six full-width buttons under its status card — Settings, Live view, Mark event, Rigs, Recordings,
+six full-width buttons under its status card — Settings, Live view, Mark event, Platforms, Recordings,
 Checklists — which made the first screen a dashboard and a table of contents at once, and made `Start
 publishing` compete with five controls that do nothing during a run. Those four configuration
 destinations moved to a **Setup** hub (`ui/SetupScreen.kt`), whose rows carry as a subtitle the state
-their old button labels smuggled into themselves (`Rigs · SSRS18` became a row reading *Rigs* over
+their old button labels smuggled into themselves (`Platforms · SSRS18` became a row reading *Platforms* over
 *SSRS18*). What is left on Home is one filled button when stopped, and `Live view` / `Mark event` /
 `Stop` when running — observe, annotate, stop, in the order a run is worked in. The first two are tab
 switches duplicated out of the bar deliberately, because the moment being marked is passing while
@@ -462,7 +462,7 @@ somebody hunts for the control.
 
 Two things about this are load-bearing and easy to break. The bar lives in `ScreenScaffold`'s existing
 `bottomBar` slot, so there is still exactly one `Scaffold` handling insets. And the checklist and
-platform sessions are scoped by route *prefix*, so moving Rigs and Checklists under Setup left them
+platform sessions are scoped by route *prefix*, so moving Platforms and Checklists under Setup left them
 working — but a route rename would break them silently, since the screen still opens and simply finds
 nothing.
 
@@ -538,10 +538,10 @@ answer to "did that register", which is the only question left by a button that 
 feedback. Severity is the one thing coloured, and only when it is not routine, so colour still means
 "look at this" the way it does on the main screen.
 
-**Rig calibration is a five-step flow, and the rail is navigation rather than a gate.** The editor was
+**Platform calibration is a five-step flow, and the rail is navigation rather than a gate.** The editor was
 one long form that exposed the whole data model at once — identity, zero point, forward axis, sensors,
 and the wire keys — with `frame_transform` and `configuration_json` in the first paragraph above the
-name field. It is now Rig / Zero / Forward / Sensors / Review, with every step reachable at any time
+name field. It is now Platform / Zero / Forward / Sensors / Review, with every step reachable at any time
 in any order: a wizard that made somebody walk five screens to fix a typo would be worse than the form
 it replaced. `Next` exists for a first survey and never blocks.
 
@@ -549,7 +549,7 @@ Three details are load-bearing. The step index is hoisted into `App()` beside th
 editing a sensor pushes another destination and pops back — a `remember` in the screen would return
 you to step 1 having just added a sensor on step 4. Save stays pinned across all five steps rather
 than becoming a step-5 action: `saveEnabled` needs only a name and a valid entity id while
-`isPublishable` additionally needs a sensor, so a half-surveyed rig is legitimately saveable and a
+`isPublishable` additionally needs a sensor, so a half-surveyed platform is legitimately saveable and a
 wizard that only saved at the end would throw away a survey somebody was interrupted in. And the rail
 is disabled while a capture is running, because a twenty-second position capture has somebody standing
 still at a point. The screen also gained the `BackHandler` every other form already had — it was the

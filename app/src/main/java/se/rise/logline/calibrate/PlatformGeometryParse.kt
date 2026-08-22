@@ -11,11 +11,11 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 
 /**
- * Reading a platform-geometry document back into a [RigCalibration].
+ * Reading a platform-geometry document back into a [PlatformCalibration].
  *
  * The counterpart to `PlatformGeometryJson.kt`, and the first thing in this app that parses JSON at
  * all. Three separate paths need it: importing a file somebody exported, adopting a platform seen on
- * the bus, and reading the phone's own rig library back out of DataStore.
+ * the bus, and reading the phone's own platform library back out of DataStore.
  *
  * **Why a library here when the writer is hand-rolled.** The writer emits a small fixed shape that is
  * only ever written, so a dependency would earn nothing — that argument still holds and it stays as it
@@ -28,7 +28,7 @@ import kotlinx.serialization.json.longOrNull
  *
  * **Tolerant in exactly the way `readCalibration` is tolerant.** A transform missing its frame id or
  * any translation component is skipped rather than read as zeros, because a half-written entry would
- * otherwise appear on the bus as a sensor mounted exactly at the rig's origin — a plausible-looking
+ * otherwise appear on the bus as a sensor mounted exactly at the platform's origin — a plausible-looking
  * lie. Unknown keys are ignored, so a crowsnest registry entry (which carries `realm`, `queryables`,
  * `data_streams`, `camera_calibrations`) parses to the geometry it has in common with upstream.
  *
@@ -45,29 +45,29 @@ private val json = Json {
  *
  * Accepts upstream's strict shape, the wire variant with its `calibration` provenance block, the
  * stored variant with `entity_id`/`parent_frame_id`, and a crowsnest registry entry. Returns null when
- * the text is not an object, or when there is no way to name the rig — a document with no transforms
- * is a legitimate half-finished rig, not a parse failure.
+ * the text is not an object, or when there is no way to name the platform — a document with no transforms
+ * is a legitimate half-finished platform, not a parse failure.
  *
  * @param fallbackEntityId used when the document carries no `entity_id`: a registry keys its entries
  *   by entity id rather than storing it inside, and a strict export has nowhere to put it either.
  */
-fun parsePlatformGeometry(text: String, fallbackEntityId: String? = null): RigCalibration? =
-    text.asJsonObject()?.toRigCalibration(fallbackEntityId)
+fun parsePlatformGeometry(text: String, fallbackEntityId: String? = null): PlatformCalibration? =
+    text.asJsonObject()?.toPlatformCalibration(fallbackEntityId)
 
 /**
  * Parse a document that may be one platform or an object of several keyed by entity id.
  *
- * Both are things a person will hand this app: a file exported per rig, and a crowsnest
+ * Both are things a person will hand this app: a file exported per platform, and a crowsnest
  * `platform_registry.json`. Telling them apart is a question about the *values*, not the keys — a
  * registry's values are all objects, while a platform has `name`, `frame_transforms` and the rest at
  * the top level — so a document carrying none of a platform's own fields and nothing but objects is
  * read as a registry of them.
  */
-fun parsePlatformDocument(text: String): List<RigCalibration> {
+fun parsePlatformDocument(text: String): List<PlatformCalibration> {
     val root = text.asJsonObject() ?: return emptyList()
-    if (!root.looksLikeRegistry()) return listOfNotNull(root.toRigCalibration(null))
+    if (!root.looksLikeRegistry()) return listOfNotNull(root.toPlatformCalibration(null))
     return root.entries.mapNotNull { (key, value) ->
-        (value as? JsonObject)?.toRigCalibration(key)
+        (value as? JsonObject)?.toPlatformCalibration(key)
     }
 }
 
@@ -85,15 +85,15 @@ private fun JsonObject.looksLikeRegistry(): Boolean {
 private fun String.asJsonObject(): JsonObject? =
     runCatching { json.parseToJsonElement(this) as? JsonObject }.getOrNull()
 
-private fun JsonObject.toRigCalibration(fallbackEntityId: String?): RigCalibration? {
+private fun JsonObject.toPlatformCalibration(fallbackEntityId: String?): PlatformCalibration? {
     val entityId = (
         string("entity_id")
             ?: fallbackEntityId?.takeIf { it.isNotBlank() }
             ?: string("name")?.let { defaultEntityId(it) }
         )
-        // Rejected rather than repaired. The id is interpolated straight into every key the rig
+        // Rejected rather than repaired. The id is interpolated straight into every key the platform
         // publishes on, so a `/` in it would silently add a chunk; slugifying instead would produce a
-        // rig whose key no longer matches the one the station that sent it uses, which is worse than
+        // platform whose key no longer matches the one the station that sent it uses, which is worse than
         // not importing it. Crowsnest enforces the same shape, so a well-formed registry always
         // passes.
         ?.takeIf { isValidEntityId(it) }
@@ -105,7 +105,7 @@ private fun JsonObject.toRigCalibration(fallbackEntityId: String?): RigCalibrati
         ?: defaultParentFrameId(name)
     val provenance = obj("calibration")
 
-    return RigCalibration(
+    return PlatformCalibration(
         name = name,
         entityId = entityId,
         parentFrameId = parentFrameId,
@@ -114,7 +114,7 @@ private fun JsonObject.toRigCalibration(fallbackEntityId: String?): RigCalibrati
         lengthOverAllM = double("length_over_all_m"),
         breadthOverAllM = double("breadth_over_all_m"),
         ccrp = obj("ccrp_m")?.toVec3M() ?: Vec3M.ZERO,
-        zero = provenance?.obj("zero")?.toRigZero(),
+        zero = provenance?.obj("zero")?.toPlatformZero(),
         sensors = transforms.toSensorMounts(provenance),
         updatedAtEpochMillis = provenance?.long("updated_at_ms") ?: 0L,
     )
@@ -196,7 +196,7 @@ private fun JsonObject.rotationEuler(): EulerDeg {
     obj("rotation")?.let { return it.toEulerDeg() }
     (this["rotation"] as? JsonArray)?.let { a ->
         // The legacy array form is [roll, pitch, yaw] — squaternion's own argument order, which is
-        // what produced those files. Reading it yaw-first would silently roll a rig onto its side.
+        // what produced those files. Reading it yaw-first would silently roll a platform onto its side.
         if (a.size < 3) return EulerDeg.ZERO
         return EulerDeg(yaw = a.numberAt(2), pitch = a.numberAt(1), roll = a.numberAt(0))
     }
@@ -222,14 +222,14 @@ private fun JsonObject.toEulerDeg(): EulerDeg = EulerDeg(
 /**
  * The surveyed zero.
  *
- * Latitude and longitude are both required, exactly as in `readRigZero`: a zero with one of them
- * missing would place the rig on the equator or the Greenwich meridian, which is a real place and a
+ * Latitude and longitude are both required, exactly as in `readPlatformZero`: a zero with one of them
+ * missing would place the platform on the equator or the Greenwich meridian, which is a real place and a
  * completely wrong answer.
  */
-private fun JsonObject.toRigZero(): RigZero? {
+private fun JsonObject.toPlatformZero(): PlatformZero? {
     val lat = double("latitude") ?: return null
     val lon = double("longitude") ?: return null
-    return RigZero(
+    return PlatformZero(
         latitude = lat,
         longitude = lon,
         altitudeM = double("altitude_m"),

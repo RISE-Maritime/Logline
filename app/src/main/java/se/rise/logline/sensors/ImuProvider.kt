@@ -34,7 +34,7 @@ data class QuatSample(
      * discarded. They describe the *phone*, not a vessel — `yaw` is the heading in signed form, `pitch`
      * is rotation about the device's +X axis and `roll` about its +Y, and Android bounds roll to
      * ±90° while the other two run to ±180°. What the phone's attitude means for the boat it is
-     * strapped to is the rig calibration's `frame_transform`, not this.
+     * strapped to is the platform calibration's `frame_transform`, not this.
      */
     val yawDegrees: Float,
     val pitchDegrees: Float,

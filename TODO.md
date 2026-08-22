@@ -19,7 +19,7 @@ the section they belong to.
 
 ## PLatfrom Config 
 
-Left over from the rig library, and each is a finding rather than a fix. All five are filed together
+Left over from the platform library, and each is a finding rather than a fix. All five are filed together
 upstream as [RISE-Maritime/keelson#191](https://github.com/RISE-Maritime/keelson/issues/191) — the first
 two are the ones anybody outside this repo can act on.
 
@@ -32,16 +32,27 @@ two are the ones anybody outside this repo can act on.
 - [ ] **Crowsnest does not publish its platform overlay**, so the shared library is one-way today —
       the phone shares and nothing answers. The change is small and belongs in that repo; the pattern
       to copy is its own `dataflowConfigSync.js`.
-- [ ] **Per-rig failure attribution.** `PublisherStatus` is keyed on the registry entry, so three rigs
-      publishing `frame_transform` share one row: rig B's failure can be cleared by rig A's next tick.
-      Acceptable for a 0.1 Hz loop, and worth revisiting only if a rig ever fails alone in the field.
+- [ ] **Per-platform failure attribution.** `PublisherStatus` is keyed on the registry entry, so three platforms
+      publishing `frame_transform` share one row: platform B's failure can be cleared by platform A's next tick.
+      Acceptable for a 0.1 Hz loop, and worth revisiting only if a platform ever fails alone in the field.
 - [ ] **An import drops what this app does not model** — MMSI, call sign, `data_streams`, `queryables`,
       camera calibrations — and a re-export therefore loses them. The screen says so, which is the
-      minimum; keeping the untouched document alongside the rig and merging it back on export is the
+      minimum; keeping the untouched document alongside the platform and merging it back on export is the
       real fix, and it would put a `JsonElement` inside a data model whose whole point is not having one.
-- [ ] **The single-rig migration is one-way.** After the first save on this build the old `calib_*`
+- [ ] **The single-platform migration is one-way.** After the first save on this build the old `calib_*`
       keys are gone, so an older APK sees no calibration. Deliberate — mirroring index 0 into them
       forever is a second source of truth that will drift — but worth knowing before a downgrade.
+- [ ] **The `rig_*` → `platform_*` key migration is one-way too**, and now there are two legacy schemes
+      stacked behind the current one. After the first save on this build the `rig_*` keys are gone, so an
+      older APK sees no platform library at all — verified on a Pixel 6 by reading the preferences file
+      before and after: the six keys were renamed, every value carried across (`platform_count` stayed
+      `0`, `platform_registry_version` stayed `2`), and nothing else in the file changed. Worth knowing
+      before a downgrade, and worth deleting the fallback once no phone in the fleet predates it.
+- [ ] **The platform screens' route values changed with the rename** — `calibration/rig/{entityId}` is now
+      `calibration/platform/{entityId}`. Harmless today, because routes are not persisted and the two
+      Zenoh sessions are scoped on the `calibration` prefix, which did not move. Filed because a prefix
+      match that goes wrong fails *silently*: the screen still opens and simply never finds anything on
+      the bus, so any future route rename has to be re-checked on a device rather than reasoned about.
 
 - [ ] **`entity_health`** (`keelson.EntityHealth`) — the app *already* computes per-subject health for
   the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
@@ -124,7 +135,7 @@ turned up rather than what it did — the *what* is in the commit and in
       typing an endpoint is the normal path and scanning for one by multicast is not. Revisit if
       anybody goes looking for it under Connection.
 
-- [ ] **Rig calibration lost its intro paragraph to the ⓘ, and gained a `BackHandler` it should have
+- [ ] **Platform calibration lost its intro paragraph to the ⓘ, and gained a `BackHandler` it should have
       had all along** — it was the one form screen where a system-back discarded unsaved edits
       silently, unlike `SettingsScreen`, `AnnotationButtonsScreen` and `SubjectQosScreen`.
 
@@ -308,7 +319,7 @@ completes, and that is not something app code can fix.
       `Zenoh.scout`** — the binding builds a class in native code with `FindClass`, on one of Zenoh's
       own threads, where JNI resolves against the system class loader and cannot see app classes — and
       `keelson/Scout.kt` exists because of it. Reproduced twice, zenoh-kotlin 1.10.0.
-      Opening the Rigs screen (`livelinessGet`) does *not* crash, so it is the reply path specifically;
+      Opening the Platforms screen (`livelinessGet`) does *not* crash, so it is the reply path specifically;
       whether `KeelsonSession.query()` is also affected when a storage actually answers is **untested**
       and matters, because the checklist bootstrap uses it.
       No workaround from this side. Either the binding is fixed upstream, or the handshake goes over

@@ -46,7 +46,7 @@ object Routes {
      * One subject's history, at full size — reached by tapping its card on the Live tab.
      *
      * `plot/` rather than something under `live/`, and that is load-bearing: the two Zenoh sessions are
-     * scoped by route *prefix* ([CHECKLIST_PREFIX], [RIG_PREFIX]) and a prefix match that goes wrong
+     * scoped by route *prefix* ([CHECKLIST_PREFIX], [PLATFORM_PREFIX]) and a prefix match that goes wrong
      * fails silently — the screen opens and simply never finds anything on the bus. This collides with
      * neither.
      */
@@ -64,9 +64,9 @@ object Routes {
     const val CHECKLISTS = "checklists"
     const val CHECKLIST = "checklist/{procedureId}"
 
-    const val RIGS = "calibration"
-    const val RIG = "calibration/rig/{entityId}"
-    const val SENSOR_MOUNT = "calibration/rig/{entityId}/sensor/{index}"
+    const val PLATFORMS = "calibration"
+    const val PLATFORM = "calibration/platform/{entityId}"
+    const val SENSOR_MOUNT = "calibration/platform/{entityId}/sensor/{index}"
 
     /**
      * Every route the graph declares.
@@ -77,7 +77,7 @@ object Routes {
      */
     val ALL = listOf(
         MAIN, SETUP, RECORDINGS, LIVE, SUBJECT_QOS, ANNOTATIONS, ANNOTATION_BUTTONS,
-        CHECKLISTS, CHECKLIST, RIGS, RIG, SENSOR_MOUNT, SCAN_QR, SETTINGS,
+        CHECKLISTS, CHECKLIST, PLATFORMS, PLATFORM, SENSOR_MOUNT, SCAN_QR, SETTINGS,
     )
 
     /**
@@ -89,8 +89,8 @@ object Routes {
      */
     const val CHECKLIST_PREFIX = "checklist"
 
-    /** Scopes the platform session across the rig list, the editor and a sensor, for the same reason. */
-    const val RIG_PREFIX = "calibration"
+    /** Scopes the platform session across the platform list, the editor and a sensor, for the same reason. */
+    const val PLATFORM_PREFIX = "calibration"
 
     // -- paths, built from the patterns above ----------------------------------------------------
     //
@@ -105,14 +105,14 @@ object Routes {
     /** [uri] must be percent-encoded by the caller — a `content://` URI is full of slashes. */
     fun recordingDetail(encodedUri: String): String = RECORDING_DETAIL.replace("{uri}", encodedUri)
 
-    fun rig(encodedEntityId: String): String = RIG.replace("{entityId}", encodedEntityId)
+    fun platform(encodedEntityId: String): String = PLATFORM.replace("{entityId}", encodedEntityId)
 
     fun sensorMount(encodedEntityId: String, index: Int): String =
         SENSOR_MOUNT.replace("{entityId}", encodedEntityId).replace("{index}", index.toString())
 
     fun inChecklists(route: String?): Boolean = route?.startsWith(CHECKLIST_PREFIX) == true
 
-    fun inRigScreens(route: String?): Boolean = route?.startsWith(RIG_PREFIX) == true
+    fun inPlatformScreens(route: String?): Boolean = route?.startsWith(PLATFORM_PREFIX) == true
 
     // -- the whole decision, not just the routing half -------------------------------------------
     //
@@ -135,5 +135,5 @@ object Routes {
         inChecklists(route) && settings.checklistEnabled && settings.hasChecklistIdentity()
 
     /** Whether the platform session should be open. The route is the whole of it. */
-    fun shouldSyncPlatforms(route: String?): Boolean = inRigScreens(route)
+    fun shouldSyncPlatforms(route: String?): Boolean = inPlatformScreens(route)
 }

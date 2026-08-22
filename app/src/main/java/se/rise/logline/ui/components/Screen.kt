@@ -453,7 +453,7 @@ fun InfoDialog(
 /**
  * The five things this app is for, and the only destinations that carry a navigation bar.
  *
- * Everything else — the settings form, the rig editor, a sensor, a QoS sheet, the annotation buttons —
+ * Everything else — the settings form, the platform editor, a sensor, a QoS sheet, the annotation buttons —
  * is *pushed* on top of one of these and keeps a back arrow instead. That split is what lets the bar
  * share [ScreenScaffold]'s single `bottomBar` slot with [FormActions] and never collide with it: no
  * screen is both a tab and a form.
@@ -542,7 +542,7 @@ fun LoglineNavBar(current: String?, onSelect: (TopLevel) -> Unit) {
  *
  * Ambient rather than a parameter: every screen's bar carries it, and threading three fields through
  * fourteen screen signatures to reach a chip in shared chrome would put the publisher's state into the
- * argument list of the rig editor. `App()` provides it once.
+ * argument list of the platform editor. `App()` provides it once.
  */
 data class RunState(
     val running: Boolean = false,
@@ -706,7 +706,7 @@ fun ConnectionChip(running: Boolean, connection: ConnectionState, modifier: Modi
 /**
  * One shape for "there is nothing here yet", because there were three.
  *
- * A `StatusLine` on the rig list, a centred column on the recordings list and a bare line of body text
+ * A `StatusLine` on the platform list, a centred column on the recordings list and a bare line of body text
  * on the annotation screen all answered the same question in a different voice. An empty state is the
  * first thing a new install shows, so it is worth saying what the thing is for and offering the one
  * action that ends it — hence [primary], with [secondary] for the import-shaped alternative.

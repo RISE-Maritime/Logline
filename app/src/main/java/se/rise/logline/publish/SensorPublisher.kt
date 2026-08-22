@@ -11,7 +11,7 @@ import androidx.core.content.ContextCompat
 import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.config.NOTE_CATEGORY
 import se.rise.logline.config.SYSTEM_CATEGORY
-import se.rise.logline.calibrate.RigCalibration
+import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.normaliseSignedDegrees
 import se.rise.logline.calibrate.toPlatformGeometryJson
 import se.rise.logline.calibrate.toQuaternion
@@ -195,22 +195,22 @@ class SensorPublisher(private val appContext: Context) {
     private var publishers: Map<PublishedSubject, AdvancedPublisher> = emptyMap()
 
     /**
-     * One rig's geometry publishers.
+     * One platform's geometry publishers.
      *
      * The calibration subjects are the one place the "one publisher per registry entry" rule breaks,
      * and it breaks for a reason that is not going away: a `PublishedSubject` names an entry, an entry
-     * names a subject, and several *rigs* publish the same three subjects under different entity ids.
+     * names a subject, and several *platforms* publish the same three subjects under different entity ids.
      * There is no entity for `Settings.entityFor` to return, so these three are left out of the global
-     * [keys] and [publishers] maps entirely and built per rig here — which keeps exactly one publisher
+     * [keys] and [publishers] maps entirely and built per platform here — which keeps exactly one publisher
      * per key, as before.
      */
-    private class RigPublishers(
-        val rig: RigCalibration,
+    private class PlatformPublishers(
+        val platform: PlatformCalibration,
         val keys: Map<PublishedSubject, String>,
         val publishers: Map<PublishedSubject, AdvancedPublisher>,
     )
 
-    private var rigPublishers: List<RigPublishers> = emptyList()
+    private var platformPublishers: List<PlatformPublishers> = emptyList()
 
     /**
      * Recent samples, for filling in a dropped link. Filled unconditionally — see [OutboxBuffer].
@@ -391,9 +391,9 @@ class SensorPublisher(private val appContext: Context) {
                 // One publisher per registry entry, so adding a subject to PublishedSubject is all it
                 // takes to get it declared with the right key and the right QoS.
                 //
-                // Every entry except the three calibration ones: those publish under a *rig's* entity
-                // and there may be several rigs, so one entry no longer means one key. They are
-                // declared per rig below — see [RigPublishers].
+                // Every entry except the three calibration ones: those publish under a *platform's* entity
+                // and there may be several platforms, so one entry no longer means one key. They are
+                // declared per platform below — see [PlatformPublishers].
                 val phoneEntries = PublishedSubject.entries.filter { it.source != SourceKind.CALIBRATION }
                 keys = phoneEntries.associateWith { entry ->
                     pubsubKey(
@@ -412,12 +412,12 @@ class SensorPublisher(private val appContext: Context) {
                 }
                 val publishers = publishers
 
-                rigPublishers = settings.publishingRigs().map { rig ->
-                    val rigKeys = settings.rigKeys(rig)
-                    RigPublishers(
-                        rig = rig,
-                        keys = rigKeys,
-                        publishers = rigKeys.mapValues { (entry, key) ->
+                platformPublishers = settings.publishingPlatforms().map { platform ->
+                    val platformKeys = settings.platformKeys(platform)
+                    PlatformPublishers(
+                        platform = platform,
+                        keys = platformKeys,
+                        publishers = platformKeys.mapValues { (entry, key) ->
                             opened.declarePublisher(
                                 key,
                                 qosForSubject(entry.subject, settings.qosOverrides),
@@ -425,13 +425,13 @@ class SensorPublisher(private val appContext: Context) {
                         },
                     )
                 }
-                val rigs = rigPublishers
+                val platforms = platformPublishers
 
                 declareLiveliness(opened, settings)
                 // The subject tier, on the run's scope: it tracks the per-subject switches, which
-                // change without restarting the run. The rig maps come along because a rig's three
-                // calibration subjects are claimed under the *rig's* entity id, not the phone's.
-                launch { runSubjectLiveliness(opened, listOf(keys) + rigs.map { it.keys }) }
+                // change without restarting the run. The platform maps come along because a platform's three
+                // calibration subjects are claimed under the *platform's* entity id, not the phone's.
+                launch { runSubjectLiveliness(opened, listOf(keys) + platforms.map { it.keys }) }
 
                 // One mark at the head of every run, and not only for tidiness: MCAP channels are
                 // registered lazily on the first sample, so a run nobody annotates would have no
@@ -507,7 +507,7 @@ class SensorPublisher(private val appContext: Context) {
                     runRadio(opened, publishers, settings.recordRate(Subjects.RADIO_RSRP_DBM))
                 }
                 supervised("calibration", CALIBRATION_SUBJECTS) {
-                    runCalibration(opened, rigs, settings)
+                    runCalibration(opened, platforms, settings)
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "start failed", t)
@@ -544,7 +544,7 @@ class SensorPublisher(private val appContext: Context) {
         scope = null
         session = null
         publishers = emptyMap()
-        rigPublishers = emptyList()
+        platformPublishers = emptyList()
         livelinessTokens = emptyList()
         statusStore.stopped()
         // **Not stopped here.** The collectors keep publishing for as long as it takes the cancel
@@ -657,9 +657,9 @@ class SensorPublisher(private val appContext: Context) {
      * The protocol models presence per *source* while this app publishes under several. The three
      * configurable ids all default to `phone`, and the two radio links add fixed `cellular` and `wifi`
      * ids, so a default run declares three source tokens no matter how many subjects there are. A
-     * calibrated rig adds one more under the rig's own entity: the pair is what a token identifies, and
-     * publishing a rig's geometry under a token that only ever named the phone would leave a consumer
-     * watching the rig with nothing to see.
+     * calibrated platform adds one more under the platform's own entity: the pair is what a token identifies, and
+     * publishing a platform's geometry under a token that only ever named the phone would leave a consumer
+     * watching the platform with nothing to see.
      *
      * Each pair also gets the [legacyLivelinessKey] shape, for one release — see that function.
      *
@@ -701,10 +701,10 @@ class SensorPublisher(private val appContext: Context) {
             .filter { it.source != SourceKind.CALIBRATION }
             .map { settings.entityFor(it) to settings.sourceFor(it) }
             .toMutableSet()
-        // One more pair per publishing rig. The rig entities are not reachable through `entityFor`
-        // any more — several rigs share the three calibration entries — so without this a consumer
-        // watching for a rig would never see it join, even while its geometry was on the bus.
-        settings.publishingRigs().forEach {
+        // One more pair per publishing platform. The platform entities are not reachable through `entityFor`
+        // any more — several platforms share the three calibration entries — so without this a consumer
+        // watching for a platform would never see it join, even while its geometry was on the bus.
+        settings.publishingPlatforms().forEach {
             sources += it.entityId to settings.calibrationSource
         }
         val startedAt = SystemClock.uptimeMillis()
@@ -1405,7 +1405,7 @@ class SensorPublisher(private val appContext: Context) {
      * `getOrientation` was not already computing; two of the three were simply being discarded.
      *
      * The `frameId` is the IMU's, because these describe the phone: what its attitude means for the
-     * vessel is the rig calibration's business, not this collector's.
+     * vessel is the platform calibration's business, not this collector's.
      */
     private suspend fun runAttitude(
         session: KeelsonSession,
@@ -1947,7 +1947,7 @@ class SensorPublisher(private val appContext: Context) {
     }
 
     /**
-     * The rig calibration: one `frame_transform` per sensor and one `configuration_json`, on a loop.
+     * The platform calibration: one `frame_transform` per sensor and one `configuration_json`, on a loop.
      *
      * Nothing is sampled here — the geometry was measured on the calibration screen and has not
      * changed. The loop exists because Zenoh's latest-value store keeps only the last sample per
@@ -1955,7 +1955,7 @@ class SensorPublisher(private val appContext: Context) {
      * message, in `child_frame_id`, rather than by source id). A subscriber joining halfway through
      * would otherwise see whichever transform happened to go last and none of the others. Ten seconds
      * is what `platform-geometry2keelson.py` republishes at, and matching it keeps a phone-surveyed
-     * rig indistinguishable from a connector-published one.
+     * platform indistinguishable from a connector-published one.
      *
      * **Stamped with the publish time, not the observation time** — the one deliberate exception to
      * the rule everywhere else in this file. A transform's timestamp is what a consumer builds its
@@ -1968,26 +1968,26 @@ class SensorPublisher(private val appContext: Context) {
      * work for a string that is identical every time.
      */
     /**
-     * Republish every publishing rig's geometry, on a loop.
+     * Republish every publishing platform's geometry, on a loop.
      *
-     * One collector for all rigs rather than one per rig: they share a ticker, a rate control and a
-     * lifecycle, and the three subjects are the same three whichever rig is behind them. Each rig gets
-     * its own keys and publishers ([RigPublishers]) and — because the sink stamps the MCAP channel
+     * One collector for all platforms rather than one per platform: they share a ticker, a rate control and a
+     * lifecycle, and the three subjects are the same three whichever platform is behind them. Each platform gets
+     * its own keys and publishers ([PlatformPublishers]) and — because the sink stamps the MCAP channel
      * with the key — its own channels in the recording.
      *
-     * The documents are serialised once, outside the loop: a rig's geometry does not change during a
+     * The documents are serialised once, outside the loop: a platform's geometry does not change during a
      * run, and re-rendering four JSON documents every ten seconds for the life of a run is work
      * nothing asks for.
      */
     private suspend fun runCalibration(
         session: KeelsonSession,
-        rigs: List<RigPublishers>,
+        platforms: List<PlatformPublishers>,
         settings: Settings,
     ) {
-        if (rigs.isEmpty()) return
+        if (platforms.isEmpty()) return
 
-        class RigStream(
-            val rig: RigCalibration,
+        class PlatformStream(
+            val platform: PlatformCalibration,
             val publishers: Map<PublishedSubject, AdvancedPublisher>,
             val transforms: SubjectSink,
             val document: SubjectSink,
@@ -1995,12 +1995,12 @@ class SensorPublisher(private val appContext: Context) {
             val json: String,
         )
 
-        val streams = rigs.map { r ->
-            RigStream(
-                rig = r.rig,
+        val streams = platforms.map { r ->
+            PlatformStream(
+                platform = r.platform,
                 publishers = r.publishers,
-                // Each sink carries this rig's key so the recorder writes one MCAP channel per
-                // (rig, subject) — the channel topic is the full Zenoh key, and the replayer
+                // Each sink carries this platform's key so the recorder writes one MCAP channel per
+                // (platform, subject) — the channel topic is the full Zenoh key, and the replayer
                 // republishes it verbatim.
                 transforms = SubjectSink(
                     PublishedSubject.FRAME_TRANSFORM,
@@ -2019,30 +2019,30 @@ class SensorPublisher(private val appContext: Context) {
                 ),
                 // The wire document carries provenance; only the exported file has to satisfy
                 // upstream's `additionalProperties: false`. See calibrate/PlatformGeometryJson.kt.
-                json = r.rig.toPlatformGeometryJson(provenance = true),
+                json = r.platform.toPlatformGeometryJson(provenance = true),
             )
         }
 
         // A rate control set to Max would otherwise mean an interval of zero, and this loop has no
-        // sensor to wait on — it would republish every rig as fast as the CPU allows.
+        // sensor to wait on — it would republish every platform as fast as the CPU allows.
         val intervalMillis = settings.recordRate(Subjects.FRAME_TRANSFORM).toIntervalMillis()
             .coerceAtLeast(MIN_CALIBRATION_INTERVAL_MILLIS)
 
         // The plotted value for `configuration_json` is the whole library's sensor count, not each
-        // rig's. The live ring is keyed by subject, so a per-rig count would have three rigs writing
+        // platform's. The live ring is keyed by subject, so a per-platform count would have three platforms writing
         // three different numbers into one series and the plot would oscillate between them for no
         // reason a reader could see.
-        val totalSensors = streams.sumOf { it.rig.sensors.size }.toFloat()
+        val totalSensors = streams.sumOf { it.platform.sensors.size }.toFloat()
 
-        // Guarded on the first rig's transform sink: a failure here is a failure of the collector, and
-        // the three calibration rows are per subject rather than per rig, so one report is the whole
-        // story however many rigs are behind it.
+        // Guarded on the first platform's transform sink: a failure here is a failure of the collector, and
+        // the three calibration rows are per subject rather than per platform, so one report is the whole
+        // story however many platforms are behind it.
         streams.first().transforms.guard {
             while (true) {
                 val now = protoTimestamp()
                 streams.forEach { stream ->
-                    val calibration = stream.rig
-                    // Only a surveyed position anchors anything. A tape-measured rig and a heading
+                    val calibration = stream.platform
+                    // Only a surveyed position anchors anything. A tape-measured platform and a heading
                     // typed before any capture both leave this null, and the sink would drop it
                     // anyway — see Settings.offSubjects.
                     val zero = calibration.zero?.takeIf { it.hasPosition }
@@ -2054,12 +2054,12 @@ class SensorPublisher(private val appContext: Context) {
                             .toByteArray(),
                         totalSensors,
                     )
-                    // Where the rig's zero was when it was surveyed — the geodetic anchor the
+                    // Where the platform's zero was when it was surveyed — the geodetic anchor the
                     // transforms hang off, and without it they are floating relative geometry.
                     //
                     // **Stamped with the survey time**, unlike the transforms below. A transform's
                     // timestamp is machinery for building a frame tree; this one is the age of a
-                    // measurement, and it is the honest answer to "is this where the rig is now?" — no.
+                    // measurement, and it is the honest answer to "is this where the platform is now?" — no.
                     zero?.let { z ->
                         val fix = LocationFix.newBuilder()
                             .setTimestamp(protoTimestamp(z.capturedAtEpochMillis * 1_000_000L))
@@ -2144,10 +2144,10 @@ class SensorPublisher(private val appContext: Context) {
          * The key these samples go out on, when it is not this entry's own.
          *
          * Null for every phone subject, which take their key from [keys]. The calibration subjects
-         * are the exception: several rigs publish through the same three registry entries under
-         * different entity ids, so the key belongs to the rig rather than to the entry — and the
-         * recorder stamps its MCAP channel with it, which is what gives each rig its own channels
-         * instead of merging two rigs' transforms onto one topic.
+         * are the exception: several platforms publish through the same three registry entries under
+         * different entity ids, so the key belongs to the platform rather than to the entry — and the
+         * recorder stamps its MCAP channel with it, which is what gives each platform its own channels
+         * instead of merging two platforms' transforms onto one topic.
          */
         private val keyOverride: String? = null,
     ) {
