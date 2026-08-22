@@ -1968,8 +1968,9 @@ Sibling repos on this machine, useful as references and already in the working-d
 ## CI
 
 `.github/workflows/build.yml` runs `testDebugUnitTest lintDebug assembleDebug` on push, pull request,
-and manual dispatch. It runs as of the initial commit; nothing has exercised it yet, because
-there is no remote to push to.
+and manual dispatch. It is **green as of `542c988`** — run 32592816237, 10m20s — which is the first
+time it has ever passed: the three runs before it all died installing the SDK platform, for the reason
+below. A cold run is around ten minutes, most of it packaging the Zenoh natives.
 
 Two runner-specific details worth knowing before editing it: there is no `local.properties` on CI, so
 AGP resolves the SDK from `ANDROID_HOME` (verified locally by building with the file moved aside), and

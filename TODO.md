@@ -18,13 +18,22 @@ the section they belong to.
   Done: `origin` is `RISE-Maritime/Logline`, **private**, first pushed 2026-08-19 and current as of
   `e97233f`. The settings file is therefore not public, though it is still tracked and still carries
   this machine's paths, which stays worth revisiting the moment a second machine builds this.
-- [ ] **CI has never been green.** It does run — the item above assumed otherwise — and it failed all
+- [x] **CI has never been green.** It does run — the item above assumed otherwise — and it failed all
   three times it ran, always at the same step: `sdkmanager "platforms;android-37"` answers
   `Warning: Failed to find package` and exits 1. The package is **`android-37.0`**; from API 36
   onwards Android publishes minor releases, so platform paths carry a minor version and the bare
   `android-37` does not exist. Fixed here, but **not yet observed green** — the run after this commit
   is the first that could be, and it may well surface a second failure behind the first, since no
   step past the SDK install has ever executed on a runner.
+  Done in `542c988`, and observed: run 32592816237 passed in **10m20s**, no second failure behind the
+  first. `testDebugUnitTest lintDebug assembleDebug` have now all executed on a runner, so the claim
+  in CLAUDE.md that CI "runs as of the initial commit; nothing has exercised it yet" is retired.
+- [ ] **CI's actions are deprecated and will stop working.** The green run warns twice: `checkout@v4`,
+  `setup-java@v4`, `android-actions/setup-android@v3` and `gradle/actions/setup-gradle@v4` all target
+  Node 20 and are being forced onto Node 24, and `setup-java` v4 is end-of-life in favour of v5.
+  Deliberately not bundled with the fix above — a known-green baseline was worth more at that moment
+  than pre-empting a breakage that has not happened, and bumping four actions at once is exactly how
+  a green build goes red for reasons unrelated to the code.
 
 
 ## PLatfrom Config 
