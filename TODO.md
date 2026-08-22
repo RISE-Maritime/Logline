@@ -28,12 +28,19 @@ the section they belong to.
   Done in `542c988`, and observed: run 32592816237 passed in **10m20s**, no second failure behind the
   first. `testDebugUnitTest lintDebug assembleDebug` have now all executed on a runner, so the claim
   in CLAUDE.md that CI "runs as of the initial commit; nothing has exercised it yet" is retired.
-- [ ] **CI's actions are deprecated and will stop working.** The green run warns twice: `checkout@v4`,
+- [x] **CI's actions are deprecated and will stop working.** The green run warns twice: `checkout@v4`,
   `setup-java@v4`, `android-actions/setup-android@v3` and `gradle/actions/setup-gradle@v4` all target
   Node 20 and are being forced onto Node 24, and `setup-java` v4 is end-of-life in favour of v5.
   Deliberately not bundled with the fix above — a known-green baseline was worth more at that moment
   than pre-empting a breakage that has not happened, and bumping four actions at once is exactly how
   a green build goes red for reasons unrelated to the code.
+  Done in `a9f6a34`, on a branch for exactly that reason, and merged only once observed green — run
+  32593603610, 6m32s, **no annotations left**. Five actions rather than four: `upload-artifact` runs
+  only `if: failure()`, so it never executed on a green run and the warning never named it. Each is
+  pinned to the major that made the Node 24 move rather than the newest, and the reasoning is in the
+  workflow itself, because the two temptations there are real: `gradle/actions` v6 moves caching into
+  a closed-source library and drops configuration-cache support, and `upload-artifact` v5 is the one
+  action where the smallest bump is *not* enough.
 
 
 ## Platform Config 
