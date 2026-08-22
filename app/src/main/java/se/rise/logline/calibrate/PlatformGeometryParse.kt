@@ -150,6 +150,8 @@ private fun JsonArray?.toSensorMounts(provenance: JsonObject?): List<SensorMount
             capture = capture?.method ?: CaptureMethod.MANUAL,
             accuracyM = capture?.accuracyM,
             capturedAtEpochMillis = capture?.atEpochMillis ?: 0L,
+            rotationCapture = capture?.rotationMethod ?: CaptureMethod.MANUAL,
+            rotationAccuracyDeg = capture?.rotationAccuracyDeg,
         )
     }
 }
@@ -158,6 +160,8 @@ private class SensorProvenance(
     val method: CaptureMethod,
     val accuracyM: Double?,
     val atEpochMillis: Long,
+    val rotationMethod: CaptureMethod,
+    val rotationAccuracyDeg: Double?,
 )
 
 private fun JsonObject?.sensorCaptures(): Map<String, SensorProvenance> {
@@ -169,6 +173,11 @@ private fun JsonObject?.sensorCaptures(): Map<String, SensorProvenance> {
             method = CaptureMethod.entries.byWireName(e.string("capture")) ?: CaptureMethod.MANUAL,
             accuracyM = e.double("accuracy_m"),
             atEpochMillis = e.long("captured_at_ms") ?: 0L,
+            // Absent means typed, which is what every document written before rotations could be
+            // measured says, and what the strict export means for every sensor in it.
+            rotationMethod = CaptureMethod.entries.byWireName(e.string("rotation_capture"))
+                ?: CaptureMethod.MANUAL,
+            rotationAccuracyDeg = e.double("rotation_accuracy_deg"),
         )
     }.toMap()
 }

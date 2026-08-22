@@ -1101,8 +1101,18 @@ nobody can rebuild without walking back down to the quay.
 Offsets are either **typed** — a tape measure, and for a small platform the only honest option — or
 **captured**, by standing the phone at the sensor and averaging twenty seconds of fixes. The screen
 shows the fix accuracy behind every captured number and flags in red any offset smaller than the
-accuracy that produced it, because that offset is GNSS noise rather than geometry. Rotations are always
-typed: a phone can measure where a radar is, not where it is aimed.
+accuracy that produced it, because that offset is GNSS noise rather than geometry.
+
+**Rotations can be measured too** — lay the phone flat against the sensor's mounting face, screen up,
+top edge the way it faces, and it reads its own attitude. Pitch and roll come from gravity and are as
+good as anything aboard, provided the platform is level when you measure: heel and trim go straight
+into the number and nothing can detect that afterwards. **Yaw is the one to distrust.** It comes from
+the magnetometer, which is exactly what a radar, a steel mast or a motor pulls out of true, so the
+screen shows the compass's own accuracy beside it and says so in red when that figure is too loose to
+steer by. Measured indoors on a desk a Pixel 6 reported ±90°, which is the honest answer. Yaw is
+relative to the platform's bow, so it needs the forward axis established first, and it needs the zero
+point's position to correct magnetic north to true — without one the screen says the yaw is magnetic
+rather than quietly leaving it wrong by the local declination, about 6° in western Sweden.
 
 The result goes out under the **platform's** entity id, not the phone's — `entity_id` names the thing the
 data is about — and exports as a file keelson's own `connectors/platform` reads unchanged:

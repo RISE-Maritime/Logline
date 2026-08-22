@@ -57,11 +57,23 @@ two are the ones anybody outside this repo can act on.
       through, so a 1080x2400 PNG screenshot was stored verbatim in a file called `.jpg`, which would
       have put a lossless multi-megabyte file where the backup arithmetic assumes a compressed one.
       `importPlatformPhoto` now decodes, caps the long edge and re-encodes as JPEG itself.
-- [ ] **A platform photo can only be picked, not taken.** `PickVisualMedia` opens the gallery, which is
+- [x] **A platform photo can only be picked, not taken.** `PickVisualMedia` opens the gallery, which is
       the literal ask and needs no permission — but the moment somebody wants a picture of a platform is
       usually while standing next to it. Taking one needs `TakePicture`, a `FileProvider` and the
       `CAMERA` permission, and it has to be thought about beside the time-lapse: a Pixel 6 kills the
       camera HAL when two use cases bind at once, so this may have to refuse while a run is recording.
+      Done — and it does refuse while a run holds the camera. Verified on a Pixel 6: the permission is
+      asked at the tap, the camera app opens, and the shot comes back through `importPlatformPhoto` as
+      a 964x1280 JPEG with the temp file cleaned up.
+- [ ] **A measured sensor rotation is only as good as the compass, and indoors that is ±90°.** The
+      screen says so in red past 15°, which is the honest thing to do and not a solution. Worth knowing
+      before reading a yaw off a phone next to a radar: pitch and roll are unaffected, being gravity's.
+      A sight against a known bearing is the check nobody has automated.
+- [ ] **A measured rotation assumes the platform is level and cannot tell when it is not.** Heel and
+      trim at the moment of measurement go straight into pitch and roll, and afterwards a heeled boat
+      and a tilted sensor are the same reading. The screen instructs; nothing verifies. A phone that is
+      already publishing `roll_deg`/`pitch_deg` could in principle warn when the platform is visibly
+      moving, which is a real improvement and a separate change.
 - [ ] **Mirrored EXIF orientations (2, 4, 5, 7) are not corrected**, only the three rotations. They come
       from a flipped front camera and a wrong flip is worse than none — it puts the port side to
       starboard in a picture somebody is placing sensors from — but a photo that arrives mirrored will

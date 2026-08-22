@@ -134,6 +134,15 @@ private fun PlatformCalibration.calibrationJson(): String {
             if (mount.capturedAtEpochMillis > 0) {
                 f += "        \"captured_at_ms\": ${mount.capturedAtEpochMillis}"
             }
+            // Written only when the rotation was measured rather than typed. A `"rotation_capture":
+            // "manual"` on every sensor ever surveyed would be a field that is always the same, which
+            // is a field nobody reads — and the absence already means exactly that.
+            if (mount.rotationCapture != CaptureMethod.MANUAL) {
+                f += "        \"rotation_capture\": \"${mount.rotationCapture.name.lowercase()}\""
+            }
+            mount.rotationAccuracyDeg?.let {
+                f += "        \"rotation_accuracy_deg\": ${it.json()}"
+            }
             "      {\n" + f.joinToString(",\n") + "\n      }"
         }
         parts += "    \"sensors\": [\n$entries\n    ]"

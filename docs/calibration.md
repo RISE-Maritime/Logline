@@ -74,9 +74,20 @@ Reference Point — sits at that origin unless `ccrp_m` says otherwise.
    am standing* — stand the phone at the sensor and the offset falls out of the two positions and the
    heading.
 
-   **Rotation is always typed.** A phone held against a radar can measure where the radar is; it
-   cannot measure where the radar is looking, and a capture button for it would be inventing a
-   measurement.
+   **Rotation can be measured or typed.** *Measure with the phone* lays it flat against the sensor's
+   mounting face, screen up, top edge the way the sensor faces, and reads its attitude for four
+   seconds. This used to say a rotation was always typed, on the argument that a phone cannot measure
+   where a radar is looking — which is **half right, and the half it gets wrong is worth having**:
+   pitch and roll come from gravity, and a phone measures those as well as anything on the boat. Only
+   yaw is the magnetometer's, and only yaw is ruined by the steel it is usually bolted to. So all
+   three are measured, the compass's own accuracy is shown beside them, and a figure too loose to
+   steer by is called out in red.
+
+   Two conditions, both stated on the screen rather than assumed. The platform must be **level** when
+   you measure, because heel and trim go into pitch and roll and nothing downstream can tell them from
+   the sensor's own tilt. And the **forward axis must exist**, since yaw is relative to the bow — plus
+   the zero point's position, without which magnetic north cannot be corrected to true and the screen
+   says the yaw is magnetic instead of silently being wrong by the declination.
 5. **Save.** That restarts publishing so the new geometry goes out. **Export** writes the
    platform-geometry file to `Downloads/Logline`.
 

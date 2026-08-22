@@ -91,6 +91,23 @@ class PlatformPhotos(private val root: File) {
 }
 
 /**
+ * Somewhere for the camera app to write, as a `content://` URI it is allowed to reach.
+ *
+ * One fixed name rather than a unique one per capture: only one capture can be in flight, the file is
+ * consumed within seconds, and a temp directory that accumulates photographs of boats is a worse
+ * outcome than an overwrite. `mkdirs()` because `FileProvider` will not vend a URI under a directory
+ * that does not exist, and the failure is an opaque `IllegalArgumentException` rather than anything
+ * naming the path.
+ */
+fun platformPhotoCaptureFile(context: Context): File {
+    val directory = File(context.cacheDir, PHOTO_CAPTURE_DIRECTORY).apply { mkdirs() }
+    return File(directory, "capture.jpg")
+}
+
+/** Matches `res/xml/file_paths.xml`, which is why it is a constant rather than a literal in two places. */
+const val PHOTO_CAPTURE_DIRECTORY = "photo-capture"
+
+/**
  * A file name that survives whatever somebody typed into the entity id field.
  *
  * Entity ids are slugs by default and free text in fact, so anything outside `[A-Za-z0-9._-]` is

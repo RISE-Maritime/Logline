@@ -127,6 +127,21 @@ data class SensorMount(
     /** Fix accuracy at capture, metres. Null when the offset was typed. */
     val accuracyM: Double? = null,
     val capturedAtEpochMillis: Long = 0L,
+    /**
+     * How [rotation] was arrived at — separately from [capture], which is about [translation].
+     *
+     * The two are genuinely independent: the commonest survey is a GNSS-captured position with a
+     * typed rotation, and one field could not say so.
+     */
+    val rotationCapture: CaptureMethod = CaptureMethod.MANUAL,
+    /**
+     * What the compass was worth when the rotation was measured, degrees. Null when it was typed, and
+     * null on a device that reports no estimate — absent rather than a confident zero.
+     *
+     * **This qualifies yaw and nothing else.** Pitch and roll come from gravity and a steel mast does
+     * not touch them; yaw is the magnetometer's, and a radar mast is exactly where it fails.
+     */
+    val rotationAccuracyDeg: Double? = null,
 ) {
     /**
      * True when the fix was worth less than the offset it produced.
@@ -171,6 +186,9 @@ enum class HeadingSource(val label: String) {
 /** Where a number came from. Kept per measurement, because it is what says how much to trust it. */
 enum class CaptureMethod(val label: String) {
     GNSS_AVERAGE("Averaged fix"),
+
+    /** A rotation read off the phone's own attitude, laid against the sensor's mounting face. */
+    PHONE_ATTITUDE("Phone attitude"),
     MANUAL("Typed"),
 }
 

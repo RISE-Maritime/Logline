@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the FileProvider in `AndroidManifest.xml` will hand out, and it is deliberately one directory.
+
+    `ACTION_IMAGE_CAPTURE` is answered by the *camera app*, in another process, which needs somewhere
+    to write. A `content://` URI granted for a single file is the whole point: the alternative shapes —
+    a `file://` URI, or external storage — are respectively illegal since API 24 and readable by any
+    app that asked for storage.
+
+    `cache-path` rather than `files-path`: a captured photo lives here for the seconds between the
+    camera app returning and `importPlatformPhoto` re-encoding it into `files/platforms/`, and nothing
+    should be able to recover it afterwards. `PlatformPhotos` owns the copy that lasts.
+-->
+<paths>
+    <cache-path name="photo-capture" path="photo-capture/" />
+</paths>

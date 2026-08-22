@@ -671,6 +671,56 @@ simply never finds anything on the bus.
   Verified end to end on a Pixel 6: pick, EXIF-rotate (a photograph tagged orientation 6 comes back
   1280x964 rather than 964x1280), store, thumbnail, **rename moves the file**, and delete removes it
   leaving the directory empty.
+- **A sensor's rotation can be measured from the phone, and the frame conversion is the whole risk.**
+  `calibrate/SensorAttitude.kt` is the angular counterpart to `bodyOffsetMetres()` — that rotates an
+  ENU *offset* into the platform's body frame, this does the same for an *orientation*. It is pure,
+  taking the quaternions `ImuProvider` already produces rather than reaching for `SensorManager`,
+  because three frames compose here and each is a place two axes can be swapped and still read
+  plausibly. **The posture is fixed and shared**: phone flat against the mounting face, screen up, top
+  edge the way the sensor faces — the same one `HeadingSource.COMPASS` documents, so there is one
+  phone-holding instruction rather than two that drift. Sensor forward = device +Y, starboard =
+  device +X, down = device −Z: two axes swapped and one negated, so a **rotation** rather than a
+  mirror image, and `SensorAttitudeTest` asserts that because a mirror reads as a perfectly plausible
+  rotation and puts every sensor's port side to starboard.
+  **The trap that actually bit was the reference frame, not the axes.** Android's rotation vector is
+  referenced to **magnetic** north; a platform's heading is recorded as **true**. Subtracting one from
+  the other leaves every yaw wrong by the local declination — caught on a Pixel 6 at Onsala, where the
+  app's own true heading read 327° and an uncorrected capture read 321.2°, and confirmed by the fix
+  moving a measurement from −130.1° to −125.0°. The correction is applied to the *heading* rather than
+  by turning the attitude, since both are rotations about the same vertical and one subtraction is
+  harder to get wrong than a fourth frame. **No position means no declination**, which is an ordinary
+  tape-measured platform, and there the screen says the yaw is magnetic rather than absorbing the error.
+  Three more things are load-bearing. **`eulerFromMatrix` must be the exact inverse of
+  `quaternionFromYawPitchRollDegrees`**, or a measured rotation and a typed one meaning the same thing
+  put different transforms on the wire. **Gimbal lock is an echo sounder, not a corner case** — at
+  pitch ±90° yaw and roll turn about one axis, so roll is fixed at zero and the screen says which of
+  the two is carrying the turn. And rotations **average as quaternions, never as Euler angles**, for
+  the reason `circularMeanDegrees` exists, with three angles to get wrong at once; the spread about
+  that mean is the capture's own scatter figure, and `angleBetweenDegrees` uses `atan2` rather than
+  `acos` because `acos` near 1 reports a couple of thousandths of a degree for a phone that did not
+  move at all.
+  **Yaw's doubt and the spread's are different doubts and must not merge.** A phone held perfectly
+  still beside a mast gives a tight spread around a wrong yaw. Only the compass figure is coloured,
+  past `YAW_SUSPECT_DEGREES`; pitch and roll are gravity's and a steel mast does not touch them.
+  Provenance is `rotationCapture` / `rotationAccuracyDeg`, separate from `capture` / `accuracyM`
+  because the commonest survey is a walked position with a typed angle — and **written only when the
+  rotation was measured**, so every document produced before this still parses unchanged.
+- **A platform photograph can be taken as well as chosen, and both end at `importPlatformPhoto`.** One
+  scale-rotate-re-encode path however a picture arrives. Two things the camera needs that the picker
+  did not: a `FileProvider` (`res/xml/file_paths.xml`, a `cacheDir` subdirectory, deleted after the
+  import — `PlatformPhotos` owns the copy that lasts), and the **CAMERA permission actually granted**.
+  The app *declares* it for the time-lapse, and Android requires an app that declares it to hold it
+  before `ACTION_IMAGE_CAPTURE` will run at all; an app that never declared it would need no
+  permission here. Asked at the tap, the shape `RECORD_AUDIO` uses. Taking is disabled while a run is
+  recording stills or video, because CameraX holds the camera and the camera app is a different
+  process wanting the same hardware.
+- **`"%.1f".format(x)` is a data-loss bug, not a cosmetic one, and it shipped.** `SensorMountScreen`
+  wrote a captured offset into its text fields with `format`, which follows `Locale.getDefault()`: on
+  a Swedish phone that is `0,220`, which `toDoubleOrNull()` rejects, so the field went red and saving
+  stored **0.0** — putting the sensor exactly on the platform's origin, the one wrong answer nothing
+  downstream can distinguish from a real measurement. Twelve sites across `SensorMountScreen` and
+  `CalibrationScreen` are now `.fmt()`; `SensorMountFieldsTest` pins the sv-SE round trip through the
+  field and back out. Note `.fmt()` is an extension on **String**, so it is `"%.3f".fmt(x)`.
 - **The publish flag is not a field on `PlatformCalibration`.** That struct is the platform *document* — it
   is what the exporter writes, what `configuration_json` carries, what `get_config` replies with, and
   what crosses to and from crowsnest. A local policy flag inside it would either leak into a file that

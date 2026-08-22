@@ -64,6 +64,49 @@ class CalibrationCapture(private val context: Context) {
      * that is around 5° of error, and a platform's forward axis is exactly the thing that should not carry
      * an unannounced 5°.
      */
+    /**
+     * The sensor's rotation in the platform frame, read off the phone laid against its mounting face.
+     *
+     * The same shape as [heading] — collect for a few seconds, average, report what it is worth — and
+     * it shares the sensor with it: `TYPE_ROTATION_VECTOR` carries the attitude the compass heading is
+     * derived from, so this is the *whole* reading rather than one angle of it.
+     *
+     * The maths is in `SensorAttitude.kt` and is pure. Only the collecting is here.
+     */
+    suspend fun attitude(
+        platformHeadingDeg: Double,
+        near: LatLonAlt?,
+        seconds: Int = 4,
+        onSample: (Int) -> Unit = {},
+    ): SensorAttitudeReading? {
+        val samples = mutableListOf<Quat>()
+        var accuracy: Double? = null
+        withTimeoutOrNull(seconds * 1_000L) {
+            ImuProvider(context).orientation().collect { sample ->
+                samples += Quat(
+                    x = sample.x.toDouble(),
+                    y = sample.y.toDouble(),
+                    z = sample.z.toDouble(),
+                    w = sample.w.toDouble(),
+                )
+                accuracy = sample.headingAccuracyDegrees?.toDouble()
+                onSample(samples.size)
+            }
+        }
+        // The same declination [heading] computes, and needed for the same reason: the rotation vector
+        // is referenced to magnetic north while a platform's heading is recorded as true. Null where
+        // there is no position, which leaves yaw magnetic — stated rather than silently absorbed.
+        val declination = near?.let {
+            GeomagneticField(
+                it.latitude.toFloat(),
+                it.longitude.toFloat(),
+                it.altitudeM.toFloat(),
+                System.currentTimeMillis(),
+            ).declination.toDouble()
+        }
+        return sensorAttitudeFrom(samples, platformHeadingDeg, declination, accuracy)
+    }
+
     suspend fun heading(near: LatLonAlt?, seconds: Int = 4): HeadingReading? {
         val magnetic = mutableListOf<Double>()
         var accuracy: Double? = null

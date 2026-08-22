@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.EulerDeg
+import se.rise.logline.calibrate.SensorAttitudeReading
 import se.rise.logline.calibrate.SensorMount
 import se.rise.logline.calibrate.SensorType
 import se.rise.logline.calibrate.Vec3M
@@ -52,6 +53,29 @@ data class CapturedOffset(
 )
 
 /**
+ * A rotation measured from the phone's own attitude, waiting to land in the three angle fields.
+ *
+ * [token] rather than equality, the same as [CapturedOffset]: measuring the same sensor twice
+ * produces an identical reading, and a `LaunchedEffect` keyed on the value would not re-run — so the
+ * second capture would appear to do nothing after the operator had deliberately edited a field.
+ */
+data class CapturedRotation(
+    val reading: SensorAttitudeReading,
+    val token: Int,
+)
+
+/**
+ * Past this the compass's own estimate is too loose to steer by, and the yaw it produced is called out
+ * in the error colour.
+ *
+ * Fifteen degrees because that is roughly where a heading stops being useful for pointing anything: a
+ * radar bearing wrong by that much is a different vessel. A Pixel 6 well away from metal reports 3-5°,
+ * and beside a steel rail it reports 25° and upwards, so the threshold sits in a gap rather than
+ * through the middle of the distribution.
+ */
+private const val YAW_SUSPECT_DEGREES = 15.0
+
+/**
  * One sensor's pose on the platform.
  *
  * Translation can be captured — walk the phone to the sensor and the offset falls out of two positions
@@ -68,9 +92,20 @@ fun SensorMountScreen(
     platformName: String,
     initial: SensorMount?,
     hasZero: Boolean,
+    /**
+     * Which way the platform's bow points, true — `PlatformZero.headingDeg`.
+     *
+     * Null when no heading has been established, and then a rotation cannot be measured at all: yaw is
+     * relative to the bow, so without it there is nothing to be relative *to*. The same gate
+     * [hasZero] puts in front of the offset capture, for a different missing thing.
+     */
+    platformHeadingDeg: Double?,
     capture: CaptureState,
     captured: CapturedOffset?,
     onCapture: () -> Unit,
+    /** A measured rotation that has landed, replacing the three angle fields and nothing else. */
+    capturedRotation: CapturedRotation?,
+    onCaptureRotation: () -> Unit,
     onSave: (SensorMount) -> Unit,
     onDelete: (() -> Unit)?,
     onCancel: () -> Unit,
@@ -86,6 +121,11 @@ fun SensorMountScreen(
     var roll by remember { mutableStateOf(initial?.rotation?.roll?.toString() ?: "0.0") }
     var method by remember { mutableStateOf(initial?.capture ?: CaptureMethod.MANUAL) }
     var accuracyM by remember { mutableStateOf(initial?.accuracyM) }
+    var rotationMethod by remember { mutableStateOf(initial?.rotationCapture ?: CaptureMethod.MANUAL) }
+    var rotationAccuracyDeg by remember { mutableStateOf(initial?.rotationAccuracyDeg) }
+    var rotationSpreadDeg by remember { mutableStateOf<Double?>(null) }
+    var rotationLocked by remember { mutableStateOf(false) }
+    var rotationMagneticOnly by remember { mutableStateOf(false) }
     var capturedAt by remember { mutableLongStateOf(initial?.capturedAtEpochMillis ?: 0L) }
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -93,12 +133,31 @@ fun SensorMountScreen(
     // the type and every rotation the operator typed stay exactly as they were.
     LaunchedEffect(captured?.token) {
         captured?.let {
-            x = "%.3f".format(it.translation.x)
-            y = "%.3f".format(it.translation.y)
-            z = "%.3f".format(it.translation.z)
+            // `.fmt()`, never `format()`: the latter uses `Locale.getDefault()`, so on a Swedish
+            // phone a captured 0.22 arrived in the field as `0,220`, which `toDoubleOrNull()` rejects
+            // — the field went red and saving stored **0.0**, putting the sensor exactly on the
+            // platform's origin. Nothing downstream can tell that from a real measurement.
+            x = "%.3f".fmt(it.translation.x)
+            y = "%.3f".fmt(it.translation.y)
+            z = "%.3f".fmt(it.translation.z)
             method = CaptureMethod.GNSS_AVERAGE
             accuracyM = it.accuracyM
             capturedAt = it.atEpochMillis
+        }
+    }
+
+    // The mirror of the offset capture above, and deliberately separate: the two measure different
+    // things and the commonest survey is a captured position with a typed rotation.
+    LaunchedEffect(capturedRotation?.token) {
+        capturedRotation?.let {
+            yaw = "%.1f".fmt(it.reading.rotation.yaw)
+            pitch = "%.1f".fmt(it.reading.rotation.pitch)
+            roll = "%.1f".fmt(it.reading.rotation.roll)
+            rotationMethod = CaptureMethod.PHONE_ATTITUDE
+            rotationAccuracyDeg = it.reading.compassAccuracyDegrees
+            rotationSpreadDeg = it.reading.spreadDegrees
+            rotationLocked = it.reading.gimbalLocked
+            rotationMagneticOnly = it.reading.declinationDegrees == null
         }
     }
 
@@ -137,6 +196,8 @@ fun SensorMountScreen(
                             capture = method,
                             accuracyM = accuracyM,
                             capturedAtEpochMillis = capturedAt,
+                            rotationCapture = rotationMethod,
+                            rotationAccuracyDeg = rotationAccuracyDeg,
                         )
                     )
                 },
@@ -232,7 +293,7 @@ fun SensorMountScreen(
             accuracyM?.let {
                 val exceeds = it > translation.magnitude()
                 StatusLine(
-                    text = "Captured with a ±${"%.1f".format(it)} m fix",
+                    text = "Captured with a ±${"%.1f".fmt(it)} m fix",
                     tone = if (exceeds) StatusTone.Error else StatusTone.Neutral,
                     detail = if (exceeds) {
                         "That is larger than the offset itself, so these numbers are mostly GNSS " +
@@ -247,16 +308,86 @@ fun SensorMountScreen(
                 "Which way it points",
                 onInfo = {
                     info = "Which way it points" to
-                        "Degrees, applied yaw, then pitch, then roll.\n\n" +
-                        "Typed, always — and that is why there is no capture button here. A phone can " +
-                        "measure where a sensor is by being carried to it; it cannot measure where the " +
-                        "sensor is aimed."
+                        "Degrees, applied yaw, then pitch, then roll. Yaw is positive swinging the " +
+                        "sensor to starboard.\n\n" +
+                        "Measuring lays the phone flat against the sensor's mounting face, screen up, " +
+                        "top edge pointing the way the sensor faces, and reads its own attitude — the " +
+                        "same posture the platform's compass heading uses.\n\n" +
+                        "Pitch and roll come from gravity and are as good as anything aboard. Yaw " +
+                        "comes from the magnetometer, which is exactly what a radar, a steel mast or " +
+                        "a motor pulls out of true, so it is the one to check against a bearing you " +
+                        "already know."
                 },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField("Yaw", yaw, { yaw = it }, Modifier.weight(1f))
                 NumberField("Pitch", pitch, { pitch = it }, Modifier.weight(1f))
                 NumberField("Roll", roll, { roll = it }, Modifier.weight(1f))
+            }
+            CaptureRow(capture)
+            // Instruction, not documentation: it is the only thing on the page saying which way up to
+            // hold the phone, and a capture made face-down is wrong by 180° and looks fine.
+            Text(
+                "Lay the phone flat on the sensor, screen up, top edge the way it faces — with the " +
+                    "platform level.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = onCaptureRotation,
+                enabled = platformHeadingDeg != null && capture !is CaptureState.Running,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Measure with the phone") }
+            if (platformHeadingDeg == null) {
+                StatusLine(
+                    text = "No heading for the platform yet",
+                    tone = StatusTone.Neutral,
+                    detail = "Yaw is measured from the bow, so the platform's forward direction has to " +
+                        "be established first — on the Forward step. Pitch and roll can still be typed.",
+                )
+            }
+            rotationSpreadDeg?.let { spread ->
+                // Two different doubts, and the compass one is the only one worth colouring: a phone
+                // held perfectly still next to a mast gives a tight spread around a wrong yaw.
+                val poor = rotationAccuracyDeg != null && rotationAccuracyDeg!! > YAW_SUSPECT_DEGREES
+                StatusLine(
+                    text = rotationAccuracyDeg
+                        ?.let { "Measured, compass ±${"%.0f".fmt(it)}°" }
+                        ?: "Measured, compass accuracy not reported",
+                    tone = if (poor) StatusTone.Error else StatusTone.Neutral,
+                    detail = buildString {
+                        append("Held to within ${"%.1f".fmt(spread)}°. ")
+                        if (poor) {
+                            append(
+                                "That compass figure is too loose to trust for yaw — steel and motors " +
+                                    "pull it. Sight the sensor against a bearing you already know, or " +
+                                    "type the yaw. Pitch and roll are unaffected.",
+                            )
+                        } else {
+                            append("Pitch and roll come from gravity; yaw is the one worth checking.")
+                        }
+                    },
+                )
+            }
+            if (rotationMagneticOnly && rotationSpreadDeg != null) {
+                StatusLine(
+                    text = "Yaw is magnetic, not true",
+                    tone = StatusTone.Error,
+                    detail = "There is no position on the zero point, so the declination that turns a " +
+                        "magnetic bearing into a true one cannot be computed — and the platform's own " +
+                        "heading is recorded as true. Yaw is out by the local declination, which is " +
+                        "about 6° in western Sweden and far more at high latitudes. Capture the zero " +
+                        "point, or type the yaw.",
+                )
+            }
+            if (rotationLocked) {
+                StatusLine(
+                    text = "Pointing straight up or down",
+                    tone = StatusTone.Neutral,
+                    detail = "There, yaw and roll turn about the same axis and only their sum is real. " +
+                        "Roll is reported as zero and the whole turn put into yaw — the orientation is " +
+                        "right, but which of the two carries it is a choice rather than a measurement.",
+                )
             }
 
             onDelete?.let {

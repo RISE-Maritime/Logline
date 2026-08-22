@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -70,6 +71,7 @@ import se.rise.logline.calibrate.importPlatformPhoto
 import se.rise.logline.calibrate.importPlatforms
 import se.rise.logline.calibrate.initialBearingDegrees
 import se.rise.logline.calibrate.isValidEntityId
+import se.rise.logline.calibrate.platformPhotoCaptureFile
 import se.rise.logline.calibrate.platformPhotos
 import se.rise.logline.checklist.ChecklistConfig
 import se.rise.logline.checklist.ChecklistReminder
@@ -130,6 +132,7 @@ import se.rise.logline.ui.CAPTURE_SECONDS
 import se.rise.logline.ui.CalibrationScreen
 import se.rise.logline.ui.CaptureState
 import se.rise.logline.ui.CapturedOffset
+import se.rise.logline.ui.CapturedRotation
 import se.rise.logline.ui.ChartMarks
 import se.rise.logline.ui.ChecklistScreen
 import se.rise.logline.ui.ChecklistsScreen
@@ -598,6 +601,49 @@ private fun App(
     var pickedPhoto by remember(draftEntityId) { mutableStateOf<ByteArray?>(null) }
     var photoRemoved by remember(draftEntityId) { mutableStateOf(false) }
     var photoMessage by remember(draftEntityId) { mutableStateOf<String?>(null) }
+    // Taking one, rather than choosing one already taken. Two launchers because they are two different
+    // contracts; both end at the same `importPlatformPhoto`, so there is one scale-rotate-encode path
+    // however a picture arrives.
+    val photoCaptureUri = remember(context) {
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            platformPhotoCaptureFile(context),
+        )
+    }
+    val photoCamera = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { saved ->
+        if (!saved) return@rememberLauncherForActivityResult
+        scope.launch {
+            val jpeg = withContext(Dispatchers.IO) {
+                importPlatformPhoto(context, photoCaptureUri).also {
+                    // The lasting copy is `files/platforms/`; this one has done its job either way.
+                    runCatching { platformPhotoCaptureFile(context).delete() }
+                }
+            }
+            if (jpeg == null) {
+                photoMessage = "That photo could not be read."
+            } else {
+                photoMessage = null
+                pickedPhoto = jpeg
+                photoRemoved = false
+            }
+        }
+    }
+    // The app *declares* CAMERA for the time-lapse, and Android requires an app that declares it to
+    // hold it before it will run `ACTION_IMAGE_CAPTURE` at all — an app that never declared it would
+    // need no permission here. Asked at the tap, the shape RECORD_AUDIO and ACCESS_LOCAL_NETWORK use.
+    val cameraPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            runCatching { photoCamera.launch(photoCaptureUri) }
+                .onFailure { photoMessage = "No camera app on this device." }
+        } else {
+            photoMessage = "The camera permission is needed to take a photo."
+        }
+    }
     val photoPicker = rememberLauncherForActivityResult(
         // The photo picker, not `OpenDocument`: it needs no storage permission on any version, and it
         // hands back one image rather than a file tree to go hunting in.
@@ -689,6 +735,7 @@ private fun App(
     }
     var capture by remember { mutableStateOf<CaptureState>(CaptureState.Idle) }
     var capturedOffset by remember { mutableStateOf<CapturedOffset?>(null) }
+    var capturedRotation by remember { mutableStateOf<CapturedRotation?>(null) }
     var captureToken by remember { mutableIntStateOf(0) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
 
@@ -1628,6 +1675,25 @@ private fun App(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
+                onTakePhoto = {
+                    photoMessage = null
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+                        == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        // Caught rather than probed with `resolveActivity`: package visibility on
+                        // Android 11+ can hide a perfectly launchable activity, which would send some
+                        // devices down the "no camera app" path for no reason. Same call the battery
+                        // exemption makes, for the same reason.
+                        runCatching { photoCamera.launch(photoCaptureUri) }
+                            .onFailure { photoMessage = "No camera app on this device." }
+                    } else {
+                        cameraPermission.launch(Manifest.permission.CAMERA)
+                    }
+                },
+                // A run recording stills or video holds the camera through CameraX, and the camera app
+                // is a different process wanting the same hardware. Said rather than left to fail.
+                cameraBusyReason = "This run is using the camera — stop it, or choose a photo instead."
+                    .takeIf { status.running && (current.cameraEnabled || current.videoEnabled) },
                 onRemovePhoto = {
                     pickedPhoto = null
                     photoRemoved = true
@@ -1727,6 +1793,52 @@ private fun App(
                 hasZero = draft.zero?.hasPosition == true,
                 capture = capture,
                 captured = capturedOffset,
+                // The zero carries the heading, so its presence is the gate — not `hasPosition`, which
+                // the offset capture uses: a platform measured with a tape has a heading and no position,
+                // and its sensors' rotations are perfectly measurable. A typed 0.0 is *not* treated as
+                // absent, because due north is a legitimate thing for a bow to point at.
+                platformHeadingDeg = draft.zero?.headingDeg,
+                capturedRotation = capturedRotation,
+                onCaptureRotation = {
+                    val heading = draft.zero?.headingDeg ?: return@SensorMountScreen
+                    scope.launch {
+                        capture = CaptureState.Running("Reading the phone's attitude", 0, HEADING_SECONDS, 0)
+                        // The bar is driven by its own ticker for the same reason the fix capture's is:
+                        // the rotation vector is fast, but a bar that only moves on a sample would sit
+                        // still on a device whose compass has not settled.
+                        val ticker = launch {
+                            repeat(HEADING_SECONDS) { second ->
+                                delay(1_000)
+                                (capture as? CaptureState.Running)?.let {
+                                    capture = it.copy(elapsed = second + 1)
+                                }
+                            }
+                        }
+                        val reading = CalibrationCapture(context)
+                            // The zero's own position, where it has one — the same argument the
+                            // compass capture takes, so declination comes from where the platform is
+                            // rather than from where the phone happens to be.
+                            .attitude(
+                                heading,
+                                near = draft.zero?.takeIf { it.hasPosition }?.point(),
+                                seconds = HEADING_SECONDS,
+                            ) { samples ->
+                                (capture as? CaptureState.Running)?.let {
+                                    capture = it.copy(samples = samples)
+                                }
+                            }
+                        ticker.cancel()
+                        capture = if (reading == null) {
+                            CaptureState.Failed(
+                                "No attitude reading arrived — this device may have no rotation sensor.",
+                            )
+                        } else {
+                            captureToken += 1
+                            capturedRotation = CapturedRotation(reading, captureToken)
+                            CaptureState.Idle
+                        }
+                    }
+                },
                 onCapture = {
                     captureFix("Averaging this sensor's position") { fix ->
                         val zero = draft.zero ?: return@captureFix

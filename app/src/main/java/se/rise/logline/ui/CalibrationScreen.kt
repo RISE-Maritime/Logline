@@ -111,6 +111,14 @@ fun CalibrationScreen(
      */
     photo: PlatformPhotoSource?,
     onPickPhoto: () -> Unit,
+    onTakePhoto: () -> Unit,
+    /**
+     * Why the camera cannot be used right now, if it cannot.
+     *
+     * Non-null disables **taking** a photo and says so; choosing one from the gallery is unaffected,
+     * because that needs no camera. State, so it stays on the page.
+     */
+    cameraBusyReason: String?,
     onRemovePhoto: () -> Unit,
     /** Why the last pick produced no picture. State, so it stays on the page rather than in the ⓘ. */
     photoError: String? = null,
@@ -310,13 +318,23 @@ fun CalibrationScreen(
                             .height(180.dp)
                             .clip(RoundedCornerShape(12.dp)),
                     )
+                    // Two buttons rather than one behind a chooser: both are one tap, and a dialog
+                    // whose only job is to offer the camera is a step that exists to be dismissed.
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onPickPhoto) {
-                            Text(if (photo == null) "Add photo" else "Replace photo")
+                        OutlinedButton(onClick = onTakePhoto, enabled = cameraBusyReason == null) {
+                            Text("Take photo")
                         }
+                        OutlinedButton(onClick = onPickPhoto) { Text("Choose photo") }
                         if (photo != null) {
                             TextButton(onClick = onRemovePhoto) { Text("Remove") }
                         }
+                    }
+                    cameraBusyReason?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     Text(
                         // Consequence, so it stays on the page rather than moving behind the ⓘ: it
@@ -642,7 +660,7 @@ private fun ZeroCard(zero: PlatformZero?) {
             Text(
                 buildString {
                     append(zero.capture.label)
-                    zero.altitudeM?.let { append(" · ${"%.1f".format(it)} m altitude") }
+                    zero.altitudeM?.let { append(" · ${"%.1f".fmt(it)} m altitude") }
                     if (zero.samples > 0) append(" · ${zero.samples} samples")
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -652,11 +670,11 @@ private fun ZeroCard(zero: PlatformZero?) {
             // is what the platform thinks it is worth against the truth. They are routinely far apart.
             Text(
                 buildString {
-                    zero.accuracyM?.let { append("±${"%.1f".format(it)} m accuracy") }
-                    zero.verticalAccuracyM?.let { append(" · ±${"%.1f".format(it)} m vertical") }
+                    zero.accuracyM?.let { append("±${"%.1f".fmt(it)} m accuracy") }
+                    zero.verticalAccuracyM?.let { append(" · ±${"%.1f".fmt(it)} m vertical") }
                     zero.scatterM?.let {
                         if (isNotEmpty()) append(" · ")
-                        append("${"%.2f".format(it)} m scatter")
+                        append("${"%.2f".fmt(it)} m scatter")
                     }
                     if (isEmpty()) append("No accuracy reported")
                 },
@@ -698,9 +716,9 @@ internal fun CaptureRow(capture: CaptureState) {
 
 @Composable
 private fun MountRow(mount: SensorMount, onClick: () -> Unit) {
-    val offset = "x ${"%.2f".format(mount.translation.x)}  " +
-        "y ${"%.2f".format(mount.translation.y)}  " +
-        "z ${"%.2f".format(mount.translation.z)} m"
+    val offset = "x ${"%.2f".fmt(mount.translation.x)}  " +
+        "y ${"%.2f".fmt(mount.translation.y)}  " +
+        "z ${"%.2f".fmt(mount.translation.z)} m"
     Card(
         Modifier
             .fillMaxWidth()
@@ -722,7 +740,7 @@ private fun MountRow(mount: SensorMount, onClick: () -> Unit) {
                     // The whole reason the accuracy is kept: this offset is smaller than the fix that
                     // produced it, so it is noise wearing a measurement's clothes.
                     Text(
-                        "Fix was ±${"%.1f".format(mount.accuracyM)} m — larger than this offset",
+                        "Fix was ±${"%.1f".fmt(mount.accuracyM)} m — larger than this offset",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

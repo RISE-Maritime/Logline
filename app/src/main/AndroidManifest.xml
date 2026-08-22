@@ -66,6 +66,23 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Somewhere the camera app can write a photograph to.
+
+            `exported="false"` with `grantUriPermissions`: the provider is not addressable by other
+            apps at all, and a camera app reaches one file only because this app hands it a URI with a
+            grant attached for the length of that one intent.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".checklist.ChecklistReminderReceiver"
             android:exported="false">

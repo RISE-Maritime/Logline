@@ -155,7 +155,7 @@ internal fun jsString(value: String): String = buildString {
             // Line separators are literal newlines to a JS parser and would break the literal.
             c == '\u2028' -> append("\\u2028")
             c == '\u2029' -> append("\\u2029")
-            c < ' ' -> append("\\u%04x".format(c.code))
+            c < ' ' -> append("\\u%04x".fmt(c.code))
             else -> append(c)
         }
     }
