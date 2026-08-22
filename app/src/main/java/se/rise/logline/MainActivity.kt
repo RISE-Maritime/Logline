@@ -843,7 +843,6 @@ private fun App(
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenRigs = { nav.navigate(Routes.RIGS) },
                 onOpenChecklists = { nav.navigate(Routes.CHECKLISTS) },
-                onOpenAnnotationButtons = { nav.navigate(Routes.ANNOTATION_BUTTONS) },
                 bottomBar = navBar,
             )
         }

@@ -12,7 +12,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,7 +49,6 @@ fun SetupScreen(
     onOpenSettings: () -> Unit,
     onOpenRigs: () -> Unit,
     onOpenChecklists: () -> Unit,
-    onOpenAnnotationButtons: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
 ) {
     ScreenScaffold(title = "Setup", bottomBar = bottomBar) { padding ->
@@ -62,33 +60,33 @@ fun SetupScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionHeader("This phone")
-            Card(Modifier.fillMaxWidth()) {
-                Column {
-                    NavRow(
-                        title = "Settings",
-                        subtitle = identity,
-                        onClick = onOpenSettings,
-                    )
-                    HorizontalDivider(Modifier.padding(horizontal = 12.dp))
-                    NavRow(
-                        title = "Rigs",
-                        subtitle = rigSummary ?: "No rigs described yet",
-                        onClick = onOpenRigs,
-                    )
-                }
-            }
-
-            // Recordings used to head this section and is now the Files tab: the saved files are what
-            // this app produces, and reaching them through a configuration screen said otherwise.
-            SectionHeader("Data")
+            // **The rig comes first, and it is not "this phone".** `entity_id` names the physical
+            // thing the data is about, and a rig's geometry is about the rig — so filing it under the
+            // phone was a category error as well as a matter of order. It is also the thing most of
+            // this screen exists for: a phone's own settings are typed once, a rig is surveyed,
+            // corrected and swapped.
+            SectionHeader("Rigs")
             Card(Modifier.fillMaxWidth()) {
                 NavRow(
-                    title = "Annotation buttons",
-                    subtitle = "What the Events screen offers with one tap",
-                    onClick = onOpenAnnotationButtons,
+                    title = "Rig library",
+                    subtitle = rigSummary ?: "No rigs described yet",
+                    onClick = onOpenRigs,
                 )
             }
+
+            SectionHeader("This phone")
+            Card(Modifier.fillMaxWidth()) {
+                NavRow(
+                    title = "Settings",
+                    subtitle = identity,
+                    onClick = onOpenSettings,
+                )
+            }
+
+            // The annotation buttons used to have a row here. They are edited from the Events tab's
+            // own Quick marks header — "Edit", or "Add a button" when there are none — which is where
+            // somebody is standing when they discover a button is missing. Two doors to one editor
+            // meant the Setup one was found first and told you nothing about what it changed.
 
             if (checklistsEnabled) {
                 SectionHeader("Collaboration")
