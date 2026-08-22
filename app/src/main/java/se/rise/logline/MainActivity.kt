@@ -761,6 +761,19 @@ private fun App(
                 onSetRecordingEnabled = { on ->
                     scope.launch { app.settingsRepository.update(current.copy(recordingEnabled = on)) }
                 },
+                // Only when one is configured — blank entity or path means no card at all, which is
+                // the default: this points at somebody else's vessel and there is no sensible guess.
+                cameraView = if (current.hasCamera()) {
+                    { m ->
+                        LiveCameraCard(
+                            settings = current,
+                            link = cameraLink,
+                            modifier = m,
+                        )
+                    }
+                } else {
+                    null
+                },
                 supportedAudioRates = supportedAudioRates,
                 // **`saveSettings`, which restarts the run**, and unavoidably: the foreground-service
                 // type and its permission are fixed at `startForeground`. See `START_TIME_SUBJECTS`.
@@ -971,19 +984,6 @@ private fun App(
                         mapTilerKey = current.mapTilerKey,
                         modifier = m,
                     )
-                },
-                // Only when one is configured — blank entity or path means no card at all, which is
-                // the default: this points at somebody else's vessel and there is no sensible guess.
-                cameraView = if (current.hasCamera()) {
-                    { m ->
-                        LiveCameraCard(
-                            settings = current,
-                            link = cameraLink,
-                            modifier = m,
-                        )
-                    }
-                } else {
-                    null
                 },
                 layer = liveLayer,
                 onLayerChange = { liveLayer = it },

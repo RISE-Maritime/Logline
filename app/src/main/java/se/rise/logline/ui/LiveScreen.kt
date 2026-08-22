@@ -103,11 +103,6 @@ fun LiveScreen(
     collapsedGroups: List<String>,
     onToggleGroup: (String) -> Unit,
     mapView: @Composable (Modifier) -> Unit,
-    /**
-     * The live camera, supplied by `MainActivity` — null when no camera entity is configured, which is
-     * the default. A `WebView` needs a `Context`, so it arrives the same way the map does.
-     */
-    cameraView: (@Composable (Modifier) -> Unit)? = null,
     /** Which base layer the chart draws, and the seamark overlay. */
     layer: MapLayer,
     onLayerChange: (MapLayer) -> Unit,
@@ -307,18 +302,6 @@ fun LiveScreen(
                 )
               }
             }
-            // Under the chart and above the readings: it answers the same question the chart does —
-            // what is out there — where everything below is a number about this phone.
-            cameraView?.let { camera ->
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    camera(Modifier.fillMaxWidth().height(CAMERA_HEIGHT))
-                }
-            }
-
             DashboardReadings(
                 speedKnots = latest(PublishedSubject.SPEED_OVER_GROUND),
                 courseDegrees = latest(PublishedSubject.COURSE_OVER_GROUND),
@@ -932,11 +915,3 @@ private fun SparklineCard(
         }
     }
 }
-
-/**
- * How tall the camera card is.
- *
- * 16:9 at the width of the page would be taller than the chart, which would say the camera matters more
- * than where the boat is. This is deliberately a little shorter than [MAP_HEIGHT].
- */
-private val CAMERA_HEIGHT = 200.dp

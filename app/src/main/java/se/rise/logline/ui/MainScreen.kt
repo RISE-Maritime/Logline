@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -156,6 +157,11 @@ fun MainScreen(
     /** Flip every subject to full rate, or back to the tuned profile. Restarts the run. */
     onSetRecordAllMax: (Boolean) -> Unit,
     onSetPublishAllMax: (Boolean) -> Unit,
+    /**
+     * A live camera from some other entity, supplied by `MainActivity` — null when none is configured,
+     * which is the default. A `WebView` needs a `Context`, so it arrives the way the chart does.
+     */
+    cameraView: (@Composable (Modifier) -> Unit)? = null,
     /** What this device's microphone offers, for [MediaSection]. */
     supportedAudioRates: Set<Int>,
     /** Applied at once through `saveSettings`, hence the restart — see [MediaSection]. */
@@ -395,6 +401,17 @@ fun MainScreen(
                 onChange = onMediaChange,
                 onOpenSubjectQos = onOpenSubjectQos,
             )
+
+            // **Below what this phone records, because it is the other direction.** Everything above
+            // decides what this run captures; this is somebody else's camera arriving. It reads as a
+            // footnote to the media section rather than a competitor to the chart, which is why it left
+            // the Live tab — there it sat under the chart implying the two were the same kind of thing.
+            cameraView?.let { camera ->
+                SectionHeader("Live camera")
+                Card(Modifier.fillMaxWidth()) {
+                    camera(Modifier.fillMaxWidth().height(CAMERA_HEIGHT))
+                }
+            }
 
         }
     }
@@ -1482,3 +1499,11 @@ internal fun stopNoteHint(publishing: Boolean, recording: Boolean): String {
         if (recording) append(" The file keeps its name.")
     }
 }
+
+/**
+ * How tall the live camera card is.
+ *
+ * Shorter than a 16:9 frame at page width: this is a glance at what another camera sees, and a card
+ * taller than the sensor groups above it would claim more of the screen than the run it belongs to.
+ */
+private val CAMERA_HEIGHT = 200.dp
