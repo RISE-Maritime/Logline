@@ -7,24 +7,41 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Every action here is pinned to the major that moved it to Node 24, and **not** to the newest major
+# available. The warning being answered is only about Node 20 being forced onto 24, so the smallest
+# bump that answers it is the one least likely to break something unrelated.
+#
+# Two of them would have been a mistake to take further. `gradle/actions` is at v6, which moved its
+# caching into a separate closed-source library and dropped configuration-cache support — this project
+# builds with `org.gradle.configuration-cache=true`, so that is a real change and not one this warning
+# asks for. `actions/checkout` is at v7, three majors past the Node 24 move in v5.
+#
+# `android-actions/setup-android@v4` also defaults to a newer cmdline-tools (20.0), which is welcome
+# here rather than incidental: a stale package list is adjacent to the `android-37.0` trap below.
+#
+# `upload-artifact` is the exception to "smallest bump", and it is why the rule needs checking rather
+# than assuming: its v5 carried only *preliminary* Node 24 support and still ran on Node 20 by default,
+# so v6 is the move. It is also the one action the deprecation warning never mentioned, because it runs
+# only `if: failure()` and so never executed on a green run — which would have made a broken artifact
+# upload something to discover on the first red build, when it is least welcome.
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # gradle/gradle-daemon-jvm.properties pins toolchainVersion=25. That file also carries foojay
       # download URLs, so Gradle can provision a JDK itself if the runner image lacks 25 — this step
       # just makes the common case fast and explicit.
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 25
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # compileSdk 37 is leading-edge and will not be preinstalled on the runner image.
       #
@@ -38,7 +55,7 @@ jobs:
         run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       # No local.properties here — it is git-ignored, and AGP falls back to ANDROID_HOME, which
       # setup-android exports. Do not "helpfully" generate one.
@@ -48,7 +65,7 @@ jobs:
       # A red run that only says "task failed" wastes the round trip.
       - name: Upload reports on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: reports
           path: |

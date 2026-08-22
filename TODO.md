@@ -36,11 +36,9 @@ the section they belong to.
   a green build goes red for reasons unrelated to the code.
 
 
-## PLatfrom Config 
+## Platform Config 
 
-Left over from the platform library, and each is a finding rather than a fix. All five are filed together
-upstream as [RISE-Maritime/keelson#191](https://github.com/RISE-Maritime/keelson/issues/191) — the first
-two are the ones anybody outside this repo can act on.
+Left over from the platform library, and each is a finding rather than a fix. All five are Fre this repo can act on.
 
 - [ ] **Crowsnest probes an obsolete `get_config` key shape.**
       `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` predates the `{interface}/{version}`
