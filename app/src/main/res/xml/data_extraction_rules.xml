@@ -33,6 +33,19 @@
       derived entirely from files in Downloads/Logline and keyed on MediaStore ids that mean nothing
       on another phone: restoring it would carry stale shapes for recordings the new device does not
       have. `TrackCache` rebuilds it by reading the recordings again.
+
+    And one thing that deliberately **does** travel, noted here because it is a directory of images in
+    `filesDir` and therefore looks like the next thing to exclude:
+
+    * `platforms` — a photograph per platform. It is configuration rather than a cache: nothing can
+      rebuild it, and a phone swap that lost it would need somebody to walk back down to the boat.
+      It is safe against the 25 MB quota by construction rather than by luck — `importPlatformPhoto`
+      caps the long edge at 1280 and re-encodes as JPEG at quality 80. Measured on a Pixel 6: a
+      1.98 MB camera photograph stored as 120 kB, so a library would need on the order of two hundred
+      platforms to threaten a backup, against the handful anybody has. Raising `PHOTO_MAX_EDGE` or
+      `PHOTO_QUALITY` is therefore a decision about this file as much as about picture quality — as is
+      the re-encode itself, which exists partly because passing an already-small PNG through would put
+      a lossless multi-megabyte file here where this arithmetic assumes a compressed one.
 -->
 <data-extraction-rules>
     <cloud-backup>

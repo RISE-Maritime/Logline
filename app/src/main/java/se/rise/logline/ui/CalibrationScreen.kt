@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.activity.compose.BackHandler
@@ -16,6 +17,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -100,6 +103,17 @@ fun CalibrationScreen(
     onCaptureHeading: () -> Unit,
     onCaptureBaseline: () -> Unit,
     onEditSensor: (Int) -> Unit,
+    /**
+     * The picture of this platform, stored or just picked.
+     *
+     * Not part of [calibration] on purpose: that value is the platform *document*, and a photograph
+     * belongs to neither the export nor the wire. See `PlatformPhotos`.
+     */
+    photo: PlatformPhotoSource?,
+    onPickPhoto: () -> Unit,
+    onRemovePhoto: () -> Unit,
+    /** Why the last pick produced no picture. State, so it stays on the page rather than in the ⓘ. */
+    photoError: String? = null,
     onExport: () -> Unit,
     exportMessage: String?,
     /**
@@ -281,6 +295,42 @@ fun CalibrationScreen(
                             modifier = Modifier.weight(1f),
                         )
                     }
+
+                    // Last in the step because it is the only thing here that is not a measurement —
+                    // and first in the list screen, because it is what tells two platforms apart at a
+                    // glance where `ssrs18` and `ssrs19` do not.
+                    Text("Photo", style = MaterialTheme.typography.titleSmall)
+                    PlatformPhoto(
+                        photo,
+                        contentDescription = photo?.let {
+                            "Photo of ${calibration.name.ifBlank { calibration.entityId }}"
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onPickPhoto) {
+                            Text(if (photo == null) "Add photo" else "Replace photo")
+                        }
+                        if (photo != null) {
+                            TextButton(onClick = onRemovePhoto) { Text("Remove") }
+                        }
+                    }
+                    Text(
+                        // Consequence, so it stays on the page rather than moving behind the ⓘ: it
+                        // says where a picture of somebody's boat does and does not go.
+                        photoError
+                            ?: ("Kept on this phone. A photo is not part of the geometry document, so " +
+                                "it is neither published nor written into an export."),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (photoError != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
                 }
                 1 -> {
                     SectionHeader(
@@ -445,8 +495,12 @@ fun CalibrationScreen(
     if (confirmClear) {
         ConfirmDialog(
             title = "Delete this calibration?",
-            body = "The platform, its zero point and all ${calibration.sensors.size} sensors are removed " +
-                "from this phone. Anything already exported or published stays where it is.",
+            // The photo is named only when there is one: a list that mentions things that are not
+            // there teaches people to stop reading it before the one item that mattered.
+            body = "The platform, its zero point" +
+                (if (photo != null) ", its photo" else "") +
+                " and all ${calibration.sensors.size} sensors are removed from this phone. " +
+                "Anything already exported or published stays where it is.",
             confirmLabel = "Delete",
             onConfirm = {
                 confirmClear = false

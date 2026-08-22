@@ -48,6 +48,24 @@ two are the ones anybody outside this repo can act on.
       before and after: the six keys were renamed, every value carried across (`platform_count` stayed
       `0`, `platform_registry_version` stayed `2`), and nothing else in the file changed. Worth knowing
       before a downgrade, and worth deleting the fallback once no phone in the fleet predates it.
+- [x] **The platform photograph is unverified on a device.** Written, unit-tested and built, but the
+      phone dropped off wireless adb before any of it could be exercised: nothing has yet picked a real
+      image, so the EXIF rotation, the scaling figures (150-350 kB at 1280px/80 is reasoned, not
+      measured here), the thumbnail at 48dp and the rename-moves-the-file path have all been checked
+      only in tests. Do this before trusting the backup arithmetic in `data_extraction_rules.xml`.
+      Done on a Pixel 6 — and it found one: `scaleJpeg` passes an already-small image straight
+      through, so a 1080x2400 PNG screenshot was stored verbatim in a file called `.jpg`, which would
+      have put a lossless multi-megabyte file where the backup arithmetic assumes a compressed one.
+      `importPlatformPhoto` now decodes, caps the long edge and re-encodes as JPEG itself.
+- [ ] **A platform photo can only be picked, not taken.** `PickVisualMedia` opens the gallery, which is
+      the literal ask and needs no permission — but the moment somebody wants a picture of a platform is
+      usually while standing next to it. Taking one needs `TakePicture`, a `FileProvider` and the
+      `CAMERA` permission, and it has to be thought about beside the time-lapse: a Pixel 6 kills the
+      camera HAL when two use cases bind at once, so this may have to refuse while a run is recording.
+- [ ] **Mirrored EXIF orientations (2, 4, 5, 7) are not corrected**, only the three rotations. They come
+      from a flipped front camera and a wrong flip is worse than none — it puts the port side to
+      starboard in a picture somebody is placing sensors from — but a photo that arrives mirrored will
+      stay mirrored with nothing on screen saying so.
 - [ ] **The platform screens' route values changed with the rename** — `calibration/rig/{entityId}` is now
       `calibration/platform/{entityId}`. Harmless today, because routes are not persisted and the two
       Zenoh sessions are scoped on the `calibration` prefix, which did not move. Filed because a prefix

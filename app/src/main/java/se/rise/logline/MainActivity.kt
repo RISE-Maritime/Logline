@@ -2,15 +2,18 @@ package se.rise.logline
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ContentUris
 import android.content.Context
-import android.net.Uri
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,153 +22,154 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.navigation.compose.NavHost
-import androidx.navigation.NavHostController
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import se.rise.logline.ui.components.LoglineNavBar
-import androidx.compose.runtime.CompositionLocalProvider
-import se.rise.logline.ui.components.LocalRunState
-import se.rise.logline.ui.components.RunState
-import se.rise.logline.ui.components.TopLevel
-import se.rise.logline.ui.SetupScreen
-import se.rise.logline.ui.RecordingLoad
-import se.rise.logline.ui.Routes
-import se.rise.logline.ui.rateCeilings
-import se.rise.logline.ui.labelOf
-import se.rise.logline.ui.platformSummaryOf
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.compose.runtime.LaunchedEffect
+import androidx.navigation.compose.rememberNavController
+import java.io.File
 import java.util.UUID
-import android.util.Log
-import se.rise.logline.checklist.ChecklistConfig
-import se.rise.logline.checklist.ChecklistReminder
-import se.rise.logline.checklist.ChecklistReminders
-import se.rise.logline.checklist.Operator
+import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import se.rise.logline.calibrate.AveragedFix
 import se.rise.logline.calibrate.CalibrationCapture
 import se.rise.logline.calibrate.CaptureMethod
 import se.rise.logline.calibrate.HeadingSource
+import se.rise.logline.calibrate.ImportDisposition
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.bodyOffsetMetres
 import se.rise.logline.calibrate.enuOffsetMetres
 import se.rise.logline.calibrate.exportCalibration
 import se.rise.logline.calibrate.exportPlatformRegistry
-import se.rise.logline.calibrate.ImportDisposition
 import se.rise.logline.calibrate.importCandidates
+import se.rise.logline.calibrate.importPlatformPhoto
 import se.rise.logline.calibrate.importPlatforms
-import se.rise.logline.calibrate.isValidEntityId
 import se.rise.logline.calibrate.initialBearingDegrees
+import se.rise.logline.calibrate.isValidEntityId
+import se.rise.logline.calibrate.platformPhotos
+import se.rise.logline.checklist.ChecklistConfig
+import se.rise.logline.checklist.ChecklistReminder
+import se.rise.logline.checklist.ChecklistReminders
+import se.rise.logline.checklist.Operator
+import se.rise.logline.config.NOTE_CATEGORY
 import se.rise.logline.config.Settings
 import se.rise.logline.config.SettingsProfile
+import se.rise.logline.config.TlsCredential
+import se.rise.logline.config.TlsCredentialStore
 import se.rise.logline.config.applyProfile
+import se.rise.logline.config.encode
 import se.rise.logline.config.exportSettingsProfile
 import se.rise.logline.config.parseSettingsProfile
 import se.rise.logline.config.toConnectionProfile
-import se.rise.logline.config.encode
-import se.rise.logline.config.TlsCredential
-import se.rise.logline.config.TlsCredentialStore
 import se.rise.logline.keelson.DiscoveredRouter
-import se.rise.logline.keelson.isLocalEndpoint
-import se.rise.logline.keelson.scoutRouters
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
+import se.rise.logline.keelson.isLocalEndpoint
 import se.rise.logline.keelson.pubsubKey
 import se.rise.logline.keelson.qosForSubject
-import se.rise.logline.publish.SubjectStatus
-import se.rise.logline.sensors.achievedHz
-import se.rise.logline.sensors.AudioProvider
-import se.rise.logline.sensors.sensorCapabilities
-import se.rise.logline.sensors.unavailableSubjects
+import se.rise.logline.keelson.scoutRouters
 import se.rise.logline.map.deleteOfflineMap
 import se.rise.logline.map.displayNameOf
 import se.rise.logline.map.importOfflineMap
 import se.rise.logline.map.importedMaps
-import se.rise.logline.publish.PublisherService
-import se.rise.logline.record.SavedRecording
-import se.rise.logline.record.deleteSavedRecording
-import android.content.ContentUris
-import java.io.File
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import se.rise.logline.record.TrackCache
-import se.rise.logline.whep.CameraLink
-import se.rise.logline.whep.hasCamera
-import se.rise.logline.record.deleteSavedRecordings
-import se.rise.logline.record.recordingsFreeBytes
-import se.rise.logline.record.savedRecordings
-import se.rise.logline.record.shareIntent
-import se.rise.logline.publish.requestBatteryExemption
-import se.rise.logline.publish.isBatteryOptimised
-import se.rise.logline.publish.PublisherStatus
+import se.rise.logline.platform.PlatformSyncConfig
+import se.rise.logline.platform.mergeRemotePlatforms
+import se.rise.logline.publish.Annotation
 import se.rise.logline.publish.LiveLatest
 import se.rise.logline.publish.LiveSnapshot
-import se.rise.logline.publish.TextHistory
+import se.rise.logline.publish.PublisherService
+import se.rise.logline.publish.PublisherStatus
 import se.rise.logline.publish.SampleWindow
-import se.rise.logline.ui.LiveScreen
-import se.rise.logline.ui.WINDOW_CHOICES
-import se.rise.logline.ui.LiveCameraCard
-import se.rise.logline.ui.RecordingChart
-import se.rise.logline.ui.RecordingFilter
-import se.rise.logline.ui.RecordingSort
-import se.rise.logline.ui.TrackMap
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.saveable.rememberSaveable
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
-import se.rise.logline.config.NOTE_CATEGORY
-import se.rise.logline.publish.Annotation
-import se.rise.logline.ui.AnnotationButtonsScreen
-import se.rise.logline.ui.AnnotationScreen
-import se.rise.logline.ui.ChecklistScreen
-import se.rise.logline.ui.ChecklistsScreen
-import se.rise.logline.ui.CalibrationScreen
-import se.rise.logline.ui.CaptureState
-import se.rise.logline.ui.CapturedOffset
-import se.rise.logline.ui.CAPTURE_SECONDS
-import se.rise.logline.ui.HEADING_SECONDS
-import se.rise.logline.ui.ConnectionQrDialog
-import se.rise.logline.ui.ImportProfileDialog
-import se.rise.logline.ui.MainScreen
-import se.rise.logline.ui.QrScannerScreen
-import se.rise.logline.ui.ChartMarks
+import se.rise.logline.publish.SubjectStatus
+import se.rise.logline.publish.TextHistory
+import se.rise.logline.publish.isBatteryOptimised
+import se.rise.logline.publish.requestBatteryExemption
 import se.rise.logline.record.McapDetails
 import se.rise.logline.record.McapTrack
+import se.rise.logline.record.SavedRecording
+import se.rise.logline.record.TrackCache
+import se.rise.logline.record.deleteSavedRecording
+import se.rise.logline.record.deleteSavedRecordings
 import se.rise.logline.record.recordingDetails
 import se.rise.logline.record.recordingEntry
 import se.rise.logline.record.recordingTrack
-import se.rise.logline.ui.RecordingDetailScreen
-import se.rise.logline.ui.TrackState
+import se.rise.logline.record.recordingsFreeBytes
+import se.rise.logline.record.savedRecordings
+import se.rise.logline.record.shareIntent
+import se.rise.logline.sensors.AudioProvider
+import se.rise.logline.sensors.achievedHz
+import se.rise.logline.sensors.sensorCapabilities
+import se.rise.logline.sensors.unavailableSubjects
+import se.rise.logline.ui.AnnotationButtonsScreen
+import se.rise.logline.ui.AnnotationScreen
+import se.rise.logline.ui.CAPTURE_SECONDS
+import se.rise.logline.ui.CalibrationScreen
+import se.rise.logline.ui.CaptureState
+import se.rise.logline.ui.CapturedOffset
+import se.rise.logline.ui.ChartMarks
+import se.rise.logline.ui.ChecklistScreen
+import se.rise.logline.ui.ChecklistsScreen
+import se.rise.logline.ui.ConnectionQrDialog
+import se.rise.logline.ui.HEADING_SECONDS
+import se.rise.logline.ui.ImportProfileDialog
+import se.rise.logline.ui.LiveCameraCard
+import se.rise.logline.ui.LiveScreen
+import se.rise.logline.ui.MainScreen
 import se.rise.logline.ui.MapLayer
-import se.rise.logline.ui.RecordingsScreen
 import se.rise.logline.ui.NEW_PLATFORM
 import se.rise.logline.ui.NEW_SENSOR
-import se.rise.logline.platform.PlatformSyncConfig
-import se.rise.logline.platform.mergeRemotePlatforms
 import se.rise.logline.ui.PlatformListScreen
+import se.rise.logline.ui.PlatformPhotoSource
+import se.rise.logline.ui.QrScannerScreen
+import se.rise.logline.ui.RecordingChart
+import se.rise.logline.ui.RecordingDetailScreen
+import se.rise.logline.ui.RecordingFilter
+import se.rise.logline.ui.RecordingLoad
+import se.rise.logline.ui.RecordingSort
+import se.rise.logline.ui.RecordingsScreen
+import se.rise.logline.ui.Routes
 import se.rise.logline.ui.SensorMountScreen
 import se.rise.logline.ui.SettingsScreen
+import se.rise.logline.ui.SetupScreen
 import se.rise.logline.ui.SubjectDetailScreen
 import se.rise.logline.ui.SubjectQosScreen
+import se.rise.logline.ui.TrackMap
+import se.rise.logline.ui.TrackState
+import se.rise.logline.ui.WINDOW_CHOICES
+import se.rise.logline.ui.components.LocalRunState
+import se.rise.logline.ui.components.LoglineNavBar
+import se.rise.logline.ui.components.RunState
+import se.rise.logline.ui.components.TopLevel
+import se.rise.logline.ui.labelOf
+import se.rise.logline.ui.platformSummaryOf
+import se.rise.logline.ui.rateCeilings
 import se.rise.logline.ui.theme.LoglineTheme
-import kotlinx.coroutines.Dispatchers
-import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import se.rise.logline.whep.CameraLink
+import se.rise.logline.whep.hasCamera
 
 class MainActivity : ComponentActivity() {
 
@@ -572,6 +576,66 @@ private fun App(
      */
     var calibrationStep by rememberSaveable { mutableIntStateOf(0) }
     val savedPlatform = draftEntityId?.let { id -> current.platforms.firstOrNull { it.entityId == id } }
+
+    // ---- platform photographs ----
+    //
+    // The picture is not in `Settings` and not in `PlatformCalibration`: the file name *is* the entity
+    // id, so there is no path to keep in sync and nothing to leave dangling. That puts two obligations
+    // here, at the only place that knows an entity id is about to stop meaning what it meant — a
+    // rename has to move the file, and a delete has to remove it.
+    val platformPhotos = remember(context) { platformPhotos(context) }
+    /** Bumped whenever a photo is written, moved or removed, so the list's map is rebuilt. */
+    var photoRevision by remember { mutableIntStateOf(0) }
+    val platformPhotoFiles = remember(current.platforms, photoRevision) {
+        current.platforms.mapNotNull { p -> platformPhotos.photo(p.entityId)?.let { p.entityId to it } }
+            .toMap()
+    }
+
+    // The pending edit, held as **bytes rather than a temporary file**. The editor is transactional,
+    // so a picked photo must be visible before Save and must not exist on disk until Save — and at
+    // 1280px that is a few hundred kilobytes, which buys away every path where a temp file outlives
+    // the screen that made it: cancel, a crash, or a second pick replacing the first.
+    var pickedPhoto by remember(draftEntityId) { mutableStateOf<ByteArray?>(null) }
+    var photoRemoved by remember(draftEntityId) { mutableStateOf(false) }
+    var photoMessage by remember(draftEntityId) { mutableStateOf<String?>(null) }
+    val photoPicker = rememberLauncherForActivityResult(
+        // The photo picker, not `OpenDocument`: it needs no storage permission on any version, and it
+        // hands back one image rather than a file tree to go hunting in.
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            // Decode, scale and rotate off the main thread — the source is a phone camera's several
+            // megapixels, whatever the stored copy ends up as.
+            val jpeg = withContext(Dispatchers.IO) { importPlatformPhoto(context, uri) }
+            if (jpeg == null) {
+                photoMessage = "That image could not be read."
+            } else {
+                photoMessage = null
+                pickedPhoto = jpeg
+                photoRemoved = false
+            }
+        }
+    }
+
+    /**
+     * What the editor should draw: the pending edit if there is one, otherwise what is on disk.
+     *
+     * Remembered rather than recomputed, because the last branch stats the filesystem and this sits in
+     * a screen that recomposes on every keystroke in the name field.
+     */
+    val editorPhoto: PlatformPhotoSource? =
+        remember(draftEntityId, photoRevision, pickedPhoto, photoRemoved) {
+            when {
+                photoRemoved -> null
+                pickedPhoto != null -> PlatformPhotoSource.Picked(pickedPhoto!!)
+                // Keyed on the id the editor was **opened** under, never the one being typed: looking
+                // it up by the draft's own entityId would have the photo vanish halfway through
+                // renaming a platform.
+                else -> draftEntityId?.let { platformPhotos.photo(it) }
+                    ?.let { PlatformPhotoSource.Stored(it) }
+            }
+        }
 
     /** What the last import or library export did, shown on the platform list until it is left. */
     var libraryMessage by remember { mutableStateOf<String?>(null) }
@@ -1360,6 +1424,7 @@ private fun App(
                 activeEntityId = current.activePlatformEntityId,
                 publishingEntityIds = current.publishingPlatformEntityIds,
                 publishing = status.running,
+                photos = platformPhotoFiles,
                 onOpenPlatform = { entityId ->
                     draftEntityId = entityId
                     // Opening a platform starts at the beginning of it. The step survives the trip into a
@@ -1557,6 +1622,18 @@ private fun App(
                     capturedOffset = null
                     nav.navigate(Routes.sensorMount(Uri.encode(draft.entityId), index))
                 },
+                photo = editorPhoto,
+                onPickPhoto = {
+                    photoPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onRemovePhoto = {
+                    pickedPhoto = null
+                    photoRemoved = true
+                    photoMessage = null
+                },
+                photoError = photoMessage,
                 onExport = {
                     scope.launch {
                         exportMessage = withContext(Dispatchers.IO) {
@@ -1587,6 +1664,23 @@ private fun App(
                 onSave = {
                     scope.launch {
                         val saved = draft.copy(updatedAtEpochMillis = System.currentTimeMillis())
+                        // The photo before the settings, and the move before the pending edit. The file
+                        // is keyed on the entity id, so a rename has to carry it across *first* — apply
+                        // a pending pick under the new id and then move, and the move overwrites what
+                        // was just written with the old picture.
+                        val previousEntityId = draftEntityId
+                        withContext(Dispatchers.IO) {
+                            if (previousEntityId != null) {
+                                platformPhotos.move(previousEntityId, saved.entityId)
+                            }
+                            when {
+                                photoRemoved -> platformPhotos.remove(saved.entityId)
+                                pickedPhoto != null -> platformPhotos.write(saved.entityId, pickedPhoto!!)
+                            }
+                        }
+                        pickedPhoto = null
+                        photoRemoved = false
+                        photoRevision++
                         saveSettings(app, current.upsertPlatform(draftEntityId, saved).bumpPlatformRegistry())
                         draftEntityId = saved.entityId
                         nav.popBackStack()
@@ -1594,7 +1688,14 @@ private fun App(
                 },
                 onClear = {
                     scope.launch {
-                        savedPlatform?.let { saveSettings(app, current.removePlatform(it.entityId).bumpPlatformRegistry()) }
+                        savedPlatform?.let {
+                            // Or the next platform to be given this entity id inherits a stranger's boat.
+                            withContext(Dispatchers.IO) { platformPhotos.remove(it.entityId) }
+                            saveSettings(app, current.removePlatform(it.entityId).bumpPlatformRegistry())
+                        }
+                        pickedPhoto = null
+                        photoRemoved = false
+                        photoRevision++
                         draftEntityId = null
                         calibrationDraft = null
                         nav.popBackStack()
@@ -1602,10 +1703,16 @@ private fun App(
                 },
                 onCancel = {
                     calibrationDraft = savedPlatform
+                    // Nothing to delete: the pending photo only ever existed in memory.
+                    pickedPhoto = null
+                    photoRemoved = false
+                    photoMessage = null
                     exportMessage = null
                     nav.popBackStack()
                 },
-                dirty = calibrationDraft != savedPlatform,
+                // A photo is the one change here that is not part of the document, so `dirty` has to be
+                // told about it — otherwise adding a picture and nothing else leaves Save greyed out.
+                dirty = calibrationDraft != savedPlatform || pickedPhoto != null || photoRemoved,
                 step = calibrationStep,
                 onStepChange = { calibrationStep = it },
             )

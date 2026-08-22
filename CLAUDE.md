@@ -640,6 +640,37 @@ simply never finds anything on the bus.
   includes the active platform whether or not it is in `publishingPlatformEntityIds`, so no switch can express
   "the phone is on this platform and its geometry is not on the bus". The UI renders the active platform's switch
   on and disabled rather than letting it be pressed and do nothing.
+- **A platform's photograph is a file named after its entity id, and nothing else records it.** Kept in
+  `filesDir/platforms/` by `PlatformPhotos`, long edge capped at 1280 and **always re-encoded as JPEG**
+  at quality 80 — measured on a Pixel 6, a 3072x4080 photograph of 1.98 MB stored as 1280x964 and
+  120 kB. The re-encode is the part that was got wrong first: `scaleJpeg` returns its input untouched
+  when it is already small enough, which is right on the camera's publish path and wrong here, and a
+  1080x2400 PNG screenshot went in and came straight back out into a file called `.jpg`. Worse than
+  the misnaming, a lossless multi-megabyte file would sit where the backup arithmetic below assumes a
+  compressed one. It is
+  **deliberately not a field on `PlatformCalibration`** for the same reason the publish flag is not: that
+  struct is the platform *document*, upstream's schema is `additionalProperties: false` at every level,
+  and `configuration_json` is republished every ten seconds — a 250 kB base64 photo on that loop is
+  ~90 MB/h to restate something that has not changed since the boat was built. So the file name *is* the
+  key: no preference, no stored path, nothing to leave dangling. The cost is two obligations at the call
+  site in `MainActivity`, at the only two moments an entity id stops naming what it named — **a rename
+  has to `move()` the file** and **a delete has to `remove()` it**, or the next platform given that id
+  inherits a stranger's boat. `PlatformPhotosTest` pins both, plus that the move happens *before* a
+  pending pick is written, since the other order has the move overwrite what was just saved.
+  Three smaller things. The pending photo is held as **bytes rather than a temp file** — the editor is
+  transactional, so a pick must show before Save and must not exist on disk until Save, and bytes make
+  cancel, a crash and a second pick all free. The stored photo is looked up under **`draftEntityId`, not
+  the draft's own `entityId`**, or the picture vanishes halfway through renaming a platform. And EXIF
+  rotation is applied **at import**, because `BitmapFactory` ignores the tag and `Bitmap.compress` does
+  not write it back — stored as-is, a phone photograph would be sideways permanently, the tag saying
+  which way up it goes having been dropped by then. `androidx.exifinterface` rather than the framework
+  class, which lint warns about for parser bugs and which is reading a file somebody picked.
+  `platforms` is the one directory in `filesDir` deliberately **left in** the backup rules: it is
+  configuration nothing can rebuild, and the size is what keeps it clear of the 25 MB quota, so raising
+  `PHOTO_MAX_EDGE` is a decision about `data_extraction_rules.xml` as much as about picture quality.
+  Verified end to end on a Pixel 6: pick, EXIF-rotate (a photograph tagged orientation 6 comes back
+  1280x964 rather than 964x1280), store, thumbnail, **rename moves the file**, and delete removes it
+  leaving the directory empty.
 - **The publish flag is not a field on `PlatformCalibration`.** That struct is the platform *document* — it
   is what the exporter writes, what `configuration_json` carries, what `get_config` replies with, and
   what crosses to and from crowsnest. A local policy flag inside it would either leak into a file that

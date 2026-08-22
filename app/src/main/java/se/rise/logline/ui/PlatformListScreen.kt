@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -21,16 +24,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import java.io.File
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.platform.DiscoveredPlatform
 import se.rise.logline.platform.DiscoveryState
 import se.rise.logline.ui.components.ConfirmDialog
-import se.rise.logline.ui.components.ScreenScaffold
-import androidx.compose.material3.Button
-import se.rise.logline.ui.components.InfoDialog
 import se.rise.logline.ui.components.EmptyState
+import se.rise.logline.ui.components.InfoDialog
+import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
 import se.rise.logline.ui.components.StatusTone
@@ -68,6 +72,14 @@ fun PlatformListScreen(
     /** True while a run is going: the switches restart it, so they are read-only until it stops. */
     publishing: Boolean,
     onOpenPlatform: (String) -> Unit,
+    /**
+     * Each platform's photograph, by entity id, absent where there is none.
+     *
+     * A map rather than a `(String) -> File?`, so the row does not stat the filesystem on every
+     * recomposition — and so the whole library's answer is decided in one place, where the entity id
+     * that keys it is the same one a rename has to move the file under.
+     */
+    photos: Map<String, File>,
     onAddPlatform: () -> Unit,
     onSetActive: (String) -> Unit,
     onSetPublishing: (String, Boolean) -> Unit,
@@ -152,6 +164,7 @@ fun PlatformListScreen(
             platforms.forEach { platform ->
                 PlatformRow(
                     platform = platform,
+                    photo = photos[platform.entityId],
                     active = platform.entityId == activeEntityId,
                     publishing = platform.entityId == activeEntityId || platform.entityId in publishingEntityIds,
                     // A platform with no sensors has nothing to say, so its switch would be a promise the
@@ -315,6 +328,7 @@ private fun summaryOf(
 @Composable
 private fun PlatformRow(
     platform: PlatformCalibration,
+    photo: File?,
     active: Boolean,
     publishing: Boolean,
     publishable: Boolean,
@@ -329,6 +343,18 @@ private fun PlatformRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             RadioButton(selected = active, onClick = onSetActive, enabled = !locked)
+            // Small, square and cropped: this is for recognition, not for reading detail off. The
+            // photo is deliberately part of the row's tap target rather than a control of its own —
+            // tapping a platform's picture should open the platform, not the picture.
+            PlatformPhoto(
+                photo?.let { PlatformPhotoSource.Stored(it) },
+                contentDescription = null,
+                modifier = Modifier
+                    .padding(end = 12.dp)
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onOpen),
+            )
             Column(
                 Modifier
                     .weight(1f)

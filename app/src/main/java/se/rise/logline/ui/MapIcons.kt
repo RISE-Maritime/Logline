@@ -14,12 +14,16 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /**
- * The three glyphs the map toolbar needs, drawn here rather than pulled from a dependency.
+ * The glyphs `material-icons-core` does not carry, drawn here rather than pulled from a dependency.
  *
- * Only `material-icons-core` is on the classpath, and it carries none of `MyLocation`, `Layers` or
- * `Fullscreen` — those live in `material-icons-extended`, which is several thousand vectors and a
- * deprecated artifact besides. Three paths cost a few hundred bytes and nothing at runtime, which is
- * the same trade `BearingArrow` in `LiveDashboard.kt` already makes.
+ * Four of them are the map toolbar's, which is what named the file; [IconImage] is not, and is here
+ * anyway because the reason below is about the classpath rather than about maps, and a second file
+ * would only copy it.
+ *
+ * Only `material-icons-core` is on the classpath, and it carries none of `MyLocation`, `Layers`,
+ * `Fullscreen` or `Image` — those live in `material-icons-extended`, which is several thousand
+ * vectors and a deprecated artifact besides. A few paths cost a few hundred bytes and nothing at
+ * runtime, which is the same trade `BearingArrow` in `LiveDashboard.kt` already makes.
  *
  * All three are transcribed from Material Symbols on the standard 24x24 grid, so they sit at the same
  * optical weight as `Icons.Default.Info` beside them in the app bar. Keep that grid: a 24dp icon drawn
@@ -145,5 +149,38 @@ internal fun MapIconButton(
         },
     ) {
         Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp))
+    }
+}
+
+/**
+ * A framed picture: a mountain and a sun. The placeholder where a platform has no photograph.
+ *
+ * Drawn as an outline rather than a filled block so an empty frame reads as *absence* — a solid
+ * rectangle at 48dp in a list looks like a picture that failed to load.
+ */
+val IconImage: ImageVector by lazy {
+    mapIcon("Image") {
+        path(fill = fill) {
+            // The frame, as an annulus: outer rectangle clockwise, inner counter-clockwise, so the
+            // non-zero winding rule leaves the middle open for what is drawn inside it.
+            moveTo(3f, 3f); horizontalLineTo(21f); verticalLineTo(21f); horizontalLineTo(3f); close()
+            moveTo(5f, 5f); verticalLineTo(19f); horizontalLineTo(19f); verticalLineTo(5f); close()
+        }
+        path(fill = fill) {
+            // A ridge line rising to the right, sitting on the frame's lower edge.
+            moveTo(6f, 17f)
+            lineTo(10.5f, 11f)
+            lineTo(13.5f, 15f)
+            lineTo(15.5f, 12.5f)
+            lineTo(18f, 17f)
+            close()
+        }
+        path(fill = fill) {
+            // The sun, high on the left where the ridge is lowest.
+            moveTo(8.5f, 6.5f)
+            arcToRelative(1.5f, 1.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, 0f, 3f)
+            arcToRelative(1.5f, 1.5f, 0f, isMoreThanHalf = true, isPositiveArc = true, 0f, -3f)
+            close()
+        }
     }
 }

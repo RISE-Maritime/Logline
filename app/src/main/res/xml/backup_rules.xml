@@ -7,6 +7,9 @@
 
     Note the older format has no device-transfer section: on API 30 these rules govern cloud backup,
     and the transfer path did not exist yet.
+
+    `platforms` — the platform photographs — is deliberately **not** excluded, for reasons written out
+    there. It is the one directory of images in `filesDir` that is meant to survive a phone swap.
 -->
 <full-backup-content>
     <exclude domain="file" path="tls" />

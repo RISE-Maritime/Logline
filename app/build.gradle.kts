@@ -156,6 +156,7 @@ if (!canSignRelease) {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.core)
     // zstd for the MCAP recording. `@aar` because the artifact ships the per-ABI .so; the plain jar

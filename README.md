@@ -1091,6 +1091,13 @@ often wants every platform in the water logged and not only the one the phone is
 platform gets its own publishers, its own keys and its own liveliness token, so changing the selection
 restarts a run — unlike the per-subject switches, which do not.
 
+Each platform can carry a **photograph**, picked from the phone's gallery on the first step of its
+page and shown beside it in the library. It is there because a list of entity ids is hard to read —
+`ssrs18` and `ssrs19` are one character apart, and a picture of the boat is not. The photo stays on
+this phone: it is not part of the geometry document, so it is neither published nor written into an
+export or a settings profile, and it does travel in an Android backup, being the one thing here that
+nobody can rebuild without walking back down to the quay.
+
 Offsets are either **typed** — a tape measure, and for a small platform the only honest option — or
 **captured**, by standing the phone at the sensor and averaging twenty seconds of fixes. The screen
 shows the fix accuracy behind every captured number and flags in red any offset smaller than the
