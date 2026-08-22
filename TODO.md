@@ -10,11 +10,21 @@ the section they belong to.
 
 ## P4 — housekeeping
 
-- [ ] **Push to a remote.** `git init` is done — `main`, four commits — but there is nowhere to push,
+- [x] **Push to a remote.** `git init` is done — `main`, four commits — but there is nowhere to push,
   which leaves two things stalled: `.github/workflows/build.yml` has never run, and the checklist
   protos below cannot be PR'd from this side. Creating it is a decision about where this lives
   rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
   is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
+  Done: `origin` is `RISE-Maritime/Logline`, **private**, first pushed 2026-08-19 and current as of
+  `e97233f`. The settings file is therefore not public, though it is still tracked and still carries
+  this machine's paths, which stays worth revisiting the moment a second machine builds this.
+- [ ] **CI has never been green.** It does run — the item above assumed otherwise — and it failed all
+  three times it ran, always at the same step: `sdkmanager "platforms;android-37"` answers
+  `Warning: Failed to find package` and exits 1. The package is **`android-37.0`**; from API 36
+  onwards Android publishes minor releases, so platform paths carry a minor version and the bare
+  `android-37` does not exist. Fixed here, but **not yet observed green** — the run after this commit
+  is the first that could be, and it may well surface a second failure behind the first, since no
+  step past the SDK install has ever executed on a runner.
 
 
 ## PLatfrom Config 

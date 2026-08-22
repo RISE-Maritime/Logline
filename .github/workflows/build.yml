@@ -27,8 +27,15 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # compileSdk 37 is leading-edge and will not be preinstalled on the runner image.
+      #
+      # **The package is `android-37.0`, not `android-37`** — from API 36 onwards Android publishes
+      # minor releases, so the platform paths carry a minor version (36, 36.1, 37.0, 37.1) and the
+      # bare `android-37` does not exist. `sdkmanager` answers a wrong path with
+      # `Warning: Failed to find package` and exit 1, which reads like a runner or channel problem
+      # rather than a typo; it had this workflow red on every run it ever made. Both the published
+      # index and the SDK installed locally spell it `platforms;android-37.0`.
       - name: Install API 37 platform
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

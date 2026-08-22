@@ -1975,6 +1975,13 @@ Two runner-specific details worth knowing before editing it: there is no `local.
 AGP resolves the SDK from `ANDROID_HOME` (verified locally by building with the file moved aside), and
 `compileSdk 37` is new enough that the workflow installs the platform explicitly with `sdkmanager`.
 
+**That install spells the package `platforms;android-37.0`, not `android-37`.** From API 36 onwards
+Android publishes minor releases, so platform paths carry a minor version — `36`, `36.1`, `37.0`,
+`37.1` — and the bare `android-37` is not a package at all. `sdkmanager` answers a wrong path with
+`Warning: Failed to find package` and exit 1, which reads like a runner or channel problem rather than
+a typo, and had the workflow red on every run it made. Both the published index and the SDK installed
+here spell it `37.0`; `$ANDROID_HOME/platforms/android-37.0/package.xml` is the local proof.
+
 ## Repository state
 
 A git repository since 2026-08-18, on `main`, with no remote configured yet — pushing needs one
