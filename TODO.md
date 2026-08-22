@@ -8,41 +8,6 @@ go looking — so a ticked item can be deleted without reading it. New findings 
 the section they belong to.
 
 
-## P4 — housekeeping
-
-- [x] **Push to a remote.** `git init` is done — `main`, four commits — but there is nowhere to push,
-  which leaves two things stalled: `.github/workflows/build.yml` has never run, and the checklist
-  protos below cannot be PR'd from this side. Creating it is a decision about where this lives
-  rather than a command, which is why it is not done. While doing it, note `.claude/settings.json`
-  is tracked and carries this machine's absolute `JAVA_HOME` and `ANDROID_HOME`.
-  Done: `origin` is `RISE-Maritime/Logline`, **private**, first pushed 2026-08-19 and current as of
-  `e97233f`. The settings file is therefore not public, though it is still tracked and still carries
-  this machine's paths, which stays worth revisiting the moment a second machine builds this.
-- [x] **CI has never been green.** It does run — the item above assumed otherwise — and it failed all
-  three times it ran, always at the same step: `sdkmanager "platforms;android-37"` answers
-  `Warning: Failed to find package` and exits 1. The package is **`android-37.0`**; from API 36
-  onwards Android publishes minor releases, so platform paths carry a minor version and the bare
-  `android-37` does not exist. Fixed here, but **not yet observed green** — the run after this commit
-  is the first that could be, and it may well surface a second failure behind the first, since no
-  step past the SDK install has ever executed on a runner.
-  Done in `542c988`, and observed: run 32592816237 passed in **10m20s**, no second failure behind the
-  first. `testDebugUnitTest lintDebug assembleDebug` have now all executed on a runner, so the claim
-  in CLAUDE.md that CI "runs as of the initial commit; nothing has exercised it yet" is retired.
-- [x] **CI's actions are deprecated and will stop working.** The green run warns twice: `checkout@v4`,
-  `setup-java@v4`, `android-actions/setup-android@v3` and `gradle/actions/setup-gradle@v4` all target
-  Node 20 and are being forced onto Node 24, and `setup-java` v4 is end-of-life in favour of v5.
-  Deliberately not bundled with the fix above — a known-green baseline was worth more at that moment
-  than pre-empting a breakage that has not happened, and bumping four actions at once is exactly how
-  a green build goes red for reasons unrelated to the code.
-  Done in `a9f6a34`, on a branch for exactly that reason, and merged only once observed green — run
-  32593603610, 6m32s, **no annotations left**. Five actions rather than four: `upload-artifact` runs
-  only `if: failure()`, so it never executed on a green run and the warning never named it. Each is
-  pinned to the major that made the Node 24 move rather than the newest, and the reasoning is in the
-  workflow itself, because the two temptations there are real: `gradle/actions` v6 moves caching into
-  a closed-source library and drops configuration-cache support, and `upload-artifact` v5 is the one
-  action where the smallest bump is *not* enough.
-
-
 ## Platform Config 
 
 Left over from the platform library, and each is a finding rather than a fix. All five are Fre this repo can act on.
@@ -53,6 +18,39 @@ Left over from the platform library, and each is a finding rather than a fix. Al
       builds it and every entry of `src/DB/platform_registry.json` declares it. The phone serves both
       shapes; `legacyPlatformConfigKey()` exists to be deleted once crowsnest moves. While in there:
       its declared `get_data_streams` and `get_queryables` queryables do not exist in keelson at all.
+      **Half moved, and not the half that matters.** keelson#191's comment says Logline can retire the
+      legacy shape; checked against `crowsnest-dev` at `origin/main` (`59c6a3f`), that is not yet true.
+      The registry did migrate — twelve `configurable/v1` keys — and `get_data_streams` /
+      `get_queryables` are genuinely gone. But `src/apps/os_config/index.jsx:167` is still
+      `` `${platform.realm}/@v0/${key}/@rpc/get_config/connector_platform` ``, hardcoded inline, and it
+      is the *only* site that builds a `get_config` key. So **keep `legacyPlatformConfigKey()`** —
+      deleting it now would stop crowsnest reading any config off a phone.
+      Worth passing upstream: the guard added to stop this recurring, `scripts/checks/rpcKeys.mjs`,
+      reads `src/DB/platform_registry.json` and nothing else, so it cannot see the one key still in the
+      wrong shape. A check that covers the JSON but not the code is why this looked done.
+      **Crowsnest's half is written — and is sitting uncommitted in `../crowsnest-dev`.** Do not read
+      this as shipped. Two files: `src/apps/os_config/index.jsx` now builds the key through the repo's
+      own `rpcKeyFor("configurable/v1")` and filters on the *procedure* via `parse_rpc_key` rather than
+      on the substring `get_config/connector_platform`, which had survived the migration only by luck;
+      and `scripts/checks/rpcKeys.mjs` gained a scan of `src/` for pre-interface `@rpc` keys, which was
+      run against the unfixed code first and failed on exactly that one line.
+      **The source chunk is a wildcard**, because no fixed value is knowable: keelson's own connector is
+      run with `--source-id platform`, the registry declares `connector_platform`, and this app answers
+      on `calibration`. Measured against zenoh's own `KeyExpr.intersects` — the Rust matcher the router
+      runs — `…/get_config/*` reaches all three and reaches neither `…/set_config/…` nor another
+      entity, so the widening is exactly one chunk.
+      **The gate for deleting `legacyPlatformConfigKey()` is now deployment, not code.** Crowsnest must
+      be committed, released and actually running at the stations before the phone stops answering the
+      old key; a merged PR is not the signal. When that day comes it is `legacyPlatformConfigKey()`,
+      its two call sites in `platform/PlatformSync.kt`, and the legacy assertion in `KeysTest`.
+- [ ] **The crowsnest probe fix has never been exercised against a phone.** Everything about it is
+      offline: `npm run check` green, eslint and `vite build` clean, the key matching measured against
+      zenoh's matcher, and the new filter shown to select the same six registry platforms as the old
+      one. What has not happened is a phone publishing a platform and crowsnest's os_config showing it
+      online with the config fetched — which needs crowsnest's dev server and the phone on a shared
+      router. Worth doing twice: once on this app's default `calibration` source and once with the
+      source changed, since reaching both is the entire point of the wildcard. Also confirm a platform
+      declaring no `get_config` still shows *no* dot rather than a grey one.
 - [ ] **Crowsnest does not publish its platform overlay**, so the shared library is one-way today —
       the phone shares and nothing answers. The change is small and belongs in that repo; the pattern
       to copy is its own `dataflowConfigSync.js`.
@@ -72,23 +70,6 @@ Left over from the platform library, and each is a finding rather than a fix. Al
       before and after: the six keys were renamed, every value carried across (`platform_count` stayed
       `0`, `platform_registry_version` stayed `2`), and nothing else in the file changed. Worth knowing
       before a downgrade, and worth deleting the fallback once no phone in the fleet predates it.
-- [x] **The platform photograph is unverified on a device.** Written, unit-tested and built, but the
-      phone dropped off wireless adb before any of it could be exercised: nothing has yet picked a real
-      image, so the EXIF rotation, the scaling figures (150-350 kB at 1280px/80 is reasoned, not
-      measured here), the thumbnail at 48dp and the rename-moves-the-file path have all been checked
-      only in tests. Do this before trusting the backup arithmetic in `data_extraction_rules.xml`.
-      Done on a Pixel 6 — and it found one: `scaleJpeg` passes an already-small image straight
-      through, so a 1080x2400 PNG screenshot was stored verbatim in a file called `.jpg`, which would
-      have put a lossless multi-megabyte file where the backup arithmetic assumes a compressed one.
-      `importPlatformPhoto` now decodes, caps the long edge and re-encodes as JPEG itself.
-- [x] **A platform photo can only be picked, not taken.** `PickVisualMedia` opens the gallery, which is
-      the literal ask and needs no permission — but the moment somebody wants a picture of a platform is
-      usually while standing next to it. Taking one needs `TakePicture`, a `FileProvider` and the
-      `CAMERA` permission, and it has to be thought about beside the time-lapse: a Pixel 6 kills the
-      camera HAL when two use cases bind at once, so this may have to refuse while a run is recording.
-      Done — and it does refuse while a run holds the camera. Verified on a Pixel 6: the permission is
-      asked at the tap, the camera app opens, and the shot comes back through `importPlatformPhoto` as
-      a 964x1280 JPEG with the temp file cleaned up.
 - [ ] **A measured sensor rotation is only as good as the compass, and indoors that is ±90°.** The
       screen says so in red past 15°, which is the honest thing to do and not a solution. Worth knowing
       before reading a yaw off a phone next to a radar: pitch and roll are unaffected, being gravity's.

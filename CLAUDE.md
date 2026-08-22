@@ -136,6 +136,9 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   **not advertisement**, and `authority.py` then drops those subjects from the coverage denominator as
   a fault in the monitor's own config. Declaring only the coarse token therefore has a perfectly
   healthy phone contribute nothing to a vessel's score.
+  Note `authority.py` **moved out of `entity_health` in `0.6.0-pre.7`** (`8a3d057`, "split the
+  composite policy out of entity_health") and now lives in a new `connectors/composite_aggregator/`.
+  The behaviour above went with it unchanged; only the path to go and read is different.
 - **A liveliness token is capability, not activity** (§5.2), and it must **not** be retracted because
   data has stopped. `heading_true_north_deg` keeps its token while it waits for the first fix and
   `log_message` keeps one through a run nobody annotates — silence is not a withdrawal. Only two things
@@ -146,10 +149,16 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `PublishedSubject` in `keelson/SubjectRegistry.kt`. A new subject means a constant plus a registry
   entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **Check `dev`,
   not just the checked-out branch** — the `radio_*` subjects live on `dev` and are not yet on `main`, so
-  a `git show dev:messages/subjects.yaml` is the honest lookup. **And check the newest tag as well as
-  `dev`:** `0.6.0-pre.5` was cut from a feature branch and ships `illuminance_lux` and the four
-  `checklist_*` subjects that `dev` does not have, so a release can be *ahead* of `dev` rather than
-  behind it. `git tag --sort=-creatordate | head -1` names the one to read.
+  a `git show dev:messages/subjects.yaml` is the honest lookup. **And check `0.6.0-pre.5` as well as
+  `dev`:** it was cut from a feature branch and ships `illuminance_lux` and the four `checklist_*`
+  subjects that `dev` still does not have, so a release can be *ahead* of `dev` rather than behind it.
+  **Do not reach for the newest tag to find them.** That rule used to say
+  `git tag --sort=-creatordate | head -1`, and it stopped working when `0.6.0-pre.6` and `-pre.7` were
+  cut: `pre.7` *is* `dev`, on a different lineage from `pre.5` — they fork at `8621035` and neither is
+  an ancestor of the other — so the newest tag has none of those five subjects. Following the old
+  advice today would report that `illuminance_lux` does not exist upstream, which is a subject this
+  app publishes. `git tag --sort=-creatordate` still lists them; which one carries what is the part
+  that has to be looked up rather than assumed.
 - **Rate ownership resolves by (subject, `SourceKind`), never by subject alone.**
   `PublishedSubject.rateOwnerEntry()` is the one way to get from a derived subject to the one whose
   rate governs it, and it matches the source kind as well as the subject because a subject string does
