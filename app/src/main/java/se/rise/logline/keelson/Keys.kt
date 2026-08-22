@@ -194,20 +194,6 @@ fun rpcInterfaceLivelinessKey(
 ): String = "$realm/@v0/$entityId/@rpc/$interfaceName/$version/*/$sourceId"
 
 /**
- * The key crowsnest actually probes for a platform's configuration.
- *
- * **Not the specification's shape**, and that is the point of it having its own function. Crowsnest
- * builds `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` — a pre-interface layout with no
- * `{interface}/{version}` chunks — in `src/apps/os_config/index.jsx`, and declares it in every entry
- * of `src/DB/platform_registry.json`. A current keelson connector serves [rpcKey]'s shape and nothing
- * answers crowsnest's probe.
- *
- * The phone serves both so it is useful today and correct later. Drop this one once crowsnest moves.
- */
-fun legacyPlatformConfigKey(realm: String, entityId: String): String =
-    "$realm/@v0/$entityId/@rpc/get_config/connector_platform"
-
-/**
  * The `{entity_id}` chunk of a keelson key, or null when the key is not one.
  *
  * Split here rather than at the call site for the same reason the builders live here: the position is

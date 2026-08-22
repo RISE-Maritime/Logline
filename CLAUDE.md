@@ -811,12 +811,21 @@ simply never finds anything on the bus.
 - **The `get_config` reply is the one unwrapped thing this app puts on the wire.** `configurable/v1`
   replies raw JSON (`op.reply_ok(json.dumps(...).encode())` upstream); wrapping it in an envelope would
   break every consumer that already speaks it. Do not "fix" it to match the everything-is-wrapped rule.
-- **Crowsnest probes an obsolete RPC key shape, and the phone serves both.**
-  `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` has no `{interface}/{version}` chunks and
-  nothing a current keelson connector serves answers it; the specification's shape is
-  `.../@rpc/configurable/v1/get_config/{source}`. `legacyPlatformConfigKey()` exists to be deleted once
-  crowsnest moves. Its declared `get_data_streams` / `get_queryables` queryables do not exist in
-  keelson at all.
+- **`get_config` is served on one key now, and the source chunk is why that took two repos.** The
+  specification's shape is `.../@rpc/configurable/v1/get_config/{source}`, and this app answers on
+  `Settings.calibrationSource`. It used to *also* serve a pre-interface
+  `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` because crowsnest probed it; that is gone,
+  along with `legacyPlatformConfigKey()`, once crowsnest moved (`a3c4853` there).
+  **The reason a fixed source id could never work is worth keeping.** That chunk names *which*
+  responder, and three values are in use for this one procedure: keelson's own platform connector is
+  run with `--source-id platform`, crowsnest's registry declares `connector_platform`, and this app
+  uses `calibration`. A consumer probing a platform it did not configure cannot know it — so crowsnest
+  now probes `.../get_config/*`. Measured against zenoh's own `KeyExpr.intersects`, that reaches all
+  three and reaches neither `set_config` nor another entity, so the widening is one chunk exactly.
+  Do not "fix" this app to a fixed source to match some consumer; the wildcard is the consumer's job.
+  Note `WhepSignalling.legacyKey` is a **different** pre-interface shape, for the WHEP proxy in
+  `keelson:0.5.3`, and is still served. Crowsnest's `get_data_streams` / `get_queryables` — which exist
+  nowhere in keelson — were deleted there rather than renamed.
 - **Discovery listens; it does not query.** No router storage covers `configuration_json`, so a `get`
   returns an empty list indistinguishable from an empty bus. The scan subscribes for ~12 s instead —
   slightly over the 10 s republish interval every platform connector uses precisely so a late joiner

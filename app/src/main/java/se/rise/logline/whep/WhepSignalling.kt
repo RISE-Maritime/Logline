@@ -103,9 +103,11 @@ object Whep {
      * The shape `keelson:0.5.3` actually declares — no interface, no version.
      *
      * Verified by running that image and reading its log: `Declaring queryable on key:
-     * rise/@v0/testcam/@rpc/whep_signal/mediamtx`. The same class of drift as
-     * `legacyPlatformConfigKey()`, and to be deleted for the same reason: once no deployed proxy
-     * serves it.
+     * rise/@v0/testcam/@rpc/whep_signal/mediamtx`. The same class of drift as the platform-config
+     * key this app used to dual-serve for crowsnest, and to be deleted the same way that one was:
+     * once no deployed proxy serves it. Note the gate there turned out to be *deployment* rather than
+     * the consumer merging a fix — the two are days apart, and a phone that stops answering in
+     * between is a station that cannot read a config.
      */
     internal fun legacyKey(realm: String, entityId: String, responderId: String): String =
         "$realm/@v0/$entityId/@rpc/$PROCEDURE/$responderId"

@@ -2,7 +2,6 @@ package se.rise.logline
 
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.entityIdFromKey
-import se.rise.logline.keelson.legacyPlatformConfigKey
 import se.rise.logline.keelson.legacyLivelinessKey
 import se.rise.logline.keelson.sourceLivelinessKey
 import se.rise.logline.keelson.pubsubKey
@@ -91,23 +90,14 @@ class KeysTest {
     }
 
     /**
-     * The RPC layout, §3.1. Two more chunks than the pre-interface shape crowsnest still uses, and the
-     * whole reason [legacyPlatformConfigKey] exists beside this.
+     * The RPC layout, §3.1 — two more chunks than the pre-interface shape this app also served until
+     * crowsnest moved off it.
      */
     @Test
     fun `rpc key follows the interface-and-version layout`() {
         assertEquals(
             "rise/@v0/ssrs18/@rpc/configurable/v1/get_config/calibration",
             rpcKey("rise", "ssrs18", "configurable", "v1", "get_config", "calibration"),
-        )
-    }
-
-    /** Crowsnest's shape, transcribed. If this changes, it changed there first. */
-    @Test
-    fun `the legacy platform config key is the shape crowsnest probes`() {
-        assertEquals(
-            "rise/@v0/ssrs18/@rpc/get_config/connector_platform",
-            legacyPlatformConfigKey("rise", "ssrs18"),
         )
     }
 

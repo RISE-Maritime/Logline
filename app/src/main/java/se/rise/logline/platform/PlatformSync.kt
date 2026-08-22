@@ -29,7 +29,6 @@ import se.rise.logline.config.TlsCredentialStore
 import se.rise.logline.keelson.KeelsonSession
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.entityIdFromKey
-import se.rise.logline.keelson.legacyPlatformConfigKey
 import se.rise.logline.keelson.qosForSubject
 import se.rise.logline.keelson.rpcInterfaceLivelinessKey
 import se.rise.logline.keelson.rpcKey
@@ -315,11 +314,10 @@ class PlatformSync(private val appContext: Context) {
     private fun declareConfigQueryables(open: KeelsonSession, current: PlatformSyncConfig) {
         queryables = current.platforms.flatMap { platform ->
             val document = platform.toPlatformGeometryJson(provenance = true).toByteArray(Charsets.UTF_8)
+            // One key now, the specification's. The pre-interface shape crowsnest used to probe was
+            // served alongside this until crowsnest moved to `configurable/v1` with a wildcard source.
             val keys = listOf(
                 rpcKey(current.realm, platform.entityId, "configurable", "v1", "get_config", current.calibrationSource),
-                // Useful today rather than only correct: crowsnest probes a pre-interface shape and
-                // nothing else answers it. See legacyPlatformConfigKey.
-                legacyPlatformConfigKey(current.realm, platform.entityId),
             )
             val answering = keys.mapNotNull { key ->
                 runCatching { open.declareQueryable(key) { document } }

@@ -12,7 +12,7 @@ the section they belong to.
 
 Left over from the platform library, and each is a finding rather than a fix. All five are Fre this repo can act on.
 
-- [ ] **Crowsnest probes an obsolete `get_config` key shape.**
+- [x] **Crowsnest probes an obsolete `get_config` key shape.**
       `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` predates the `{interface}/{version}`
       chunks, so nothing a current keelson connector serves answers it — `src/apps/os_config/index.jsx`
       builds it and every entry of `src/DB/platform_registry.json` declares it. The phone serves both
@@ -43,6 +43,10 @@ Left over from the platform library, and each is a finding rather than a fix. Al
       be committed, released and actually running at the stations before the phone stops answering the
       old key; a merged PR is not the signal. When that day comes it is `legacyPlatformConfigKey()`,
       its two call sites in `platform/PlatformSync.kt`, and the legacy assertion in `KeysTest`.
+      Done — crowsnest's fix is `a3c4853` in `../crowsnest-dev` and the key is gone from this app.
+      **The deployment gate above was waived deliberately, not met**, so between now and crowsnest
+      actually running at the stations, a station on the old build cannot read a config off a phone.
+      `WhepSignalling.legacyKey` is a *different* pre-interface shape, for the WHEP proxy, and stays.
 - [ ] **The crowsnest probe fix has never been exercised against a phone.** Everything about it is
       offline: `npm run check` green, eslint and `vite build` clean, the key matching measured against
       zenoh's matcher, and the new filter shown to select the same six registry platforms as the old
@@ -51,6 +55,10 @@ Left over from the platform library, and each is a finding rather than a fix. Al
       router. Worth doing twice: once on this app's default `calibration` source and once with the
       source changed, since reaching both is the entire point of the wildcard. Also confirm a platform
       declaring no `get_config` still shows *no* dot rather than a grey one.
+      **This matters more than when it was filed.** The legacy key was a safety net while it was still
+      served: if the wildcard probe turned out not to work in practice, crowsnest fell back to a shape
+      that did. That net is gone, so this is now the only path from a station to a phone's config, and
+      it is unproven on a bus. Do it before anyone relies on it in the field.
 - [ ] **Crowsnest does not publish its platform overlay**, so the shared library is one-way today —
       the phone shares and nothing answers. The change is small and belongs in that repo; the pattern
       to copy is its own `dataflowConfigSync.js`.
