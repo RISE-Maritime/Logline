@@ -1,5 +1,6 @@
 package se.rise.logline.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -170,6 +171,46 @@ fun SensorMountScreen(
     val effectiveFrameId = frameId.ifBlank { defaultFrameId(platformName, label) }
     val valid = label.isNotBlank() && numbersParse
 
+    // Built here rather than inside `onSave` so the same value can answer "has anything changed?".
+    val edited = SensorMount(
+        label = label.trim(),
+        frameId = effectiveFrameId,
+        sensorType = type,
+        translation = translation,
+        rotation = EulerDeg(
+            yaw = yaw.toDoubleOrNull() ?: 0.0,
+            pitch = pitch.toDoubleOrNull() ?: 0.0,
+            roll = roll.toDoubleOrNull() ?: 0.0,
+        ),
+        capture = method,
+        accuracyM = accuracyM,
+        capturedAtEpochMillis = capturedAt,
+        rotationCapture = rotationMethod,
+        rotationAccuracyDeg = rotationAccuracyDeg,
+    )
+
+    /**
+     * The form as it was opened.
+     *
+     * A snapshot rather than a comparison against [initial], which is null when adding a sensor and
+     * would need a hand-built blank whose `frameId` matched whatever `defaultFrameId` produced — a
+     * second place to get the default wrong. Every field above initialises synchronously from
+     * [initial] or a constant, so the first composition is the untouched form.
+     */
+    val pristine = remember { edited }
+    val dirty = edited != pristine
+    var confirmDiscard by remember { mutableStateOf(false) }
+
+    /**
+     * The one way off this screen without saving, shared by the arrow, the Cancel button and the
+     * system gesture — the same shape `SettingsScreen`, `AnnotationButtonsScreen`, `SubjectQosScreen`
+     * and `CalibrationScreen` use. This screen had none of it, and it is the one where the loss is
+     * worst: a captured offset is twenty seconds of standing still and a measured rotation is four
+     * more, neither of which can be typed back in from memory.
+     */
+    val leave = { if (dirty) confirmDiscard = true else onCancel() }
+    BackHandler(enabled = true) { leave() }
+
     var info by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     info?.let { (title, body) ->
@@ -178,30 +219,11 @@ fun SensorMountScreen(
 
     ScreenScaffold(
         title = if (initial == null) "Add sensor" else "Sensor",
-        onBack = onCancel,
+        onBack = leave,
         bottomBar = {
             FormActions(
-                onSave = {
-                    onSave(
-                        SensorMount(
-                            label = label.trim(),
-                            frameId = effectiveFrameId,
-                            sensorType = type,
-                            translation = translation,
-                            rotation = EulerDeg(
-                                yaw = yaw.toDoubleOrNull() ?: 0.0,
-                                pitch = pitch.toDoubleOrNull() ?: 0.0,
-                                roll = roll.toDoubleOrNull() ?: 0.0,
-                            ),
-                            capture = method,
-                            accuracyM = accuracyM,
-                            capturedAtEpochMillis = capturedAt,
-                            rotationCapture = rotationMethod,
-                            rotationAccuracyDeg = rotationAccuracyDeg,
-                        )
-                    )
-                },
-                onCancel = onCancel,
+                onSave = { onSave(edited) },
+                onCancel = leave,
                 saveEnabled = valid,
                 hint = when {
                     label.isBlank() -> "Name the sensor — it becomes its frame id."
@@ -398,6 +420,28 @@ fun SensorMountScreen(
         }
     }
 
+    if (confirmDiscard) {
+        ConfirmDialog(
+            title = "Discard changes?",
+            // Named rather than called "changes", because the expensive ones cannot be retyped: a
+            // captured offset means walking back to the sensor and standing there for twenty seconds.
+            body = buildString {
+                append("This sensor's edits have not been saved")
+                if (method == CaptureMethod.GNSS_AVERAGE ||
+                    rotationMethod == CaptureMethod.PHONE_ATTITUDE
+                ) {
+                    append(", including what was measured here — a capture cannot be typed back in")
+                }
+                append(".")
+            },
+            confirmLabel = "Discard",
+            onConfirm = {
+                confirmDiscard = false
+                onCancel()
+            },
+            onDismiss = { confirmDiscard = false },
+        )
+    }
     if (confirmDelete && onDelete != null) {
         ConfirmDialog(
             title = "Remove ${label.ifBlank { "this sensor" }}?",
