@@ -41,24 +41,6 @@ class McapWriter(private val sink: OutputStream) {
     private var chunkEarliest = Long.MAX_VALUE
     private var chunkLatest = Long.MIN_VALUE
     private var chunks = 0L
-
-    /**
-     * One entry per flushed chunk, for the `ChunkIndex` group in the summary.
-     *
-     * Accumulated rather than written as we go because a `ChunkIndex` lives in the *summary*, which
-     * does not exist until [finish]. Fifty-odd bytes per chunk held in memory — about 100 kB across a
-     * 512 MB recording, against the chunk buffer's own 256 kB.
-     */
-    private val chunkIndex = mutableListOf<ChunkIndexEntry>()
-
-    /**
-     * Where each message sits *inside the current uncompressed chunk*, per channel.
-     *
-     * The offsets are relative to the chunk's decompressed records, not to the file — that is what a
-     * `MessageIndex` means, and it is the only way an offset can be written before the chunk it points
-     * into has been compressed. Cleared with the chunk.
-     */
-    private val chunkMessageIndex = mutableMapOf<Int, MutableList<Pair<Long, Long>>>()
     private var nextSchemaId = 1
     private var nextChannelId = 0
     private val schemas = mutableListOf<SchemaRecord>()
@@ -121,9 +103,6 @@ class McapWriter(private val sink: OutputStream) {
         nowNanos: Long = System.nanoTime(),
     ) {
         if (chunkMessages == 0) chunkStartNanos = nowNanos
-        // Taken before the record is appended, so it addresses the record's own opcode rather than its
-        // body — a reader seeks here and parses from the top.
-        chunkMessageIndex.getOrPut(channelId) { mutableListOf() } += logTime to chunk.size.toLong()
         recordInto(chunk, OP_MESSAGE) {
             putUInt16(channelId)
             putUInt32(sequence.toLong())
@@ -177,17 +156,11 @@ class McapWriter(private val sink: OutputStream) {
 
         writeRecord(OP_DATA_END) { putUInt32(0) } // 0 = CRC not computed
 
-        // Each group is sized from where the *next* one starts, so the boundaries are a chain and
-        // inserting a group means threading one more link through it. A mis-sized group is not an error
-        // a reader reports — it simply finds nothing there — so the sizes are taken from the recorded
-        // offsets rather than written out by hand.
         val summaryStart = bytes
         val schemaOffset = bytes
         schemas.forEach { writeSchema(it) }
         val channelOffset = bytes
         channels.forEach { writeChannel(it) }
-        val chunkIndexOffset = bytes
-        chunkIndex.forEach { writeChunkIndex(it) }
         val statisticsOffset = bytes
         writeStatistics()
         val metadataIndexOffset = bytes
@@ -195,17 +168,7 @@ class McapWriter(private val sink: OutputStream) {
 
         val summaryOffsetStart = bytes
         writeSummaryOffset(OP_SCHEMA, schemaOffset, channelOffset - schemaOffset)
-        writeSummaryOffset(OP_CHANNEL, channelOffset, chunkIndexOffset - channelOffset)
-        // Omitted entirely when there are no chunks — a run that recorded nothing — the same way the
-        // metadata index is omitted when nothing tagged the file. A group offset with a zero length is
-        // a claim that something is there.
-        if (chunkIndex.isNotEmpty()) {
-            writeSummaryOffset(
-                OP_CHUNK_INDEX,
-                chunkIndexOffset,
-                statisticsOffset - chunkIndexOffset,
-            )
-        }
+        writeSummaryOffset(OP_CHANNEL, channelOffset, statisticsOffset - channelOffset)
         writeSummaryOffset(OP_STATISTICS, statisticsOffset, metadataIndexOffset - statisticsOffset)
         if (metadataLength > 0L) {
             writeSummaryOffset(
@@ -235,12 +198,6 @@ class McapWriter(private val sink: OutputStream) {
         if (chunkMessages == 0) return
         val raw = chunk.toByteArray()
         val compressed = Zstd.compress(raw, ZSTD_LEVEL)
-        // Before the record, not after its header: `chunk_start_offset` addresses the Chunk *record*,
-        // opcode and length prefix included, so a reader can re-read it from that offset alone. Point
-        // it at the body and every seek lands nine bytes into a record it then cannot parse.
-        val startOffset = bytes
-        val startTime = if (chunkEarliest == Long.MAX_VALUE) 0L else chunkEarliest
-        val endTime = if (chunkLatest == Long.MIN_VALUE) 0L else chunkLatest
         writeRecord(OP_CHUNK) {
             putUInt64(if (chunkEarliest == Long.MAX_VALUE) 0L else chunkEarliest)
             putUInt64(if (chunkLatest == Long.MIN_VALUE) 0L else chunkLatest)
@@ -252,57 +209,12 @@ class McapWriter(private val sink: OutputStream) {
             putUInt64(compressed.size.toLong())
             putRaw(compressed)
         }
-        val chunkLength = bytes - startOffset
-
-        // One MessageIndex per channel, in the data section immediately after the chunk they index —
-        // the spec's placement, and what makes the offsets in the ChunkIndex resolvable.
-        val messageIndexStart = bytes
-        val messageIndexOffsets = chunkMessageIndex.toSortedMap().mapValues { (channelId, entries) ->
-            val at = bytes
-            writeMessageIndex(channelId, entries)
-            at
-        }
-
-        chunkIndex += ChunkIndexEntry(
-            startTime = startTime,
-            endTime = endTime,
-            startOffset = startOffset,
-            length = chunkLength,
-            messageIndexOffsets = messageIndexOffsets,
-            messageIndexLength = bytes - messageIndexStart,
-            compressedSize = compressed.size.toLong(),
-            uncompressedSize = raw.size.toLong(),
-        )
         chunks++
         chunk.reset()
         chunkMessages = 0
-        chunkMessageIndex.clear()
         chunkEarliest = Long.MAX_VALUE
         chunkLatest = Long.MIN_VALUE
     }
-
-    /**
-     * Where every message of one channel sits inside the chunk just written.
-     *
-     * `records` is an array, so it carries its own `uint32` byte length ahead of the pairs; each pair is
-     * a `uint64` log time and a `uint64` offset into the *uncompressed* chunk.
-     *
-     * These are not optional in practice, whatever the spec allows. A `ChunkIndex` whose
-     * `message_index_offsets` is empty sends a seeking reader down the index path with nothing to
-     * follow: measured against `mcap` 1.2.2, such a file returns **zero** messages from the default
-     * reader while a non-seeking reader still reads all of them. That is worse than writing no index at
-     * all, which at least leaves the linear scan working — so the two records ship together or not at
-     * all.
-     */
-    private fun writeMessageIndex(channelId: Int, entries: List<Pair<Long, Long>>) =
-        writeRecord(OP_MESSAGE_INDEX) {
-            putUInt16(channelId)
-            putUInt32(entries.size.toLong() * 16L)
-            entries.forEach { (logTime, offset) ->
-                putUInt64(logTime)
-                putUInt64(offset)
-            }
-        }
 
     /**
      * What the operator had switched on, written into the file when it closes.
@@ -369,53 +281,6 @@ class McapWriter(private val sink: OutputStream) {
             putUInt16(channel)
             putUInt64(count)
         }
-    }
-
-    /**
-     * Where one chunk sits and what it spans, so a reader can find a moment without decompressing the
-     * file to look for it.
-     */
-    private class ChunkIndexEntry(
-        val startTime: Long,
-        val endTime: Long,
-        val startOffset: Long,
-        val length: Long,
-        /** Channel id to the file offset of that channel's `MessageIndex` for this chunk. */
-        val messageIndexOffsets: Map<Int, Long>,
-        val messageIndexLength: Long,
-        val compressedSize: Long,
-        val uncompressedSize: Long,
-    )
-
-    /**
-     * A `ChunkIndex`, §Summary — the record that turns opening a recording into two seeks.
-     *
-     * **`message_index_offsets` is a map, so it carries its own `uint32` byte length** ahead of the
-     * pairs — ten bytes each, a `uint16` channel id and a `uint64` file offset. Omitting that length
-     * produces a record that parses "successfully" and shifts every field after it, the same failure
-     * the doubled length prefix once caused with the tags: a file that reads fine and means something
-     * else.
-     *
-     * It must not be *empty* either, which is a mistake worth recording because it looks like a saving.
-     * A `ChunkIndex` with no message indexes to point at sends a seeking reader down the index path
-     * with nothing to follow — measured against `mcap` 1.2.2, such a file returns **zero** messages
-     * from the default reader while a non-seeking reader still reads all of them. Writing no index at
-     * all is strictly better than that, since it leaves the linear scan working.
-     */
-    private fun writeChunkIndex(entry: ChunkIndexEntry) = writeRecord(OP_CHUNK_INDEX) {
-        putUInt64(entry.startTime)
-        putUInt64(entry.endTime)
-        putUInt64(entry.startOffset)
-        putUInt64(entry.length)
-        putUInt32(entry.messageIndexOffsets.size.toLong() * 10L)
-        entry.messageIndexOffsets.forEach { (channelId, offset) ->
-            putUInt16(channelId)
-            putUInt64(offset)
-        }
-        putUInt64(entry.messageIndexLength)
-        putString(COMPRESSION_ZSTD)
-        putUInt64(entry.compressedSize)
-        putUInt64(entry.uncompressedSize)
     }
 
     private fun writeSummaryOffset(opcode: Int, offset: Long, length: Long) =
@@ -509,8 +374,6 @@ class McapWriter(private val sink: OutputStream) {
         const val OP_CHANNEL = 0x04
         const val OP_MESSAGE = 0x05
         const val OP_CHUNK = 0x06
-        const val OP_MESSAGE_INDEX = 0x07
-        const val OP_CHUNK_INDEX = 0x08
         const val OP_METADATA = 0x0C
         const val OP_METADATA_INDEX = 0x0D
         const val OP_DATA_END = 0x0F

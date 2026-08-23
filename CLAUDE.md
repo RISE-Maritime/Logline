@@ -1530,25 +1530,24 @@ simply never finds anything on the bus.
   killing the app 25 s in: 87 193 messages covering 24.7 s came back. `McapRecovery` needed no change —
   a Chunk is a length-prefixed record, so a truncated one is already its incomplete-record branch — and
   `readMcapSummary` needed none either, because MCAP keeps summary records *outside* chunks.
-- **The recording is fully indexed, and `ChunkIndex` without `MessageIndex` is not a smaller index but
-  a broken one.** That is the trap, and it is expensive to find: a `ChunkIndex` whose
-  `message_index_offsets` map is empty sends a *seeking* reader down the index path with nothing to
-  follow, so it reports an empty recording — measured against `mcap` 1.2.2, **zero** messages from the
-  default reader, where the same file with no index at all returns all of them by falling back to a
-  scan. Writing one without the other is therefore worse than writing neither, and the two ship
-  together: `flushChunk()` emits a `MessageIndex` per channel straight after the chunk and records
-  their offsets in the entry that `finish()` later writes into the summary.
-  Two details are easy to get wrong and quiet when they are. A `MessageIndex` offset is into the
-  **uncompressed** chunk, which is why it is captured from `chunk.size` before the record is appended
-  rather than from the file position. And `message_index_offsets` is a *map*, so it carries its own
-  `uint32` byte length ahead of ten-byte pairs — omit it and every field after shifts, the same failure
-  the doubled length prefix once caused with the tags.
-  The cost is **18.7 bytes per message**, measured. As a fraction it depends entirely on how well the
-  payloads compress — a synthetic file of identical messages grew 142% because it compresses to almost
-  nothing — so quote the per-message figure rather than a percentage until a real run gives one.
-  The summary offsets are a chain, each group sized from where the next begins, so inserting a group
-  means threading one more boundary through: a mis-sized group is not an error a reader reports, it
-  just finds nothing there.
+- **The recording carries no index, and that is a measured trade rather than an omission.** Readers
+  scan the data section to open a file. Legal MCAP, and what happened before an index was tried.
+  It *was* tried, and both findings are expensive enough to rediscover that they are kept here.
+  **`ChunkIndex` without `MessageIndex` is not a smaller index but a broken one.** An empty
+  `message_index_offsets` map sends a *seeking* reader down the index path with nothing to follow:
+  measured against `mcap` 1.2.2, such a file returns **zero** messages from the default reader while a
+  non-seeking reader reads all of them. Strictly worse than no index, which at least leaves the scan
+  working. Anyone reaching for "just the chunk index, it is only a few bytes" needs to meet that first.
+  **The full index costs 16.6 bytes per message**, which on a real recording here was **40.6% of the
+  file** — 92 104 messages, 1.5 MB of `MessageIndex` against payloads averaging 41 bytes on disk. The
+  ratio is the whole story: `MessageIndex` lives *outside* the chunks so it does not compress, while
+  everything it indexes compresses about four times. Quote the per-message figure rather than the
+  percentage, which is a property of how well a particular run's payloads compress — an earlier
+  estimate of ~6% came from assuming a much larger message and was wrong by most of an order of
+  magnitude.
+  This app exists to record as much as a phone will hold, and computes days-of-recording from free
+  space; 68% added to every file is permanent, where what it buys is seconds off opening one in
+  Foxglove. If that trade ever looks wrong, it is the two records together or neither.
 - **A Message's `data` is not length-prefixed; a Schema's is.** Getting that wrong produces a file that
   parses perfectly and whose every payload fails to decode, which is a genuinely nasty failure mode —
   it was the first bug in `McapWriter` and `McapWriterTest` now pins it. Validate format changes by

@@ -115,67 +115,12 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-## Checklist
-
- [ ] **The four `Checklist*.proto` are still not upstream** at `0.6.0-pre.3`. Same shape as the
-      previous item: a release has now shipped without messages this app builds against, and
-      `ChecklistWireTest`'s golden bytes are the only thing pinning them. Reconstructed definitions
-      living in one downstream repo is exactly the situation that produced them.
-      *(2026-08-19: not lost after all — the definitions were committed in `keelson` on
-      `feature/checklist-subjects` and the branch had simply never been pushed, which is why no PR
-      existed and the release went without them. Rebased onto `dev` and opened as
-      [keelson#202](https://github.com/RISE-Maritime/keelson/pull/202); GitHub reports it mergeable.
-      The four files there are byte-identical to this app's vendored copies, checked before and after
-      the rebase, so no drift crept in while they sat unmerged. Two review points carried in the PR
-      body rather than hidden: the design itself is unreviewed, and `checklist_state` /
-      `checklist_procedure` want the router storage backing that `../keelson-router/` now has and
-      that repo does not.
-      2026-08-19, later: **`0.6.0-pre.5` ships all four**, and they are byte-identical to this app's
-      vendored copies — checked file by file against the tag, along with every other proto (17 of 17
-      identical) and every subject name and QoS profile (no drift). So the app no longer publishes
-      anything unratified, which is what this item was really about. **Still open because #202 itself
-      is**: the tag was cut from its branch rather than from `dev`, so `dev` has neither the checklist
-      subjects nor `illuminance_lux` until that PR merges. Close this when it does.
-      2026-08-23: **#202 is still open — OPEN, MERGEABLE, CLEAN** — and `0.6.0-pre.7` has since been
-      cut, which changes nothing here except to make the point sharper: that tag *is* `dev`, on a
-      different lineage from `pre.5`, so the newest release now has neither the checklist subjects nor
-      `illuminance_lux`. Folded in here: a second item, "Commit the checklist protos upstream", said
-      the same thing against the older branch name `feature/operational-authority` and predated the
-      branch being found and pushed. Two descriptions of one blockage is how they drift apart; this is
-      the one to keep.
-      2026-08-23, later: **three more tags — `pre.8`, `pre.9`, `pre.10` — and #202 is still open.** The
-      lineage mess is now worse rather than better: of the five most recent tags only `pre.7` is on
-      `dev`, and `dev` still has none of this. `pre.8` and `pre.9` carry the checklist protos;
-      **`pre.10`, the newest, does not**, nor `illuminance_lux`. So "read the newest tag" is wrong in
-      both directions depending on which one you land on.
-      **The vendored copies have drifted, and this is the real news.** They match `pre.5` exactly and
-      match neither `pre.8` nor `pre.9`. Upstream has evolved the protocol substantially: a fifth file
-      (`ChecklistEvidence.proto`) this app does not vendor; new event types (`RUN_PLANNED`,
-      `RUN_ABANDONED`, plus run start/complete); `active_run_id` and `open_run_ids` on presence; item
-      nesting by parent pointer on procedure; and **`ChecklistState` re-modelled from a procedure's
-      progress to one *run* of it**, a procedure now being a template that may be executed many times.
-      **Wire-compatible, though, which is the thing that mattered.** Checked field by field: every
-      existing number keeps its meaning and every addition takes a new one (14 on `ItemState`; 7, 8,
-      12, 13, 15 on the state message). So this app's messages still decode correctly in a `pre.9`
-      consumer and vice versa — it is behind, not wrong. Everything else is clean: 14 of the 18
-      vendored protos are byte-identical to `pre.10`, and `qos.yaml` has no drift at all between
-      `pre.5` and `pre.10`.
-      What is now open is a decision rather than a check: whether to take the run model. Adopting it
-      means re-vendoring five protos and reworking `ChecklistSync`/`ChecklistStore` from "a procedure's
-      progress" to "runs of a procedure" — a real feature, not a sync. Leaving it means this app
-      cannot express runs, evidence or nesting, and will look thin beside a crowsnest that has moved.
-      Worth checking what `../crowsnest-dev` does before choosing; its working tree was full of
-      uncommitted checklist work when last seen.)*
-
-
-
-
 ## Live view, second pass (2026-08-20)
 
 The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
 satellite, inline and full-screen. Findings:
 
-- [ ] **`No fix` now shows in red beside a perfectly good position, on a desk indoors.** This is the
+- [x] **`No fix` now shows in red beside a perfectly good position, on a desk indoors.** This is the
       documented and intended behaviour — the fused provider derives a position from wifi and cell with
       the GNSS engine solving nothing, and `location_fix_quality` says so honestly — but the vitals row
       makes it far more prominent than the old run-on string did. Worth watching on an actual trial: if
@@ -189,6 +134,14 @@ satellite, inline and full-screen. Findings:
       indoors the gnss stream produced nothing at all — no channel in the file — while network and the
       fused fix agreed to five decimals, which is red `No fix` telling the truth. Whether it cries wolf
       under a coachroof is still a trial question, but a trial recording will now contain the evidence.
+      Decided rather than measured: `No fix` is now **amber**, red kept for no position arriving at
+      all. The trial has not happened and the argument for red was never wrong — a track interpolated
+      from cell towers is worth noticing — but it is also the normal state of a phone indoors or
+      alongside, and red that is on all day is red nobody reads. What tipped it is that the evidence
+      moved somewhere better: the receiver's actual behaviour is now its own `location_fix/gnss`
+      channel in every recording, which answers the question properly instead of a colour shouting it.
+      **Revisit if a real day on the water shows the opposite** — the receiver solving throughout and
+      `No fix` appearing only when something is genuinely wrong. Then red was right and this goes back.
 - [ ] **The unfused position rows show no reading.** They publish and their rate reads correctly, but
       the value column says "no reading": `readingOf` takes a position from the live track, and only the
       fused collector records into it. Not dishonest — the row claims nothing — but a row reading
