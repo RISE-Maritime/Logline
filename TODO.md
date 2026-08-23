@@ -135,52 +135,17 @@ rewritten from the ground up. These are the consequences.
       identical) and every subject name and QoS profile (no drift). So the app no longer publishes
       anything unratified, which is what this item was really about. **Still open because #202 itself
       is**: the tag was cut from its branch rather than from `dev`, so `dev` has neither the checklist
-      subjects nor `illuminance_lux` until that PR merges. Close this when it does.)*
-
-[ ] **Commit the checklist protos upstream.** `../keelson` still has four untracked protos and four
-`subjects.yaml` entries sitting on `feature/operational-authority`
-(`Checklist{Event,State,Presence,Procedure}.proto`). Until they are on a branch and merged, nobody
-else can build against the checklist feature, and this app's vendored copies are the only
-definition of a wire format two projects already speak — crowsnest reconstructed from its
-generated JS, pinned here by `ChecklistWireTest` against golden bytes. Blocked on the remote above.
-
-- [ ] **No ChunkIndex is written, so a reader scans instead of seeking.** The recording is chunked and
-      compressed now, but the summary carries no `ChunkIndex` records — legal MCAP, and no worse than the
-      unchunked file that came before, but it means Foxglove reads the whole data section to open a
-      file. Keelson's own `keelson2mcap.py` writes full indexes. Adding them is bookkeeping the writer
-      already has most of: each chunk's byte offset, its message-time range and a per-channel offset map.
-      Worth it once files are routinely hundreds of megabytes.
-
-- [ ] **`audio` and `video_compressed` cannot be thinned, so they have no publish rate.** Dropped H.264
-  frames do not decode, and `audio`'s rate is a *chunk length* — dropping a chunk puts a hole in the
-  sound rather than thinning the stream. Both are exempt from the decimator, so on those two the wire
-  always carries the full recorded rate however the publish rate is set. Nothing on their subject
-  pages says so yet. The honest fix for video would be a second, lower-fps encode for the wire,
-  which is a real piece of work rather than a setting.
+      subjects nor `illuminance_lux` until that PR merges. Close this when it does.
+      2026-08-23: **#202 is still open — OPEN, MERGEABLE, CLEAN** — and `0.6.0-pre.7` has since been
+      cut, which changes nothing here except to make the point sharper: that tag *is* `dev`, on a
+      different lineage from `pre.5`, so the newest release now has neither the checklist subjects nor
+      `illuminance_lux`. Folded in here: a second item, "Commit the checklist protos upstream", said
+      the same thing against the older branch name `feature/operational-authority` and predated the
+      branch being found and pushed. Two descriptions of one blockage is how they drift apart; this is
+      the one to keep.)*
 
 
-## UI iteration (2026-08-19)
 
-The design review's ten priorities, implemented and walked on a Pixel 6. What follows is what the work
-turned up rather than what it did — the *what* is in the commit and in
-[docs/architecture.md](docs/architecture.md).
-
-- [x] **Settings' Save is enabled when nothing is dirty.** `saveEnabled = saveable`, not
-      `dirty && saveable` — so Save is blue on a freshly opened screen and pressing it restarts the run
-      to write settings that did not change. Pre-existing, unrelated to the regroup, and visible on
-      every screenshot of that screen. `CalibrationScreen` gets this right (`dirty && …`).
-      Done in the commit that follows this note.
-
-- [ ] **"Find a router" is filed under Advanced, which is a judgement call.** The plan's six-group
-      table had it under Connection and put the scout multicast address in Advanced on its own —
-      but that address is what the Scan button uses, and splitting them would leave a control in one
-      group and its input in another. The whole discovery section moved instead, on the grounds that
-      typing an endpoint is the normal path and scanning for one by multicast is not. Revisit if
-      anybody goes looking for it under Connection.
-
-- [ ] **Platform calibration lost its intro paragraph to the ⓘ, and gained a `BackHandler` it should have
-      had all along** — it was the one form screen where a system-back discarded unsaved edits
-      silently, unlike `SettingsScreen`, `AnnotationButtonsScreen` and `SubjectQosScreen`.
 
 ## Live view, second pass (2026-08-20)
 
@@ -199,12 +164,9 @@ satellite, inline and full-screen. Findings:
       the GNSS engine solving nothing, and `location_fix_quality` says so honestly — but the vitals row
       makes it far more prominent than the old run-on string did. Worth watching on an actual trial: if
       a phone under a coachroof spends the day showing red, the colour is crying wolf and `FIX_NO`
-      should drop to amber with red kept for a fix that has genuinely stopped arriving.
+      should drop to amber with red kept for a fix that has genuinely stopped arriving. Can we display each solution sepratly GNSS, wifi, cell and then have the fused posiiton, that woudl be relevant information to collect and anlyse to understad the technical pression of reach position source. 
 
-- [ ] **The four map icons are hand-declared `ImageVector`s and nothing checks them.** `ui/MapIcons.kt`
-      is the first drawn icon set in the app; a path typo produces a wrong-looking glyph rather than a
-      build failure, and there is no screenshot test to catch it. Checked by eye at 24dp on a Pixel 6
-      in both themes. If more get added, that is the point to consider a comparison test.
+- [ ] **Add ad ligth and drak team switch into the setttings** 
 
 - [ ] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
       line attached under it, the pair take a fixed 400dp plus about 40 — a little over half a Pixel 6's
