@@ -5,6 +5,7 @@ import se.rise.logline.ui.derivedName
 import se.rise.logline.ui.formatBitrate
 import se.rise.logline.ui.formatLiveValue
 import se.rise.logline.ui.formatPosition
+import se.rise.logline.ui.formatPositionStacked
 import se.rise.logline.ui.labelOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -106,6 +107,34 @@ class SubjectLabelsTest {
         assertTrue("negatives become S and W", formatPosition(-33.9, -18.4).let {
             it.contains("S") && it.contains("W") && !it.contains("-")
         })
+    }
+
+    /**
+     * **The stacked form and the one-line form must write a coordinate identically.**
+     *
+     * They exist separately because the Session row needs a narrow reading and the chart and the
+     * platform's zero point need a wide one — but two independent `"%.4f°%s"` calls would be free to
+     * drift, and a position that gains a decimal in one place and not the other is the kind of
+     * difference nobody notices until two screens disagree. Splitting on the newline and comparing
+     * against the middot form's halves is what pins them together.
+     */
+    @Test
+    fun `the stacked position is the same two halves as the one-line one`() {
+        val halves = formatPositionStacked(57.4359, 12.0326).split("\n")
+
+        assertEquals("latitude over longitude, two lines", 2, halves.size)
+        assertEquals(formatPosition(57.4359, 12.0326), halves.joinToString(" · "))
+        // And it is genuinely narrower, which is the whole reason it exists.
+        assertTrue(halves.all { it.length < formatPosition(57.4359, 12.0326).length })
+    }
+
+    /** The southern and western hemispheres survive the split too. */
+    @Test
+    fun `a stacked position south and west keeps its letters and drops its minus`() {
+        val halves = formatPositionStacked(-33.9, -18.4).split("\n")
+
+        assertTrue(halves[0], halves[0].contains("S") && !halves[0].contains("-"))
+        assertTrue(halves[1], halves[1].contains("W") && !halves[1].contains("-"))
     }
 
     /**

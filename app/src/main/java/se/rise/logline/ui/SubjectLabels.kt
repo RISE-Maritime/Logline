@@ -211,12 +211,36 @@ internal fun formatBitrate(bps: Float): String = when {
  * where this is used — `57,4359, 12,0326` has three commas doing two different jobs and reads as
  * four numbers. A letter between the two makes it unambiguous whatever the separator is.
  */
-fun formatPosition(latitude: Double, longitude: Double): String {
-    val ns = if (latitude >= 0) "N" else "S"
-    val ew = if (longitude >= 0) "E" else "W"
+fun formatPosition(latitude: Double, longitude: Double): String =
     // A middot between the halves: `57.4359°N 12.0328°E` runs them together, and the only thing
-    // dividing them is a space that also appears inside each half. The hemisphere letter stays tight
-    // against its figure — spacing that off as well reads no better and costs two characters, which is
-    // the difference between the Session screen's Position row fitting on one line and wrapping.
-    return "%.4f°%s · %.4f°%s".fmt(abs(latitude), ns, abs(longitude), ew)
-}
+    // dividing them is a space that also appears inside each half.
+    "${latitudeText(latitude)} · ${longitudeText(longitude)}"
+
+/**
+ * The same position stacked, latitude over longitude — for the Session screen's Position row.
+ *
+ * That row lays out as `Column(weight 1f) { name; rate }` beside a reading column with **no weight**,
+ * so the reading takes its intrinsic width and the rate line gets the remainder. One line of
+ * `57.4359°N · 12.0328°E` left too little for `1.0 Hz · set 1.0 · sensor ~1.0`, and it was the only
+ * row in the list that wrapped. Split across two lines the reading is half as wide, the rate line fits,
+ * and the row ends up *shorter* than it was — two lines against the three a wrapped one occupied.
+ *
+ * A second function rather than a changed [formatPosition], which has two callers that must stay on one
+ * line: the chart's own position readout in `LiveDashboard`, and a platform's surveyed zero point in
+ * `CalibrationScreen`. Both share [latitudeText] and [longitudeText] so the two forms cannot come to
+ * disagree about how a coordinate is written.
+ */
+fun formatPositionStacked(latitude: Double, longitude: Double): String =
+    "${latitudeText(latitude)}\n${longitudeText(longitude)}"
+
+/**
+ * One half of a position.
+ *
+ * The hemisphere letter stays tight against its figure — spacing it off as well reads no better and
+ * costs two characters, which on the row above is the difference between fitting and not.
+ */
+private fun latitudeText(latitude: Double): String =
+    "%.4f°%s".fmt(abs(latitude), if (latitude >= 0) "N" else "S")
+
+private fun longitudeText(longitude: Double): String =
+    "%.4f°%s".fmt(abs(longitude), if (longitude >= 0) "E" else "W")

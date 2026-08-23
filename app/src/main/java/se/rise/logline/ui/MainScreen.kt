@@ -1385,8 +1385,13 @@ private fun SubjectRow(
                 .weight(1f)
                 .clickable(onClick = onOpen)
                 .padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 10.dp)
-                // One node, so a screen reader says it as a sentence rather than four fragments.
-                .readAsOneItem("${label.name}. ${reading ?: "no reading"} ${label.unit.orEmpty()}. $detail"),
+                // One node, so a screen reader says it as a sentence rather than four fragments. The
+                // newline in a stacked position becomes a separator: read aloud it is a pause in the
+                // middle of a coordinate pair, where the sentence wants the two halves joined.
+                .readAsOneItem(
+                    "${label.name}. ${reading?.replace("\n", ", ") ?: "no reading"} " +
+                        "${label.unit.orEmpty()}. $detail",
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
         Column(Modifier.weight(1f).padding(end = 8.dp)) {
@@ -1438,7 +1443,10 @@ private fun SubjectRow(
  * exactly what someone glancing at this screen wants, so it comes off the track instead.
  */
 private fun readingOf(entry: PublishedSubject, value: Float?, fix: TrackPoint?): String? = when {
-    entry == PublishedSubject.LOCATION_FIX -> fix?.let { formatPosition(it.latitude, it.longitude) }
+    // Stacked, latitude over longitude: the reading column has no weight, so a one-line position took
+    // the width the rate line needed and this was the only row in the list that wrapped.
+    entry == PublishedSubject.LOCATION_FIX ->
+        fix?.let { formatPositionStacked(it.latitude, it.longitude) }
     value != null -> formatLiveValue(entry, value)
     else -> null
 }
