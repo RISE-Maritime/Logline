@@ -33,7 +33,11 @@ data class SubjectGroup(
 /** Rows in registry order, grouped without reordering: the registry decides what comes first. */
 fun subjectGroups(): List<SubjectGroup> =
     PublishedSubject.entries
-        .groupBy { it.source to it.fixedSourceId }
+        // Only the radio links split by source id. They are two different *pieces of hardware*
+        // reporting the same subjects, so the heading is the only thing telling the rows apart. The
+        // unfused position solutions also carry a fixed id and must not split: they belong beside the
+        // fix they are compared against, and their rows say which is which in their own names.
+        .groupBy { it.source to it.fixedSourceId.takeIf { _ -> it.source == SourceKind.RADIO } }
         .map { (key, entries) ->
             val (source, sourceId) = key
             SubjectGroup(

@@ -28,7 +28,10 @@ class LivelinessTest {
         realm = "rise",
         entityId = "pixel_6",
         routerEndpoints = listOf("tcp/127.0.0.1:7447"),
-        locationSource = "gnss",
+        // Not "gnss": that is now a *fixed* source id, used by the unfused GNSS-only fix, and a
+        // configured location source that collides with it would publish two streams on one key —
+        // which is a real trap worth not modelling here as if it were normal.
+        locationSource = "fix",
         imuSource = "imu",
         deviceSource = "box",
         calibrationSource = "survey",
@@ -127,8 +130,13 @@ class LivelinessTest {
             .map { settings.entityFor(it) to settings.sourceFor(it) }
             .toSet()
 
-        // gnss, imu, box, plus the two fixed radio ids — all under the phone's entity.
-        assertEquals(setOf("gnss", "imu", "box", "cellular", "wifi"), pairs.map { it.second }.toSet())
+        // The three configurable ids, plus the four fixed ones — all under the phone's entity. The
+        // fixed ones name what a measurement *is* rather than which device made it: two radio links,
+        // and the two unfused position solutions published beside the fused fix.
+        assertEquals(
+            setOf("fix", "imu", "box", "gnss", "network", "cellular", "wifi"),
+            pairs.map { it.second }.toSet(),
+        )
         assertEquals(setOf("pixel_6"), pairs.map { it.first }.toSet())
 
         val tokens = pairs.flatMap { (entity, source) ->

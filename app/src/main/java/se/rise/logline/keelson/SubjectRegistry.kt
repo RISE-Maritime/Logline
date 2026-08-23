@@ -248,6 +248,37 @@ enum class PublishedSubject(
         source = SourceKind.LOCATION,
         rateOwner = Subjects.LOCATION_FIX,
     ),
+
+    /**
+     * The satellites alone, beside the fused fix rather than instead of it.
+     *
+     * The same subject from a different source, which is keelson's own model — the key's last chunk
+     * names *which* producer, exactly as `cellular` and `wifi` do for the radio subjects. Published so
+     * a recording carries the solutions separately and what each is worth can be read off afterwards
+     * rather than guessed: indoors the fused position keeps arriving from wifi and cell while this one
+     * scatters or stops, which is the thing `location_fix_quality` reports and nobody could previously
+     * check.
+     *
+     * **Not `featured`.** Basic already shows Position; three of them would push everything else off.
+     *
+     * These two must stay *after* [LOCATION_FIX] in this enum. `forSubject()` answers with whichever
+     * entry sits earliest, and the fused fix is the one that should answer for `location_fix` — there
+     * were two entries for it before this and there are four now.
+     */
+    LOCATION_FIX_GNSS(
+        subject = Subjects.LOCATION_FIX,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        fixedSourceId = FixSources.GNSS,
+    ),
+
+    /** Wifi and cell together, which is as far apart as Android will take them. See [LOCATION_FIX_GNSS]. */
+    LOCATION_FIX_NETWORK(
+        subject = Subjects.LOCATION_FIX,
+        defaultRate = SensorRate.Hz(1.0),
+        source = SourceKind.LOCATION,
+        fixedSourceId = FixSources.NETWORK,
+    ),
     LINEAR_ACCEL(
         subject = Subjects.LINEAR_ACCELERATION_MPSS,
         defaultRate = SensorRate.Hz(50.0),

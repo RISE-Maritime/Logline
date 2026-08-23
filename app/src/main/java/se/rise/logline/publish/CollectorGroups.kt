@@ -164,6 +164,12 @@ val START_TIME_SUBJECTS = setOf(
  */
 val COLLECTOR_GROUPS: List<CollectorGroup> = listOf(
     CollectorGroup("location", LOCATION_SUBJECTS),
+    // Their own groups, not part of `location`. The precedent that could mislead is `raw_nmea0183`,
+    // which has its own listener and still shares that group — but it shares it *because* it cannot
+    // start the GNSS engine, only hear one already running. `GPS_PROVIDER` does start it, so these
+    // are genuinely separate streams and each switch has to release its own listener.
+    CollectorGroup("locationGnss", setOf(PublishedSubject.LOCATION_FIX_GNSS)),
+    CollectorGroup("locationNetwork", setOf(PublishedSubject.LOCATION_FIX_NETWORK)),
     CollectorGroup("accel", setOf(PublishedSubject.LINEAR_ACCEL)),
     CollectorGroup("gyro", setOf(PublishedSubject.ANGULAR_VEL)),
     CollectorGroup("orientation", ORIENTATION_SUBJECTS),

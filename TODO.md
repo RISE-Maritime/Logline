@@ -152,34 +152,34 @@ rewritten from the ground up. These are the consequences.
 The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
 satellite, inline and full-screen. Findings:
 
-- [x] **The Session screen's Position row wraps its rate line onto two lines**, and has done since
-      before the position format changed — verified by building both formats and comparing the crops,
-      so this is not a regression from the middot. The row is the only one in the list whose value is
-      wide enough to squeeze `0.1 Hz · set 1.0 · sensor ~1.0` into a wrap. Readable, and it makes that
-      one row a line taller than its neighbours. A shorter live value for the fix (the accuracy rather
-      than the coordinates?) or letting the subtitle ellipsize would settle it.
-      Done in `e007566`, by stacking the coordinates instead — latitude over longitude on the right,
-      which halves the reading's width and gives the rate line the room it needed.
-      **Both fixes proposed above would have been wrong**, which is the part worth keeping. "The
-      accuracy rather than the coordinates" would have made the row duplicate `Horizontal accuracy`
-      directly below it — that subject is `featured = true` and already in Basic. Ellipsizing the
-      subtitle would have dropped `sensor ~1.0` with no sign, against the rule that a rate is three
-      numbers and a row showing fewer lies by omission.
-      Measured on a Pixel 6, and **the height claim in this item is wrong in both directions**: the row
-      is now 178 px against its neighbours' 143, where the wrapped version was about 183. Two lines of
-      `titleMedium` are taller than `bodyLarge` over `bodySmall`, so it was never "a line taller" by
-      much and it still is not level — the win is the wrap and the alignment with the row beneath, not
-      the height. Levelling it would mean shrinking the reading's type on this row alone, trading one
-      inconsistency for another; not done.
-
 - [ ] **`No fix` now shows in red beside a perfectly good position, on a desk indoors.** This is the
       documented and intended behaviour — the fused provider derives a position from wifi and cell with
       the GNSS engine solving nothing, and `location_fix_quality` says so honestly — but the vitals row
       makes it far more prominent than the old run-on string did. Worth watching on an actual trial: if
       a phone under a coachroof spends the day showing red, the colour is crying wolf and `FIX_NO`
       should drop to amber with red kept for a fix that has genuinely stopped arriving. Can we display each solution sepratly GNSS, wifi, cell and then have the fused posiiton, that woudl be relevant information to collect and anlyse to understad the technical pression of reach position source. 
+      The second half is done: `location_fix` now goes out from `gnss` and `network` beside the fused
+      fix. **Two solutions, not three** — Android exposes `gps`, `network`, `fused` and `passive`, and
+      `network` is wifi *and* cell with no way to ask which contributed; verified against this phone's
+      `dumpsys location`. Splitting them would mean doing the geolocation ourselves.
+      **The first half stays open, and is now answerable rather than a matter of impression.** On a desk
+      indoors the gnss stream produced nothing at all — no channel in the file — while network and the
+      fused fix agreed to five decimals, which is red `No fix` telling the truth. Whether it cries wolf
+      under a coachroof is still a trial question, but a trial recording will now contain the evidence.
+- [ ] **The unfused position rows show no reading.** They publish and their rate reads correctly, but
+      the value column says "no reading": `readingOf` takes a position from the live track, and only the
+      fused collector records into it. Not dishonest — the row claims nothing — but a row reading
+      `0.1 Hz` beside a blank is odd. Fixing it means a per-entry fix in `LiveSampleStore`, which is a
+      store deliberately built around one ring per subject rather than per entry.
+- [ ] **A `locationSource` of `gnss` or `network` collides with the fixed ids.** That setting is free
+      text, so a phone configured that way would declare two publishers on one key and interleave two
+      different solutions indistinguishably. Two test fixtures used `gnss` as their stand-in location
+      source and had to be renamed, which is how this surfaced — the trap is easy to fall into. The fix
+      is to refuse the reserved ids in the settings field.
 
 - [ ] **Add ad ligth and drak team switch into the setttings** 
+
+-----
 
 - [ ] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
       line attached under it, the pair take a fixed 400dp plus about 40 — a little over half a Pixel 6's

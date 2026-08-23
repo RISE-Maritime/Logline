@@ -281,12 +281,15 @@ class SubjectRegistryTest {
     @Test
     fun `distinct source ids resolve per subject`() {
         val settings = settings().copy(
-            locationSource = "gnss",
+            locationSource = "fix",
             imuSource = "imu",
             deviceSource = "device",
         )
-        assertEquals("gnss", settings.sourceFor(PublishedSubject.LOCATION_FIX))
-        assertEquals("gnss", settings.sourceFor(PublishedSubject.SPEED_OVER_GROUND))
+        assertEquals("fix", settings.sourceFor(PublishedSubject.LOCATION_FIX))
+        assertEquals("fix", settings.sourceFor(PublishedSubject.SPEED_OVER_GROUND))
+        // The unfused solutions ignore the configured id: theirs name what the measurement is.
+        assertEquals("gnss", settings.sourceFor(PublishedSubject.LOCATION_FIX_GNSS))
+        assertEquals("network", settings.sourceFor(PublishedSubject.LOCATION_FIX_NETWORK))
         assertEquals("imu", settings.sourceFor(PublishedSubject.MAGNETIC_FIELD))
         assertEquals("device", settings.sourceFor(PublishedSubject.AIR_PRESSURE))
         assertEquals("device", settings.sourceFor(PublishedSubject.BATTERY_VOLTAGE))
@@ -306,7 +309,7 @@ class SubjectRegistryTest {
                 .all { defaults.sourceFor(it) == "phone" },
         )
         assertEquals(
-            setOf("phone", "cellular", "wifi", "calibration"),
+            setOf("phone", "gnss", "network", "cellular", "wifi", "calibration"),
             PublishedSubject.entries.map { defaults.sourceFor(it) }.toSet(),
         )
     }
@@ -414,18 +417,34 @@ class SubjectRegistryTest {
     }
 
     /**
-     * The ambiguity this exists for: **two** entries publish `location_fix`.
+     * The ambiguity this exists for: **four** entries publish `location_fix`.
      *
-     * The phone's live fix and the platform's surveyed zero point share a subject and differ in everything
-     * else, so resolving an owner by subject alone answers with whichever comes first in the enum.
-     * Matching on `SourceKind` too is what keeps the platform's zero pointed at `frame_transform` — the
-     * geometry loop it is actually published from — rather than at the phone's GNSS.
+     * The phone's fused fix, the two unfused solutions beside it, and the platform's surveyed zero
+     * point all share a subject and differ in everything else, so resolving an owner by subject alone
+     * answers with whichever comes first in the enum. Matching on `SourceKind` too is what keeps the
+     * platform's zero pointed at `frame_transform` — the geometry loop it is actually published from —
+     * rather than at the phone's GNSS.
+     *
+     * **The order is the assertion.** `forSubject()` answers with the earliest entry, and the fused fix
+     * is the one that should answer for `location_fix`: it is what the derived subjects ride, what the
+     * live map draws, and what a recording's track is read from. Moving `LOCATION_FIX_GNSS` above it
+     * would silently repoint all three at a stream that is empty indoors.
      */
     @Test
-    fun `two entries publish location_fix, and the owner is resolved by source`() {
+    fun `four entries publish location_fix, and the fused one answers first`() {
         assertEquals(
-            listOf(PublishedSubject.LOCATION_FIX, PublishedSubject.CALIBRATION_ZERO),
+            listOf(
+                PublishedSubject.LOCATION_FIX,
+                PublishedSubject.LOCATION_FIX_GNSS,
+                PublishedSubject.LOCATION_FIX_NETWORK,
+                PublishedSubject.CALIBRATION_ZERO,
+            ),
             PublishedSubject.entries.filter { it.subject == Subjects.LOCATION_FIX },
+        )
+        assertEquals(
+            "the fused fix answers for the bare subject",
+            PublishedSubject.LOCATION_FIX,
+            PublishedSubject.forSubject(Subjects.LOCATION_FIX),
         )
         assertEquals(
             PublishedSubject.LOCATION_FIX,

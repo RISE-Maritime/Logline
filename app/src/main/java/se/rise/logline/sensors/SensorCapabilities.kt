@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.location.LocationManager
 import se.rise.logline.keelson.PublishedSubject
 
 /**
@@ -86,5 +87,14 @@ fun unavailableSubjects(context: Context): Set<PublishedSubject> {
             add(PublishedSubject.ALTITUDE_ABOVE_MSL)
             add(PublishedSubject.FIX_UNDULATION)
         }
+        // The unfused solutions name an Android *provider*, and a device need not have both — an
+        // emulator or a phone with no Play Services may list neither. Asked rather than assumed, for
+        // the same reason the camera is: a row waiting forever for a first sample looks like the app
+        // is about to work and never will.
+        val providers = (context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)
+            ?.allProviders
+            .orEmpty()
+        if (LocationManager.GPS_PROVIDER !in providers) add(PublishedSubject.LOCATION_FIX_GNSS)
+        if (LocationManager.NETWORK_PROVIDER !in providers) add(PublishedSubject.LOCATION_FIX_NETWORK)
     }
 }

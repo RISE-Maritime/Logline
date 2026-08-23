@@ -7,8 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Looper
+import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationAvailability
@@ -139,6 +141,53 @@ class LocationProvider(context: Context) {
             client.removeLocationUpdates(callback)
             runCatching { appContext.unregisterReceiver(modeChanges) }
         }
+    }
+
+    /**
+     * One Android provider's own solution, unfused.
+     *
+     * `GPS_PROVIDER` is the satellites alone and `NETWORK_PROVIDER` is wifi and cell together — the
+     * two the platform will separate, published beside the fused fix so a recording says what each
+     * source was worth rather than leaving it to be inferred. There is no wifi-only or cell-only
+     * provider on Android and no way to ask which contributed to a network fix.
+     *
+     * Deliberately **not** the fused client: this goes through `LocationManager`, which is the only
+     * way to name a provider. That also means no `LocationAvailability` and no Play Services failure
+     * path, so the shape is simpler than [updates] — a fix, or nothing.
+     *
+     * Silence is the honest state here and is not reported as a failure. A GNSS provider indoors emits
+     * nothing for a whole run, which is precisely the finding this stream exists to record; the row
+     * says `Waiting`, and that is true.
+     */
+    @SuppressLint("MissingPermission")
+    @RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
+    fun providerFixes(
+        provider: String,
+        intervalMillis: Long = 1_000L,
+        onShed: () -> Unit = {},
+    ): Flow<Location> = callbackFlow {
+        val manager = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (manager == null || provider !in manager.allProviders) {
+            // Nothing to listen to. Closing rather than hanging lets the collector finish instead of
+            // holding a coroutine open for a provider this device has not got.
+            close()
+            return@callbackFlow
+        }
+
+        val listener = LocationListener { location ->
+            if (trySend(location).isFailure) onShed()
+        }
+
+        val requested = runCatching {
+            manager.requestLocationUpdates(provider, intervalMillis, 0f, listener, Looper.getMainLooper())
+        }.onFailure { Log.w("LocationProvider", "could not request $provider updates", it) }
+
+        if (requested.isFailure) {
+            close()
+            return@callbackFlow
+        }
+
+        awaitClose { runCatching { manager.removeUpdates(listener) } }
     }
 
     /**

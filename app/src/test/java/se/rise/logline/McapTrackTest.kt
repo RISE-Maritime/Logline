@@ -102,6 +102,52 @@ class McapTrackTest {
      * which is a jetty somebody stood on with a tape measure. Reading both would draw a line from the
      * boat to the shore and call it a run.
      */
+    /**
+     * **Four channels carry `location_fix` and only one of them is the track.**
+     *
+     * Beside the phone's fused position and the platform's surveyed zero, a recording now holds the
+     * two unfused solutions — `gnss` and `network` — published so what each source was worth can be
+     * read off afterwards. Drawing the network one would put a track interpolated from cell towers on
+     * the row and call it the boat's, which is the same failure as the zero point by another route.
+     *
+     * The fused source is deliberately **not** matched by name: it is `Settings.locationSource` and is
+     * configurable, so the reader cannot know it. It knows the three fixed ids that are not it.
+     *
+     * **The decoys are given more fixes than the real track**, which is what makes this bite:
+     * `readMcapDetails` returns topics busiest-first, so a version of this test where the fused
+     * channel simply had the most messages passed against the unfixed reader and proved nothing. It is
+     * also the realistic case — indoors the network solution keeps producing while GNSS is silent, so
+     * the wrong channel being the busiest is the normal state rather than a contrivance.
+     */
+    @Test
+    fun `the unfused solutions are not mistaken for the track`() {
+        val file = File.createTempFile("track", ".mcap")
+        try {
+            val gnssOnly = "rise/@v0/pixel_6/pubsub/location_fix/gnss"
+            val network = "rise/@v0/pixel_6/pubsub/location_fix/network"
+            recording(
+                file,
+                listOf(
+                    network to listOf(
+                        fix(58.90, 11.10),
+                        fix(58.91, 11.11),
+                        fix(58.92, 11.12),
+                        fix(58.93, 11.13),
+                    ),
+                    gnssOnly to listOf(fix(58.80, 11.20), fix(58.81, 11.21), fix(58.82, 11.22)),
+                    platformZero to listOf(fix(57.99, 11.99)),
+                    phoneFix to listOf(fix(57.10, 12.10), fix(57.20, 12.20)),
+                ),
+            )
+
+            val details = RandomAccessFile(file, "r").use { readMcapDetails(it.channel) }!!
+            assertEquals(phoneFix, McapTrack.fixChannel(details.topics)?.topic)
+            assertEquals(listOf(TrackFix(57.10, 12.10), TrackFix(57.20, 12.20)), trackOf(file))
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test
     fun `a calibration zero point is not mistaken for the track`() {
         val file = File.createTempFile("track", ".mcap")

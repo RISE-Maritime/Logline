@@ -1,5 +1,7 @@
 package se.rise.logline.record
 
+import se.rise.logline.keelson.FixSources
+
 import android.util.Log
 import com.github.luben.zstd.Zstd
 import foxglove.LocationFixOuterClass.LocationFix
@@ -62,12 +64,24 @@ object McapTrack {
      */
     fun fixChannel(topics: List<TopicCount>): TopicCount? = topics.firstOrNull { isFixTopic(it.topic) }
 
-    /** The same judgement against a bare topic, for a scan with no channel list to consult. */
+    /**
+     * The same judgement against a bare topic, for a scan with no channel list to consult.
+     *
+     * **Four registry entries publish `location_fix` now, and three of them must not draw the track.**
+     * The surveyed zero point is a jetty somebody stood on; `gnss` and `network` are the unfused
+     * solutions published beside the phone's own position so a recording says what each source was
+     * worth. Drawing the network one would be a track interpolated from cell towers presented as the
+     * boat's — the same failure as the zero point, arrived at differently.
+     *
+     * Excluded by name rather than the fused one being matched by name, because the fused source is
+     * `Settings.locationSource` and is configurable: the reader cannot know it, but it does know the
+     * three fixed ids that are not it.
+     */
     internal fun isFixTopic(topic: String): Boolean {
         val parts = topic.split('/')
         return parts.size >= 2 &&
             parts[parts.size - 2] == "location_fix" &&
-            parts.last() != CALIBRATION_SOURCE
+            parts.last() !in NOT_THE_TRACK
     }
 
     /**
@@ -264,6 +278,14 @@ object McapTrack {
 
 /** The source id a platform's surveyed zero point publishes under. See [McapTrack.fixChannel]. */
 private const val CALIBRATION_SOURCE = "calibration"
+
+/**
+ * Sources of `location_fix` that are not the phone's own position.
+ *
+ * Fixed ids, all three: the platform's surveyed zero, and the two unfused solutions. Everything else
+ * on that subject is the fused fix under whatever `locationSource` is set to.
+ */
+private val NOT_THE_TRACK = setOf(CALIBRATION_SOURCE, FixSources.GNSS, FixSources.NETWORK)
 
 /**
  * Reads exactly [count] bytes.

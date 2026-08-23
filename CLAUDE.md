@@ -1948,6 +1948,29 @@ simply never finds anything on the bus.
   transform of each round, which is exactly why `runCalibration()` republishes on a ten-second loop
   rather than publishing once at start-up. Its "rate" is that interval, the same reading `audio` gives
   its chunk length.
+- **Four registry entries publish `location_fix`, and only one of them is the phone's position.** The
+  fused fix on `{phone}/pubsub/location_fix/{locationSource}`, the platform's surveyed zero on
+  `.../location_fix/calibration`, and the two **unfused solutions** beside them:
+  `.../location_fix/gnss` from `LocationManager.GPS_PROVIDER` and `.../location_fix/network` from
+  `NETWORK_PROVIDER`. Same subject, different source, which is keelson's own model — the source chunk
+  names *which* producer, exactly as `cellular` and `wifi` do for the radio subjects, and `FixSources`
+  sits beside `RadioSources` for the same reason.
+  **There is no wifi-only or cell-only fix and there cannot be.** Android exposes `gps`, `network`,
+  `fused` and `passive`; `network` is wifi *and* cell with nothing saying which contributed. Verified
+  against a Pixel 6's `dumpsys location`. Anyone asked for the three separately should be told two.
+  **The fused entry must stay first among the four** — `forSubject()` answers with the earliest, and
+  the derived subjects, the live map and a recording's track all read that answer. `SubjectRegistryTest`
+  pins the order.
+  **`McapTrack` must exclude the other three**, not match the fused one: that source is configurable, so
+  the reader cannot know it, but it knows the three fixed ids that are not it (`NOT_THE_TRACK`). This
+  is not theoretical — measured on a real indoor run, `location_fix/network` carried **17** messages
+  against the fused stream's 16, so the wrong channel was the busiest, and `readMcapDetails` returns
+  topics busiest-first. A track interpolated from cell towers drawn as the boat's is the same failure
+  as the surveyed zero point, reached by another route.
+  What this buys, and it worked first time: on a desk indoors the **gnss** stream produced nothing at
+  all — no channel in the file, since a channel is written on first sample — while **network** and the
+  **fused** fix agreed to five decimals. That is `location_fix_quality`'s red `No fix` shown to be
+  telling the truth, from a recording rather than from an impression.
 - **`location_fix` is published by two registry entries, and the difference is entity + source.** The
   phone's live fix is `{phone}/pubsub/location_fix/phone`; the platform's surveyed zero is
   `{platform}/pubsub/location_fix/calibration`. Three things stop the second being read as a live position,

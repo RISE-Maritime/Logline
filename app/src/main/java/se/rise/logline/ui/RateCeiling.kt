@@ -135,6 +135,12 @@ private fun ownCeiling(
         // a phone GNSS engine solves at 1 Hz, and the fused provider cannot outrun what the chipset
         // gives it. A chipset doing 5 Hz will simply beat the number, which is why it carries a `~`.
         PublishedSubject.LOCATION_FIX -> RateCeiling(1.0, CeilingBasis.Estimated)
+        // Same estimate, same reason: an Android location provider states no supported rate, and a
+        // receiver that can do better simply will. `network` is if anything less predictable — it
+        // answers when a scan happens to produce something.
+        PublishedSubject.LOCATION_FIX_GNSS,
+        PublishedSubject.LOCATION_FIX_NETWORK,
+        -> RateCeiling(1.0, CeilingBasis.Estimated)
 
         // Polled, not sampled — so the poll floor is the ceiling, and it is exact.
         PublishedSubject.BATTERY_STATE_OF_CHARGE ->

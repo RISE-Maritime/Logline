@@ -115,6 +115,26 @@ object RadioSources {
     const val WIFI = "wifi"
 }
 
+/**
+ * The fixed source ids for the position solutions published beside the fused fix.
+ *
+ * Same reasoning as [RadioSources]: these name **what the measurement is** rather than which device
+ * made it, so they are not the configurable `locationSource`. The fused fix keeps that one, because
+ * "the phone's position" genuinely is a property of the phone.
+ *
+ * There is no `wifi` and no `cell` here, and there cannot be: Android exposes `gps`, `network`,
+ * `fused` and `passive`, and `network` is wifi *and* cell together with nothing saying which
+ * contributed. Verified against a Pixel 6's `dumpsys location`. Separating them would mean doing the
+ * geolocation ourselves against a database.
+ */
+object FixSources {
+    /** `LocationManager.GPS_PROVIDER` — the satellites alone. */
+    const val GNSS = "gnss"
+
+    /** `LocationManager.NETWORK_PROVIDER` — wifi and cell, inseparably. */
+    const val NETWORK = "network"
+}
+
 fun pubsubKey(realm: String, entityId: String, subject: String, sourceId: String): String =
     "$realm/@v0/$entityId/pubsub/$subject/$sourceId"
 

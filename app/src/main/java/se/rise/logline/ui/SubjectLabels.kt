@@ -21,10 +21,15 @@ import kotlin.math.abs
 data class SubjectLabel(val name: String, val unit: String? = null)
 
 fun labelOf(entry: PublishedSubject): SubjectLabel = when (entry) {
-    // Keyed on the *entry* rather than the subject, and the only one that has to be: `location_fix` is
-    // published twice — the phone's live position, and the platform's surveyed zero point. Two rows both
-    // called "Position" would be a genuinely dangerous thing to read.
+    // Keyed on the *entry* rather than the subject, and it has to be: `location_fix` is published four
+    // times — the phone's fused position, the platform's surveyed zero point, and the two unfused
+    // solutions. Four rows all called "Position" would be a genuinely dangerous thing to read.
     PublishedSubject.CALIBRATION_ZERO -> SubjectLabel("Zero point")
+    // Named for what produced them rather than for the provider string: "GNSS only" says why you would
+    // read it, where "gps" only says where it came from. The network one is wifi *and* cell together,
+    // which is why it is not called either.
+    PublishedSubject.LOCATION_FIX_GNSS -> SubjectLabel("Position · GNSS only")
+    PublishedSubject.LOCATION_FIX_NETWORK -> SubjectLabel("Position · wifi and cell")
     else -> labelOfSubject(entry.subject)
 }
 

@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.GeomagneticField
+import android.location.Location
+import android.location.LocationManager
 import android.os.SystemClock
 import android.util.Size
 import android.util.Log
@@ -450,6 +452,24 @@ class SensorPublisher(private val appContext: Context) {
                 // Two flows, one collector. They are separate Android listeners but a single
                 // lifecycle: see LOCATION_SUBJECTS for why the sentences cannot outlive the fused
                 // request that produces them.
+                supervised("locationGnss", setOf(PublishedSubject.LOCATION_FIX_GNSS)) {
+                    runProviderFix(
+                        opened,
+                        publishers,
+                        PublishedSubject.LOCATION_FIX_GNSS,
+                        LocationManager.GPS_PROVIDER,
+                        settings,
+                    )
+                }
+                supervised("locationNetwork", setOf(PublishedSubject.LOCATION_FIX_NETWORK)) {
+                    runProviderFix(
+                        opened,
+                        publishers,
+                        PublishedSubject.LOCATION_FIX_NETWORK,
+                        LocationManager.NETWORK_PROVIDER,
+                        settings,
+                    )
+                }
                 supervised("location", LOCATION_SUBJECTS) {
                     coroutineScope {
                         launch { runNmea(opened, publishers.of(PublishedSubject.RAW_NMEA0183)) }
@@ -960,6 +980,81 @@ class SensorPublisher(private val appContext: Context) {
     @Volatile
     private var lastFixHadAltitude: Boolean? = null
 
+    /**
+     * A `foxglove.LocationFix` from an Android `Location`.
+     *
+     * Shared by the fused collector and the per-provider ones, so the three position streams in a
+     * recording are the same message built the same way — the only thing that differs between them is
+     * the key they go out on. Two decisions inside it are worth not re-deriving.
+     *
+     * proto3 has no presence on a `double`, so an unset altitude and a 0.0 altitude are byte-identical
+     * and "unknown" cannot be told from "sea level".
+     *
+     * The covariance is written **both axes or neither**: a 0.0 in one slot of that matrix reads as a
+     * perfectly known axis, which is a more confident claim than declaring the whole thing unknown.
+     */
+    private fun locationFixOf(
+        loc: Location,
+        frameId: String,
+        observedAt: com.google.protobuf.Timestamp,
+    ): LocationFix = LocationFix.newBuilder()
+        .setTimestamp(observedAt)
+        .setFrameId(frameId)
+        .setLatitude(loc.latitude)
+        .setLongitude(loc.longitude)
+        .setAltitude(if (loc.hasAltitude()) loc.altitude else 0.0)
+        .apply {
+            if (loc.hasAccuracy() && loc.hasVerticalAccuracy()) {
+                addAllPositionCovariance(
+                    diagonalEnuCovariance(
+                        horizontalMetres = loc.accuracy.toDouble(),
+                        verticalMetres = loc.verticalAccuracyMeters.toDouble(),
+                    )
+                )
+                positionCovarianceType = LocationFix.PositionCovarianceType.APPROXIMATED
+            }
+        }
+        .build()
+
+    /**
+     * One Android provider's own position, published beside the fused fix.
+     *
+     * `gps` is the satellites alone and `network` is wifi and cell together — as far apart as Android
+     * will take them. Same subject, different source chunk, so a recording carries the solutions
+     * separately and what each was worth can be read off it afterwards.
+     *
+     * Deliberately thin next to [runLocation]: no derived subjects ride these, no availability is
+     * reported, and **silence is not a failure**. A GNSS provider indoors produces nothing for a whole
+     * run, and that is the finding rather than a fault — the row says `Waiting`, which is true.
+     */
+    private suspend fun runProviderFix(
+        session: KeelsonSession,
+        publishers: Map<PublishedSubject, AdvancedPublisher>,
+        entry: PublishedSubject,
+        provider: String,
+        settings: Settings,
+    ) {
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            statusStore.failed(entry, "Location permission is not granted.")
+            return
+        }
+        val frameId = entry.fixedSourceId ?: provider
+        val publisher = publishers.of(entry) ?: return
+        val sink = SubjectSink(entry, session)
+        // The subject's own record rate, like every other collector — these are separate streams
+        // rather than riders on the fused one, so nothing forces them to match it.
+        val rate = settings.recordRate(entry.subject).toIntervalMillis()
+        LocationProvider(appContext)
+            .providerFixes(provider, rate) { statusStore.shed(entry) }
+            .collect { loc ->
+                val observedAt =
+                    if (loc.time > 0L) protoTimestamp(loc.time * 1_000_000L) else protoTimestamp()
+                sink.emit(publisher, locationFixOf(loc, frameId, observedAt).toByteArray())
+            }
+    }
+
     private suspend fun runLocation(
         session: KeelsonSession,
         publishers: Map<PublishedSubject, AdvancedPublisher>,
@@ -1025,28 +1120,7 @@ class SensorPublisher(private val appContext: Context) {
                 // case there is nothing better than now.
                 val observedAt = if (loc.time > 0L) protoTimestamp(loc.time * 1_000_000L) else protoTimestamp()
                 val observedAtMillis = if (loc.time > 0L) loc.time else System.currentTimeMillis()
-                val fix = LocationFix.newBuilder()
-                    .setTimestamp(observedAt)
-                    .setFrameId(frameId)
-                    .setLatitude(loc.latitude)
-                    .setLongitude(loc.longitude)
-                    // No presence on a proto3 double: an unset altitude and a 0.0 altitude are
-                    // byte-identical, so "unknown" and "sea level" cannot be told apart here.
-                    .setAltitude(if (loc.hasAltitude()) loc.altitude else 0.0)
-                    .apply {
-                        // Both or nothing: a 0.0 in an unknown slot would read as a perfectly known
-                        // axis, which is worse than declaring the whole matrix unknown.
-                        if (loc.hasAccuracy() && loc.hasVerticalAccuracy()) {
-                            addAllPositionCovariance(
-                                diagonalEnuCovariance(
-                                    horizontalMetres = loc.accuracy.toDouble(),
-                                    verticalMetres = loc.verticalAccuracyMeters.toDouble(),
-                                )
-                            )
-                            positionCovarianceType = LocationFix.PositionCovarianceType.APPROXIMATED
-                        }
-                    }
-                    .build()
+                val fix = locationFixOf(loc, frameId, observedAt)
                 val fixEmitted = sink.emit(publisher, fix.toByteArray()) != null
                 // The raw platform values, not the zero-defaulted ones published below: a map that
                 // trusted the wire bearing would draw a heading arrow due north on a stationary phone.
