@@ -120,33 +120,22 @@ rewritten from the ground up. These are the consequences.
 The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
 satellite, inline and full-screen. Findings:
 
-- [x] **`No fix` now shows in red beside a perfectly good position, on a desk indoors.** This is the
-      documented and intended behaviour — the fused provider derives a position from wifi and cell with
-      the GNSS engine solving nothing, and `location_fix_quality` says so honestly — but the vitals row
-      makes it far more prominent than the old run-on string did. Worth watching on an actual trial: if
-      a phone under a coachroof spends the day showing red, the colour is crying wolf and `FIX_NO`
-      should drop to amber with red kept for a fix that has genuinely stopped arriving. Can we display each solution sepratly GNSS, wifi, cell and then have the fused posiiton, that woudl be relevant information to collect and anlyse to understad the technical pression of reach position source. 
-      The second half is done: `location_fix` now goes out from `gnss` and `network` beside the fused
-      fix. **Two solutions, not three** — Android exposes `gps`, `network`, `fused` and `passive`, and
-      `network` is wifi *and* cell with no way to ask which contributed; verified against this phone's
-      `dumpsys location`. Splitting them would mean doing the geolocation ourselves.
-      **The first half stays open, and is now answerable rather than a matter of impression.** On a desk
-      indoors the gnss stream produced nothing at all — no channel in the file — while network and the
-      fused fix agreed to five decimals, which is red `No fix` telling the truth. Whether it cries wolf
-      under a coachroof is still a trial question, but a trial recording will now contain the evidence.
-      Decided rather than measured: `No fix` is now **amber**, red kept for no position arriving at
-      all. The trial has not happened and the argument for red was never wrong — a track interpolated
-      from cell towers is worth noticing — but it is also the normal state of a phone indoors or
-      alongside, and red that is on all day is red nobody reads. What tipped it is that the evidence
-      moved somewhere better: the receiver's actual behaviour is now its own `location_fix/gnss`
-      channel in every recording, which answers the question properly instead of a colour shouting it.
-      **Revisit if a real day on the water shows the opposite** — the receiver solving throughout and
-      `No fix` appearing only when something is genuinely wrong. Then red was right and this goes back.
-- [ ] **The unfused position rows show no reading.** They publish and their rate reads correctly, but
+
+- [x] **The unfused position rows show no reading.** They publish and their rate reads correctly, but
       the value column says "no reading": `readingOf` takes a position from the live track, and only the
       fused collector records into it. Not dishonest — the row claims nothing — but a row reading
       `0.1 Hz` beside a blank is odd. Fixing it means a per-entry fix in `LiveSampleStore`, which is a
       store deliberately built around one ring per subject rather than per entry.
+      **"A per-entry ring" was wrong** — a row needs the *latest* position, not history, so this is a
+      slot per entry, the shape `FrameSlot` already uses for the newest camera frame. `FixSlots` beside
+      it, `LiveLatest.fixes` keyed on the entry, and `fix` kept as a getter for the fused one.
+      **The track stays fused-only**, which is the part that would have been quietly wrong: it draws the
+      map's polyline and answers `lastFix`, and three solutions in one route would make the map jump and
+      the readout flicker. `LiveSampleStoreTest` asserts the negative as well as the positive, plus that
+      a silent source shows nothing rather than borrowing the fused position.
+      **Not seen on the phone.** The unit tests cover the store; the three rows side by side, and the
+      indoor case where GNSS stays blank while the other two agree, have not been looked at — the phone
+      locked itself before the run. Worth a glance next time it is in hand.
 - [ ] **A `locationSource` of `gnss` or `network` collides with the fixed ids.** That setting is free
       text, so a phone configured that way would declare two publishers on one key and interleave two
       different solutions indistinguishably. Two test fixtures used `gnss` as their stand-in location

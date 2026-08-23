@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import se.rise.logline.config.Settings
 import se.rise.logline.keelson.PublishedSubject
+import se.rise.logline.keelson.Subjects
 import se.rise.logline.publish.ConnectionState
 import se.rise.logline.publish.START_TIME_SUBJECTS
 import se.rise.logline.publish.LiveLatest
@@ -366,7 +367,9 @@ fun MainScreen(
                                     label = labelOf(entry),
                                     status = status[entry],
                                     value = live[entry],
-                                    fix = live.fix,
+                                    // This row's own source, not "the position": three entries publish
+                                    // `location_fix` and each shows what its own solution says.
+                                    fix = live.fixes[entry],
                                     health = subjectHealth(
                                         status = status[entry],
                                         running = status.running,
@@ -1443,9 +1446,13 @@ private fun SubjectRow(
  * exactly what someone glancing at this screen wants, so it comes off the track instead.
  */
 private fun readingOf(entry: PublishedSubject, value: Float?, fix: TrackPoint?): String? = when {
+    // Any entry on this subject, not just the fused one — the two unfused solutions each show their
+    // own position, which is what makes the three rows comparable at a glance. `CALIBRATION_ZERO`
+    // shares the subject and is never recorded live, so it falls through to null on its own.
+    //
     // Stacked, latitude over longitude: the reading column has no weight, so a one-line position took
     // the width the rate line needed and this was the only row in the list that wrapped.
-    entry == PublishedSubject.LOCATION_FIX ->
+    entry.subject == Subjects.LOCATION_FIX ->
         fix?.let { formatPositionStacked(it.latitude, it.longitude) }
     value != null -> formatLiveValue(entry, value)
     else -> null

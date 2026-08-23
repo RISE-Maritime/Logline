@@ -1051,7 +1051,22 @@ class SensorPublisher(private val appContext: Context) {
             .collect { loc ->
                 val observedAt =
                     if (loc.time > 0L) protoTimestamp(loc.time * 1_000_000L) else protoTimestamp()
-                sink.emit(publisher, locationFixOf(loc, frameId, observedAt).toByteArray())
+                val emitted = sink.emit(publisher, locationFixOf(loc, frameId, observedAt).toByteArray())
+                // The raw Location, not the payload: the wire sends 0.0 for an absent bearing and the
+                // row must not read that as due north. Skipped when the subject is switched off, so a
+                // row stops showing a position the moment it stops publishing one.
+                if (emitted != null) {
+                    liveStore.recordFix(
+                        entry,
+                        TrackPoint(
+                            latitude = loc.latitude,
+                            longitude = loc.longitude,
+                            accuracyMetres = if (loc.hasAccuracy()) loc.accuracy else null,
+                            bearingDegrees = if (loc.hasBearing()) loc.bearing else null,
+                            timeMillis = if (loc.time > 0L) loc.time else System.currentTimeMillis(),
+                        ),
+                    )
+                }
             }
     }
 
@@ -1128,6 +1143,7 @@ class SensorPublisher(private val appContext: Context) {
                 // like on screen, so it must not keep drawing after the samples stop.
                 if (fixEmitted) {
                     liveStore.recordFix(
+                        PublishedSubject.LOCATION_FIX,
                         TrackPoint(
                             latitude = loc.latitude,
                             longitude = loc.longitude,

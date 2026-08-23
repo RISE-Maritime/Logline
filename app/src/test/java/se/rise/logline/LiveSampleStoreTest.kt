@@ -153,7 +153,7 @@ class LiveSampleStoreTest {
     fun `the track keeps fixes oldest first and bounded`() {
         val store = LiveSampleStore(trackPoints = 3)
         repeat(5) { i ->
-            store.recordFix(TrackPoint(57.4 + i, 12.0, 5f, null, i.toLong()))
+            store.recordFix(PublishedSubject.LOCATION_FIX, TrackPoint(57.4 + i, 12.0, 5f, null, i.toLong()))
         }
 
         val track = store.snapshot().track
@@ -164,14 +164,70 @@ class LiveSampleStoreTest {
     }
 
     /**
+     * **The track is the fused fix's alone, and that is the assertion that matters here.**
+     *
+     * Three entries publish `location_fix` — the fused position and the unfused `gnss` and `network`
+     * solutions beside it. Each row shows its own, which is the comparison those streams exist for.
+     * But the track draws the map's polyline and answers `lastFix`, and three different answers to one
+     * question in a single route would make the map jump and the readout flicker between solutions.
+     *
+     * So the positive half is that an unfused fix reaches its row, and the negative half is that it
+     * never reaches the track. The negative is the one that would be quietly wrong rather than
+     * obviously broken.
+     */
+    @Test
+    fun `an unfused fix reaches its own row and never the track`() {
+        val store = LiveSampleStore(trackPoints = 8)
+        store.recordFix(PublishedSubject.LOCATION_FIX, TrackPoint(57.40, 12.00, 5f, null, 1L))
+        store.recordFix(PublishedSubject.LOCATION_FIX_GNSS, TrackPoint(58.80, 11.20, 9f, null, 2L))
+        store.recordFix(PublishedSubject.LOCATION_FIX_NETWORK, TrackPoint(58.90, 11.10, 90f, null, 3L))
+
+        val fixes = store.latest().fixes
+        assertEquals(57.40, fixes[PublishedSubject.LOCATION_FIX]!!.latitude, 1e-9)
+        assertEquals(58.80, fixes[PublishedSubject.LOCATION_FIX_GNSS]!!.latitude, 1e-9)
+        assertEquals(58.90, fixes[PublishedSubject.LOCATION_FIX_NETWORK]!!.latitude, 1e-9)
+
+        val track = store.snapshot().track
+        assertEquals("only the fused fix is in the track", 1, track.size)
+        assertEquals(57.40, track.single().latitude, 1e-9)
+        assertEquals(57.40, store.snapshot().lastFix!!.latitude, 1e-9)
+    }
+
+    /**
+     * A source that has produced nothing has no entry, and the row shows nothing rather than borrowing
+     * the fused position — a GNSS-only row displaying the fused fix would be the most misleading thing
+     * on that screen, since the whole point is telling the solutions apart.
+     */
+    @Test
+    fun `a silent source has no position rather than the fused one`() {
+        val store = LiveSampleStore(trackPoints = 8)
+        store.recordFix(PublishedSubject.LOCATION_FIX, TrackPoint(57.40, 12.00, 5f, null, 1L))
+
+        val fixes = store.latest().fixes
+        assertNull(fixes[PublishedSubject.LOCATION_FIX_GNSS])
+        assertEquals("and the convenience getter is still the fused one", 57.40, store.latest().fix!!.latitude, 1e-9)
+    }
+
+    /** A new run starts with no positions at all, matching the rings and the track. */
+    @Test
+    fun `clearing forgets every source's position`() {
+        val store = LiveSampleStore(trackPoints = 8)
+        store.recordFix(PublishedSubject.LOCATION_FIX_GNSS, TrackPoint(58.80, 11.20, 9f, null, 2L))
+
+        store.clear()
+
+        assertEquals(emptyMap<PublishedSubject, TrackPoint>(), store.latest().fixes)
+    }
+
+    /**
      * An absent bearing is kept absent. The publisher sends `0.0` on the wire for a missing bearing, and
      * a map reading that would draw a heading arrow due north on a stationary phone.
      */
     @Test
     fun `an absent bearing stays absent rather than becoming north`() {
         val store = LiveSampleStore(trackPoints = 4)
-        store.recordFix(TrackPoint(57.4, 12.0, 5f, bearingDegrees = null, timeMillis = 1L))
-        store.recordFix(TrackPoint(57.4, 12.0, 5f, bearingDegrees = 0f, timeMillis = 2L))
+        store.recordFix(PublishedSubject.LOCATION_FIX, TrackPoint(57.4, 12.0, 5f, bearingDegrees = null, timeMillis = 1L))
+        store.recordFix(PublishedSubject.LOCATION_FIX, TrackPoint(57.4, 12.0, 5f, bearingDegrees = 0f, timeMillis = 2L))
 
         val track = store.snapshot().track
         assertNull("no bearing reported", track[0].bearingDegrees)
@@ -204,7 +260,7 @@ class LiveSampleStoreTest {
     fun `a new run starts empty`() {
         val store = LiveSampleStore(samplesPerSubject = 8, trackPoints = 8)
         store.record(PublishedSubject.AIR_PRESSURE, 1L, 1f)
-        store.recordFix(TrackPoint(57.4, 12.0, null, null, 1L))
+        store.recordFix(PublishedSubject.LOCATION_FIX, TrackPoint(57.4, 12.0, null, null, 1L))
         store.recordFrame(FramePreview(byteArrayOf(1), 2, 2, 1L))
 
         store.clear()

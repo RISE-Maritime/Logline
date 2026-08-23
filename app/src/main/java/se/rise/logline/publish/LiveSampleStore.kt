@@ -226,6 +226,29 @@ internal class FrameSlot {
     fun clear() = synchronized(this) { frame = null }
 }
 
+/**
+ * The newest position from each source that publishes one, and nothing older.
+ *
+ * `location_fix` goes out from three entries — the fused fix, `gnss` and `network` — and each row on
+ * the main screen shows its own. A slot per entry rather than a ring per entry, because a row needs
+ * the latest position and nothing before it; the *history* is the fused [TrackRing], which draws the
+ * map and must keep answering one question with one answer.
+ *
+ * Locked for the same reason [FrameSlot] is: written from a collector on `Dispatchers.Default`,
+ * read by Compose on Main, and a plain map write would not be reliably visible.
+ */
+internal class FixSlots {
+
+    private val points = mutableMapOf<PublishedSubject, TrackPoint>()
+
+    fun set(entry: PublishedSubject, point: TrackPoint) = synchronized(this) { points[entry] = point }
+
+    /** A copy, so a caller iterating it cannot see a concurrent write. */
+    fun snapshot(): Map<PublishedSubject, TrackPoint> = synchronized(this) { points.toMap() }
+
+    fun clear() = synchronized(this) { points.clear() }
+}
+
 /** Everything the live view draws, captured at one instant. */
 /**
  * The newest value of everything, and nothing else.
@@ -235,9 +258,19 @@ internal class FrameSlot {
  */
 data class LiveLatest(
     val values: Map<PublishedSubject, Float> = emptyMap(),
-    val fix: TrackPoint? = null,
+    /**
+     * The newest position per publishing entry — the fused fix and the two unfused solutions beside it.
+     *
+     * A map rather than one point, because three rows each show their own and comparing them is the
+     * reason the unfused streams exist. Absent means that source has produced nothing yet, which is a
+     * GNSS receiver indoors and is the honest thing for the row to say.
+     */
+    val fixes: Map<PublishedSubject, TrackPoint> = emptyMap(),
 ) {
     operator fun get(subject: PublishedSubject): Float? = values[subject]
+
+    /** The fused position, for callers that want "where the phone is" and not the comparison. */
+    val fix: TrackPoint? get() = fixes[PublishedSubject.LOCATION_FIX]
 }
 
 /**
@@ -296,6 +329,9 @@ class LiveSampleStore(
 
     private val frame = FrameSlot()
 
+    /** The newest position from each source, for the rows. The *history* is [track], and is fused only. */
+    private val fixes = FixSlots()
+
     /** Called from a collector, on the publish path. Must never throw — see `SubjectSink.guard`. */
     fun record(subject: PublishedSubject, timeMillis: Long, value: Float) {
         rings[subject]?.append(timeMillis, value)
@@ -312,7 +348,18 @@ class LiveSampleStore(
         texts[subject]?.append(TextSample(timeMillis, text))
     }
 
-    fun recordFix(point: TrackPoint) = track.append(point)
+    /**
+     * A position from one of the sources that publish one.
+     *
+     * **Only the fused fix enters the track.** That ring is the map's polyline and its `lastFix`, and
+     * an unfused point in it would put three different answers to one question into a single route —
+     * the map would jump and the readout flicker between solutions. The per-entry slots are what the
+     * rows read, and they are separate for exactly that reason.
+     */
+    fun recordFix(entry: PublishedSubject, point: TrackPoint) {
+        if (entry == PublishedSubject.LOCATION_FIX) track.append(point)
+        fixes.set(entry, point)
+    }
 
     /** Called from the camera collector with an already-downscaled thumbnail, never the full frame. */
     fun recordFrame(preview: FramePreview) = frame.set(preview)
@@ -322,7 +369,7 @@ class LiveSampleStore(
         values = buildMap {
             rings.forEach { (subject, ring) -> ring.latest()?.let { put(subject, it) } }
         },
-        fix = track.latest(),
+        fixes = fixes.snapshot(),
     )
 
     /**
@@ -356,6 +403,7 @@ class LiveSampleStore(
         texts.values.forEach { it.clear() }
         track.clear()
         frame.clear()
+        fixes.clear()
     }
 
     companion object {
