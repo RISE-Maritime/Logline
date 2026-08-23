@@ -392,6 +392,68 @@ fun SettingsScreen(
                 }
 
                 SectionHeader(
+                    "Find a router",
+                    onInfo = {
+                        info = "Find a router" to
+                            "Zenoh's default scan address is ${Settings.DEFAULT_SCOUT_ADDRESS}. " +
+                            "Deployments move it — one keelson router uses :7448 — and a scan on the " +
+                            "wrong address looks exactly like an empty network.\n\n" +
+                            "Multicast does not leave the local segment, so this never finds an " +
+                            "internet router, and a phone on mobile data finds nothing at all."
+                    },
+                )
+                OutlinedTextField(
+                    value = scoutAddress,
+                    onValueChange = { scoutAddress = it },
+                    label = { Text("Scan multicast address") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // The button now follows the field it reads, and the results land directly beneath it.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { onScan(scoutAddress.trim()) }, enabled = !scanning) {
+                        Text(if (scanning) "Scanning…" else "Scan for routers")
+                    }
+                    if (scanning) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text(
+                            "Listening for a few seconds",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                scanMessage?.let {
+                    StatusLine(text = "No router found", tone = StatusTone.Warning, detail = it)
+                }
+                scanResults.forEach { found ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(found.label, style = MaterialTheme.typography.bodyMedium)
+                            found.locators.forEach { locator ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        locator,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(
+                                        onClick = { if (locator !in endpoints) endpoints.add(locator) },
+                                        enabled = locator !in endpoints,
+                                    ) { Text(if (locator in endpoints) "Added" else "Add") }
+                                }
+                            }
+                        }
+                    }
+                }
+                // The mechanism moved to the ⓘ; this half is what happens when you tap, so it stays.
+                Text(
+                    "Nothing is connected to until you add it and save.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                SectionHeader(
                     "Router security",
                     trailing = "${tlsCredentials.count { it.present }}/${tlsCredentials.size} imported",
                     onInfo = {
@@ -700,75 +762,6 @@ fun SettingsScreen(
                     OutlinedButton(onClick = onShowConnectionQr, modifier = Modifier.weight(1f)) { Text("Show QR") }
                     OutlinedButton(onClick = onScanConnectionQr, modifier = Modifier.weight(1f)) { Text("Scan QR") }
                 }
-            }
-
-            SettingsGroup(
-                title = "Advanced",
-                trailing = null,
-                expanded = "Advanced" in openSections,
-                onToggle = { openSections = toggleSection(openSections, "Advanced") },
-            ) {
-                SectionHeader(
-                    "Find a router",
-                    onInfo = {
-                        info = "Find a router" to
-                            "Zenoh's default scan address is ${Settings.DEFAULT_SCOUT_ADDRESS}. " +
-                            "Deployments move it — one keelson router uses :7448 — and a scan on the " +
-                            "wrong address looks exactly like an empty network.\n\n" +
-                            "Multicast does not leave the local segment, so this never finds an " +
-                            "internet router, and a phone on mobile data finds nothing at all."
-                    },
-                )
-                OutlinedTextField(
-                    value = scoutAddress,
-                    onValueChange = { scoutAddress = it },
-                    label = { Text("Scan multicast address") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // The button now follows the field it reads, and the results land directly beneath it.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = { onScan(scoutAddress.trim()) }, enabled = !scanning) {
-                        Text(if (scanning) "Scanning…" else "Scan for routers")
-                    }
-                    if (scanning) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Text(
-                            "Listening for a few seconds",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                scanMessage?.let {
-                    StatusLine(text = "No router found", tone = StatusTone.Warning, detail = it)
-                }
-                scanResults.forEach { found ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(found.label, style = MaterialTheme.typography.bodyMedium)
-                            found.locators.forEach { locator ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        locator,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    TextButton(
-                                        onClick = { if (locator !in endpoints) endpoints.add(locator) },
-                                        enabled = locator !in endpoints,
-                                    ) { Text(if (locator in endpoints) "Added" else "Add") }
-                                }
-                            }
-                        }
-                    }
-                }
-                // The mechanism moved to the ⓘ; this half is what happens when you tap, so it stays.
-                Text(
-                    "Nothing is connected to until you add it and save.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

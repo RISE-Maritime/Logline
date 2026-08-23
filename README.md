@@ -873,8 +873,10 @@ thirty-nine subjects long. The card at the top is the session summary — what t
 while nothing is running, what this one is doing while it is — with the endpoint and the file's own
 figures one tap behind the row along its bottom edge.
 
-Settings itself is six collapsible groups — General, Connection, Recording, Sensors & media,
-Collaboration, Advanced — with only General open to start with. The longer explanations sit behind the
+Settings itself is five collapsible groups — General, Connection, Recording, Live camera,
+Collaboration — with only General open to start with. Finding a router by multicast sits inside
+**Connection**, between the endpoint list and the credentials, because a scan result's *Add* button
+appends to that very list — the producer next to what it produces. The longer explanations sit behind the
 ⓘ on a section heading rather than in the page.
 
 Settings screen fields, all persisted to DataStore (`logline_settings`):
