@@ -156,16 +156,24 @@ fun gnssQuality(accuracyMetres: Float?): FixQuality = when {
  * Mapped through [FixKind] rather than off the formatted string, so this and `formatLiveValue`'s
  * wording read the same enum and cannot drift into disagreeing about what `2` means.
  *
- * `NoFix` is an error rather than a warning **even though a position is usually still on the bus**: the
- * fix this app publishes is the fused one, which Android will derive from wifi and cell with the GNSS
- * engine solving nothing, and a run whose track is being interpolated from cell towers is exactly the
- * thing somebody needs to notice.
+ * **`NoFix` is a warning rather than an error, and that was a reversal.** It used to be an error, on
+ * the argument that a track being interpolated from wifi and cell is the thing an operator most needs
+ * to notice. True — but it is also the *normal* state of a phone indoors or lying alongside, where a
+ * perfectly good fused position is on screen the whole time. Red here means something is wrong, and a
+ * phone under a coachroof showing red all day teaches people to stop reading the row, including on the
+ * day it matters.
+ *
+ * What changed is that the evidence now lives somewhere better: `location_fix` is published from
+ * `gnss` and `network` as separate sources, so how much of a run the receiver was actually solving is
+ * a question a recording answers. The vitals row does not have to shout it.
+ *
+ * Red is kept for what it should mean on that row — no position arriving at all.
  */
 fun fixKindQuality(value: Float?): FixQuality =
     when (value?.let { FixKind.entries.getOrNull(it.toInt()) }) {
         FixKind.ThreeD -> FixQuality.Good
         FixKind.TwoD -> FixQuality.Fair
-        FixKind.NoFix -> FixQuality.Poor
+        FixKind.NoFix -> FixQuality.Fair
         null -> FixQuality.Unknown
     }
 

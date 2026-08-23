@@ -225,15 +225,18 @@ class LiveSignalsTest {
     }
 
     /**
-     * `No fix` is an *error* even though a position is usually still on the bus beside it — the fused
-     * provider will happily derive one from wifi and cell with the GNSS engine solving nothing, and a
-     * track being interpolated from cell towers is the thing an operator most needs to notice.
+     * `No fix` is a *warning*, not an error, and the reversal is the point of pinning it.
+     *
+     * A fused position derived from wifi and cell with the GNSS engine solving nothing is worth
+     * noticing — but it is the normal state indoors and alongside, and red that is on all day is red
+     * nobody reads. The receiver's actual behaviour is now recorded on its own `location_fix/gnss`
+     * channel, which is a better place for it than a colour.
      */
     @Test
     fun `the fix kind colours itself off the same enum the word comes from`() {
         assertEquals(FixQuality.Good, fixKindQuality(FixKind.ThreeD.ordinal.toFloat()))
         assertEquals(FixQuality.Fair, fixKindQuality(FixKind.TwoD.ordinal.toFloat()))
-        assertEquals(FixQuality.Poor, fixKindQuality(FixKind.NoFix.ordinal.toFloat()))
+        assertEquals(FixQuality.Fair, fixKindQuality(FixKind.NoFix.ordinal.toFloat()))
         assertEquals(FixQuality.Unknown, fixKindQuality(null))
         // A value the enum does not cover is unknown, not "no fix" — an out-of-range ordinal means the
         // wire said something this build does not understand, which is not the same as a stated fault.
