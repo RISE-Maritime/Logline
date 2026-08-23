@@ -142,7 +142,30 @@ rewritten from the ground up. These are the consequences.
       `illuminance_lux`. Folded in here: a second item, "Commit the checklist protos upstream", said
       the same thing against the older branch name `feature/operational-authority` and predated the
       branch being found and pushed. Two descriptions of one blockage is how they drift apart; this is
-      the one to keep.)*
+      the one to keep.
+      2026-08-23, later: **three more tags — `pre.8`, `pre.9`, `pre.10` — and #202 is still open.** The
+      lineage mess is now worse rather than better: of the five most recent tags only `pre.7` is on
+      `dev`, and `dev` still has none of this. `pre.8` and `pre.9` carry the checklist protos;
+      **`pre.10`, the newest, does not**, nor `illuminance_lux`. So "read the newest tag" is wrong in
+      both directions depending on which one you land on.
+      **The vendored copies have drifted, and this is the real news.** They match `pre.5` exactly and
+      match neither `pre.8` nor `pre.9`. Upstream has evolved the protocol substantially: a fifth file
+      (`ChecklistEvidence.proto`) this app does not vendor; new event types (`RUN_PLANNED`,
+      `RUN_ABANDONED`, plus run start/complete); `active_run_id` and `open_run_ids` on presence; item
+      nesting by parent pointer on procedure; and **`ChecklistState` re-modelled from a procedure's
+      progress to one *run* of it**, a procedure now being a template that may be executed many times.
+      **Wire-compatible, though, which is the thing that mattered.** Checked field by field: every
+      existing number keeps its meaning and every addition takes a new one (14 on `ItemState`; 7, 8,
+      12, 13, 15 on the state message). So this app's messages still decode correctly in a `pre.9`
+      consumer and vice versa — it is behind, not wrong. Everything else is clean: 14 of the 18
+      vendored protos are byte-identical to `pre.10`, and `qos.yaml` has no drift at all between
+      `pre.5` and `pre.10`.
+      What is now open is a decision rather than a check: whether to take the run model. Adopting it
+      means re-vendoring five protos and reworking `ChecklistSync`/`ChecklistStore` from "a procedure's
+      progress" to "runs of a procedure" — a real feature, not a sync. Leaving it means this app
+      cannot express runs, evidence or nesting, and will look thin beside a crowsnest that has moved.
+      Worth checking what `../crowsnest-dev` does before choosing; its working tree was full of
+      uncommitted checklist work when last seen.)*
 
 
 
