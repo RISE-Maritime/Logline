@@ -152,12 +152,25 @@ rewritten from the ground up. These are the consequences.
 The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
 satellite, inline and full-screen. Findings:
 
-- [ ] **The Session screen's Position row wraps its rate line onto two lines**, and has done since
+- [x] **The Session screen's Position row wraps its rate line onto two lines**, and has done since
       before the position format changed — verified by building both formats and comparing the crops,
       so this is not a regression from the middot. The row is the only one in the list whose value is
       wide enough to squeeze `0.1 Hz · set 1.0 · sensor ~1.0` into a wrap. Readable, and it makes that
       one row a line taller than its neighbours. A shorter live value for the fix (the accuracy rather
       than the coordinates?) or letting the subtitle ellipsize would settle it.
+      Done in `e007566`, by stacking the coordinates instead — latitude over longitude on the right,
+      which halves the reading's width and gives the rate line the room it needed.
+      **Both fixes proposed above would have been wrong**, which is the part worth keeping. "The
+      accuracy rather than the coordinates" would have made the row duplicate `Horizontal accuracy`
+      directly below it — that subject is `featured = true` and already in Basic. Ellipsizing the
+      subtitle would have dropped `sensor ~1.0` with no sign, against the rule that a rate is three
+      numbers and a row showing fewer lies by omission.
+      Measured on a Pixel 6, and **the height claim in this item is wrong in both directions**: the row
+      is now 178 px against its neighbours' 143, where the wrapped version was about 183. Two lines of
+      `titleMedium` are taller than `bodyLarge` over `bodySmall`, so it was never "a line taller" by
+      much and it still is not level — the win is the wrap and the alignment with the row beneath, not
+      the height. Levelling it would mean shrinking the reading's type on this row alone, trading one
+      inconsistency for another; not done.
 
 - [ ] **`No fix` now shows in red beside a perfectly good position, on a desk indoors.** This is the
       documented and intended behaviour — the fused provider derives a position from wifi and cell with
