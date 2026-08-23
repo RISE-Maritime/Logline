@@ -104,6 +104,19 @@ enum class PublishedSubject(
      * still recorded, and still counts towards its group's health badge.
      */
     val featured: Boolean = false,
+    /**
+     * Whether the wire always carries every recorded sample, whatever the publish rate says.
+     *
+     * True for the two that cannot be *thinned* at all. `audio`'s rate is a chunk length rather than a
+     * sample rate, so dropping one puts a hole in the sound instead of making it quieter; H.264 frames
+     * depend on the ones before them, so a dropped `video_compressed` frame does not decode. Both are
+     * therefore skipped by `SensorPublisher.publishIntervals` and never get a `PublishDecimator`.
+     *
+     * A flag here rather than two lists, because the fact is read in two places — the publish path that
+     * enforces it and the subject page that states it — and a screen claiming a rate the publisher does
+     * not honour is precisely the drift worth preventing. `SubjectRegistryTest` pins the set.
+     */
+    val neverThinned: Boolean = false,
 ) {
     LOCATION_FIX(
         subject = Subjects.LOCATION_FIX,
@@ -400,6 +413,7 @@ enum class PublishedSubject(
         subject = Subjects.AUDIO,
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.DEVICE,
+        neverThinned = true,
     ),
     /**
      * The camera, as one JPEG per publish.
@@ -439,6 +453,7 @@ enum class PublishedSubject(
         defaultRate = SensorRate.Hz(10.0),
         source = SourceKind.DEVICE,
         bufferedForReplay = false,
+        neverThinned = true,
     ),
     /**
      * Operator annotations — a marker pressed by a human to say "this is the bit that matters".

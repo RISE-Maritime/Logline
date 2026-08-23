@@ -491,6 +491,18 @@ fun SubjectQosScreen(
                         onTextChange = { rateText = it },
                         parsed = parsedRate,
                     )
+                    // Consequence, so it stays on the page: on these two the rate sets what is
+                    // captured, and every bit of it goes on the wire whatever else is configured.
+                    // `publishIntervals()` in SensorPublisher skips them outright, so neither ever gets
+                    // a decimator — the reasons differ and both are the point, which is why this is a
+                    // sentence each rather than one shared line.
+                    unthinnedNote(subject)?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     // Said where the choice is made rather than left to be discovered from the plots.
                     if (ratesCanDiffer && !useMaxRate && parsedRate != null) {
                         val recordHz = if (useMaxRecord) capabilities.maxRateHz else parsedRecord
@@ -697,6 +709,27 @@ private fun frameSummary(frame: SensorFrame): String = when (frame) {
     SensorFrame.DeviceAngle -> "phone axes"
     SensorFrame.Bearing -> "from north"
     else -> ""
+}
+
+/**
+ * Why this subject's rate is one number rather than two, for the two that cannot be thinned at all.
+ *
+ * Null for everything else. `audio` and `video_compressed` are the only subjects `publishIntervals()`
+ * refuses a decimator, and they are refused for different reasons — a chunk is not a sample, and a
+ * dropped H.264 frame does not decode. Saying "cannot be thinned" without saying which would leave the
+ * reader to guess, and the guess for video ("it will just look choppier") is wrong.
+ */
+private fun unthinnedNote(subject: String): String? = when {
+    PublishedSubject.forSubject(subject)?.neverThinned != true -> null
+    subject == Subjects.AUDIO ->
+        "This rate is a chunk length, not a sample rate, so nothing is thinned on the way to the bus " +
+            "— dropping a chunk would put a hole in the sound rather than make it quieter. Every " +
+            "chunk recorded is published."
+    subject == Subjects.VIDEO_COMPRESSED ->
+        "Nothing is thinned on the way to the bus: H.264 frames depend on the ones before them, so a " +
+            "dropped frame does not decode. Every frame recorded is published. A lower rate on the " +
+            "wire would need a second encode, which this app does not do."
+    else -> null
 }
 
 @Composable

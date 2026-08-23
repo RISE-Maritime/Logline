@@ -1530,7 +1530,25 @@ simply never finds anything on the bus.
   killing the app 25 s in: 87 193 messages covering 24.7 s came back. `McapRecovery` needed no change —
   a Chunk is a length-prefixed record, so a truncated one is already its incomplete-record branch — and
   `readMcapSummary` needed none either, because MCAP keeps summary records *outside* chunks.
-  No ChunkIndex is written, so readers scan rather than seek. That is legal and was true before as well.
+- **The recording is fully indexed, and `ChunkIndex` without `MessageIndex` is not a smaller index but
+  a broken one.** That is the trap, and it is expensive to find: a `ChunkIndex` whose
+  `message_index_offsets` map is empty sends a *seeking* reader down the index path with nothing to
+  follow, so it reports an empty recording — measured against `mcap` 1.2.2, **zero** messages from the
+  default reader, where the same file with no index at all returns all of them by falling back to a
+  scan. Writing one without the other is therefore worse than writing neither, and the two ship
+  together: `flushChunk()` emits a `MessageIndex` per channel straight after the chunk and records
+  their offsets in the entry that `finish()` later writes into the summary.
+  Two details are easy to get wrong and quiet when they are. A `MessageIndex` offset is into the
+  **uncompressed** chunk, which is why it is captured from `chunk.size` before the record is appended
+  rather than from the file position. And `message_index_offsets` is a *map*, so it carries its own
+  `uint32` byte length ahead of ten-byte pairs — omit it and every field after shifts, the same failure
+  the doubled length prefix once caused with the tags.
+  The cost is **18.7 bytes per message**, measured. As a fraction it depends entirely on how well the
+  payloads compress — a synthetic file of identical messages grew 142% because it compresses to almost
+  nothing — so quote the per-message figure rather than a percentage until a real run gives one.
+  The summary offsets are a chain, each group sized from where the next begins, so inserting a group
+  means threading one more boundary through: a mis-sized group is not an error a reader reports, it
+  just finds nothing there.
 - **A Message's `data` is not length-prefixed; a Schema's is.** Getting that wrong produces a file that
   parses perfectly and whose every payload fails to decode, which is a genuinely nasty failure mode —
   it was the first bug in `McapWriter` and `McapWriterTest` now pins it. Validate format changes by

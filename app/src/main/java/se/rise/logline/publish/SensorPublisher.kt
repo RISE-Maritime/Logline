@@ -683,9 +683,9 @@ class SensorPublisher(private val appContext: Context) {
     private fun publishIntervals(settings: Settings): Map<PublishedSubject, Long> =
         PublishedSubject.entries.mapNotNull { entry ->
             if (entry.eventDriven) return@mapNotNull null
-            if (entry == PublishedSubject.VIDEO_COMPRESSED || entry == PublishedSubject.AUDIO) {
-                return@mapNotNull null
-            }
+            // The flag rather than the two names, so the subject page that *states* this and the
+            // publish path that *enforces* it cannot drift — see PublishedSubject.neverThinned.
+            if (entry.neverThinned) return@mapNotNull null
             val publish = settings.publishRate(entry.subject)
             val record = settings.recordRate(entry.subject)
             if (publish == record) return@mapNotNull null

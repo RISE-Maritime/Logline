@@ -19,6 +19,15 @@ import java.io.File
  */
 class McapWriterTest {
 
+    /** Opcode plus a uint64 length: every MCAP record's header. */
+    private val RECORD_HEADER = 9
+
+    /** `\x89MCAP0\r\n`. */
+    private val MAGIC_SIZE = 8
+
+    /** summary_start, summary_offset_start, summary_crc. */
+    private val FOOTER_BODY_SIZE = 20
+
     /** One message as a reader recovers it. */
     private data class ReadMessage(
         val channelId: Int,
@@ -98,6 +107,174 @@ class McapWriterTest {
         writer.block()
         writer.finish()
         return out.toByteArray()
+    }
+
+    /** One `ChunkIndex` as a reader recovers it. */
+    private data class ReadChunkIndex(
+        val startTime: Long,
+        val endTime: Long,
+        val startOffset: Long,
+        val length: Long,
+        val messageIndexOffsets: Map<Int, Long>,
+        val messageIndexLength: Long,
+        val compressedSize: Long,
+        val uncompressedSize: Long,
+    )
+
+    /**
+     * Every `ChunkIndex` in the summary, found the way a reader finds them: footer, then walk.
+     *
+     * Deliberately not "search the bytes for opcode 8" — that would pass on a record written outside
+     * the summary, which is exactly the mistake worth catching.
+     */
+    private fun readChunkIndex(b: ByteArray): List<ReadChunkIndex> {
+        fun u32(o: Int): Long {
+            var v = 0L
+            for (i in 0 until 4) v = v or ((b[o + i].toLong() and 0xFF) shl (8 * i))
+            return v
+        }
+        fun u64(o: Int): Long {
+            var v = 0L
+            for (i in 0 until 8) v = v or ((b[o + i].toLong() and 0xFF) shl (8 * i))
+            return v
+        }
+        // The footer is the last record before the closing magic: 8 magic + 9 header + 20 body.
+        val footerBody = b.size - MAGIC_SIZE - FOOTER_BODY_SIZE
+        val summaryStart = u64(footerBody).toInt()
+        val out = mutableListOf<ReadChunkIndex>()
+        var o = summaryStart
+        while (o + RECORD_HEADER <= b.size - MAGIC_SIZE) {
+            val opcode = b[o].toInt() and 0xFF
+            val length = u64(o + 1)
+            val body = o + RECORD_HEADER
+            if (opcode == McapWriter.OP_CHUNK_INDEX) {
+                // message_index_offsets is a variable-length map, so everything after it is found by
+                // walking rather than by a fixed offset — which is exactly the property that makes the
+                // record easy to write wrongly and hard to notice.
+                val mapBytes = u32(body + 32).toInt()
+                val offsets = mutableMapOf<Int, Long>()
+                var m = body + 36
+                while (m < body + 36 + mapBytes) {
+                    offsets[(b[m].toInt() and 0xFF) or ((b[m + 1].toInt() and 0xFF) shl 8)] = u64(m + 2)
+                    m += 10
+                }
+                val afterMap = body + 36 + mapBytes
+                val compressionLen = u32(afterMap + 8).toInt()
+                val afterCompression = afterMap + 8 + 4 + compressionLen
+                out += ReadChunkIndex(
+                    startTime = u64(body),
+                    endTime = u64(body + 8),
+                    startOffset = u64(body + 16),
+                    length = u64(body + 24),
+                    messageIndexOffsets = offsets,
+                    messageIndexLength = u64(afterMap),
+                    compressedSize = u64(afterCompression),
+                    uncompressedSize = u64(afterCompression + 8),
+                )
+            }
+            o = body + length.toInt()
+        }
+        return out
+    }
+
+    /** Opcodes of the summary-offset groups, in the order written. */
+    private fun summaryGroups(b: ByteArray): List<Int> {
+        fun u64(o: Int): Long {
+            var v = 0L
+            for (i in 0 until 8) v = v or ((b[o + i].toLong() and 0xFF) shl (8 * i))
+            return v
+        }
+        val footerBody = b.size - MAGIC_SIZE - FOOTER_BODY_SIZE
+        val offsetStart = u64(footerBody + 8).toInt()
+        val out = mutableListOf<Int>()
+        var o = offsetStart
+        while (o + RECORD_HEADER <= b.size - MAGIC_SIZE) {
+            val opcode = b[o].toInt() and 0xFF
+            val length = u64(o + 1)
+            if (opcode != McapWriter.OP_SUMMARY_OFFSET) break
+            out += b[o + RECORD_HEADER].toInt() and 0xFF
+            o += RECORD_HEADER + length.toInt()
+        }
+        return out
+    }
+
+    /**
+     * A recording with several chunks is indexed, and **every offset lands on a Chunk record**.
+     *
+     * The dereference is the whole test. An index nobody follows can point anywhere and still look
+     * plausible — the numbers are all large and monotonic either way — so each entry is used the way a
+     * reader would use it: seek there, and expect a Chunk whose length is the one the index claims.
+     */
+    @Test
+    fun `each chunk gets an index entry that points at it`() {
+        val out = ByteArrayOutputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        val channel = writer.addChannel("rise/@v0/pixel_6/pubsub/air_pressure_pa/phone", schema, "protobuf")
+        // Three chunks, forced by the age bound rather than by volume: `nowNanos` is injectable
+        // precisely so a test need not write a quarter of a megabyte to see a flush.
+        var now = 0L
+        repeat(3) { chunkNumber ->
+            repeat(4) { i ->
+                val t = (chunkNumber * 10 + i).toLong() * 1_000_000L
+                writer.writeMessage(channel, i, t, t, byteArrayOf(7, 7, 7), nowNanos = now)
+            }
+            now += McapWriter.CHUNK_MAX_AGE_NANOS + 1
+        }
+        writer.finish()
+        val b = out.toByteArray()
+
+        val index = readChunkIndex(b)
+        assertEquals("one entry per chunk", 3, index.size)
+
+        index.forEach { entry ->
+            val opcode = b[entry.startOffset.toInt()].toInt() and 0xFF
+            assertEquals("the offset lands on a Chunk record", McapWriter.OP_CHUNK, opcode)
+            var declared = 0L
+            for (i in 0 until 8) {
+                declared = declared or ((b[entry.startOffset.toInt() + 1 + i].toLong() and 0xFF) shl (8 * i))
+            }
+            assertEquals(
+                "chunk_length covers the whole record, header included",
+                declared + RECORD_HEADER,
+                entry.length,
+            )
+            // The half that was got wrong first: a ChunkIndex pointing at no message indexes makes a
+            // seeking reader return an empty recording, so the map must be populated and each offset
+            // must land on a MessageIndex record.
+            assertTrue("the chunk indexes its messages", entry.messageIndexOffsets.isNotEmpty())
+            entry.messageIndexOffsets.forEach { (_, at) ->
+                assertEquals(
+                    "a message-index offset lands on a MessageIndex record",
+                    McapWriter.OP_MESSAGE_INDEX,
+                    b[at.toInt()].toInt() and 0xFF,
+                )
+            }
+            assertTrue("and says how long they are", entry.messageIndexLength > 0)
+            assertTrue("a chunk compresses", entry.compressedSize > 0)
+            assertTrue("and reports what it held", entry.uncompressedSize > entry.compressedSize)
+            assertTrue("time runs forwards", entry.endTime >= entry.startTime)
+        }
+
+        // Chunks are written in order, so the index is too, and the ranges do not overlap.
+        assertEquals(index.sortedBy { it.startOffset }, index)
+        index.zipWithNext { a, c -> assertTrue("ranges are ordered", c.startTime > a.endTime) }
+        assertEquals("the summary declares the group", true, McapWriter.OP_CHUNK_INDEX in summaryGroups(b))
+    }
+
+    /**
+     * **A run that recorded nothing writes no index and claims none.**
+     *
+     * A summary-offset group with a zero length is a claim that something is there; the metadata index
+     * is already omitted the same way when nothing tagged the file.
+     */
+    @Test
+    fun `an empty recording has no chunk index group`() {
+        val b = write { }
+
+        assertEquals(emptyList<ReadChunkIndex>(), readChunkIndex(b))
+        assertEquals(false, McapWriter.OP_CHUNK_INDEX in summaryGroups(b))
     }
 
     /** `\x89MCAP0\r\n` opens and closes every file. A reader checks both. */

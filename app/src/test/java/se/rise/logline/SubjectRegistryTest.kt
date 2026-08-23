@@ -13,6 +13,7 @@ import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.pubsubKey
 import se.rise.logline.sensors.SensorRate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -444,4 +445,40 @@ class SubjectRegistryTest {
         imuSource = Settings.DEFAULT_IMU_SOURCE,
         sensorRates = sensorRates,
     )
+
+    /**
+     * **Exactly two subjects are never thinned, and the set is transcribed rather than derived.**
+     *
+     * `neverThinned` is read in two places — `SensorPublisher.publishIntervals`, which refuses them a
+     * decimator, and the subject page, which tells the operator every recorded sample goes on the wire.
+     * A third subject gaining the flag without somebody writing its sentence would put a page-wide
+     * claim on a subject nobody had thought about; a subject losing it would leave the page saying
+     * something the publisher no longer does.
+     *
+     * Both are here for reasons the flag's own documentation gives: a chunk is not a sample, and a
+     * dropped H.264 frame does not decode.
+     */
+    @Test
+    fun `only audio and video are exempt from thinning`() {
+        assertEquals(
+            setOf("audio", "video_compressed"),
+            PublishedSubject.entries.filter { it.neverThinned }.map { it.subject }.toSet(),
+        )
+    }
+
+    /**
+     * And they are exempt in the *other* direction too: a subject that can be thinned must be able to
+     * record and publish at different rates, or the exemption would be unreachable rather than
+     * unnecessary.
+     */
+    @Test
+    fun `a subject that is never thinned has one rate, not two`() {
+        val settings = settings()
+        PublishedSubject.entries.filter { it.neverThinned }.forEach {
+            assertFalse(
+                "${it.subject} is exempt from thinning, so it must not offer two rates",
+                settings.ratesCanDiffer(it.subject),
+            )
+        }
+    }
 }
