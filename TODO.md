@@ -7,31 +7,34 @@ gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where som
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
-- 
-  [ ] **`entity_health`** (`keelson.EntityHealth`) — the app *already* computes per-subject health for
-  the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
-  the subject that puts it on the bus, so a fleet view can see a phone whose barometer stopped
-  without anybody looking at the phone. Needs `messages/payloads/EntityHealth.proto` vendored, and a
-  look at what upstream's other connectors put in it.
-  *(2026-08-19: upstream still forbids a connector computing and publishing this itself — unchanged in
-  `0.6.0-pre.3`. What the app can actually do for fleet health is the subject-level liveliness filed at
-  the end of this section, which is what lets `entity_health` tell "source up but doesn't advertise
-  this" from "advertised but silent".)*
-  *(2026-08-24, re-checked at `0.6.0-pre.12` — nine tags on: **still forbidden, and now argued rather
-  than asserted.** `connectors/CLAUDE.md` gives two reasons a connector must not compute and publish
-  this itself: it bakes health *policy* — what counts as nominal against critical — into the connector,
-  and two emitters writing one `entity_health` key race and flip-flop. The prescribed alternative is
-  named there too — publish the raw subjects and let a dedicated aggregator watch `(source, subject)`
-  freshness, with liveliness tokens carrying connector-alive — and that is exactly what this app
-  already does, three tiers included. So this is not blocked work waiting on upstream; it is work
-  upstream has decided belongs elsewhere, and the app's side of it is finished. Worth leaving open only
-  as the record of that decision.)*
-
-- [ ] **`checklist_evidence` is a fifth checklist subject and this app does not know it exists.** New
-      upstream since `0.6.0-pre.3`; present at `0.6.0-pre.12` alongside the four in `Subjects`. Nothing
-      is broken — the app neither publishes nor subscribes to it — but crowsnest may, and a checklist
-      that carries evidence this phone silently drops is worse than one that never offers it. Needs a
-      look at the payload and at whether crowsnest uses it before deciding anything.
+-
+- [ ] **The checklist protocol has grown a run model and photo evidence, and this app knows neither.**
+      Looked at properly at `0.6.0-pre.12`, against crowsnest at `origin/main`.
+      **`checklist_evidence` is `foxglove.CompressedImage`, one key per `evidence_id`** — deliberately
+      its own subject rather than a field on the snapshot, because that snapshot is republished every
+      30 s per active run and photos in it would be megabytes on the wire twice a minute into a durable
+      store. The *metadata* that names the key rides inside `checklist_event.evidence` (13) and
+      `ChecklistState.ItemState.evidence`, and is fetched lazily one key at a time.
+      **Crowsnest uses it fully**: `checklistEvidence.js` (fetch by RPC, delete), `checklistEvidenceModel.js`,
+      `evidenceKeyExpr` in `checklistWire.js`, and `imageDownscale.js` on the way in.
+      **Nothing is broken, and that took checking twice.** A first pass suggested `ChecklistState` had
+      been *renumbered* — `status` 2→8, `started_at` 3→9 — which would have been a wire break of the
+      exact kind `ChecklistWireTest` exists to catch. It was an artefact of comparing fields across
+      nested messages: `ItemState.status = 2` here against `ChecklistState.status = 8` upstream are
+      different messages. Compared per message, **every upstream change is additive** and the shared
+      fields keep their numbers, so messages still decode correctly in both directions.
+      **The key shape did change and crowsnest already tolerates it.** `checklist_state` is now keyed on
+      `run_id` rather than `procedure_id` — a procedure is a template and each execution is a run, so
+      two runs of one procedure used to overwrite each other. This app still keys on the procedure id,
+      and `runIdFor()` in `checklistWire.js` falls back to `procedureId` precisely to tolerate
+      "publishers that predate the run model", so its snapshots are accepted rather than dropped.
+      So this is a *degraded but tolerated* participant, not a fault. What it cannot do: see or attach
+      photo evidence; know a run was planned, abandoned or had a timestamp corrected
+      (`EVENT_TYPE_RUN_PLANNED`/`RUN_ABANDONED`/`EVIDENCE_ATTACHED`/`TIME_SET`); render sub-items
+      (`ChecklistProcedure.Item.parent_item_id`); or say which runs it has open
+      (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos — `ChecklistEvidence.proto`
+      is not vendored at all — and reworking `ChecklistSync`/`ChecklistStore` around runs. A product
+      decision, not a bug fix, and the checklist feature is off by default meanwhile.
 
 
 ## Future long therm 
