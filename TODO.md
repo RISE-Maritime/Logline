@@ -64,50 +64,13 @@ Left over from the platform library, and each is a finding rather than a fix. Al
       match that goes wrong fails *silently*: the screen still opens and simply never finds anything on
       the bus, so any future route rename has to be re-checked on a device rather than reasoned about.
 
-- [ ] **`entity_health`** (`keelson.EntityHealth`) — the app *already* computes per-subject health for
-  the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
-  the subject that puts it on the bus, so a fleet view can see a phone whose barometer stopped
-  without anybody looking at the phone. Needs `messages/payloads/EntityHealth.proto` vendored, and a
-  look at what upstream's other connectors put in it.
-  *(2026-08-19: upstream still forbids a connector computing and publishing this itself — unchanged in
-  `0.6.0-pre.3`. What the app can actually do for fleet health is the subject-level liveliness filed at
-  the end of this section, which is what lets `entity_health` tell "source up but doesn't advertise
-  this" from "advertised but silent".)*
+-
 
-
-### Found reviewing keelson `0.6.0-pre.3` (2026-08-19)
-
-The wire format did not move: `messages/` is byte-identical between `dev` and `0.6.0-pre.3`, 11 of the
-15 vendored protos match the tag exactly, and every QoS profile the app implements matches the released
-policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
-rewritten from the ground up. These are the consequences.
 
 ## Per-subject publish rates (2026-08-20)
 
 Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
 
-- [x] **The row's `max` and the page's cap are two different ceilings and the row shows only one.**
-      A derived subject's row still reads its owner's *hardware* maximum, while the page may be
-      capping it far lower. The row is honest about what goes out (`set` is the clamped value) and the
-      three-number rule says not to add a fourth, so this was left alone deliberately — but somebody
-      reading `max 442` on a heading subject capped at 1 Hz has to open the page to find that out.
-      Note the label had already been renamed `sensor 442`, so the slot was no longer *claiming* to be
-      the subject's own limit — but it still printed a figure unreachable from that subject's page.
-      **The ceiling is now replaced rather than joined**, which keeps it to three numbers:
-      `pub 1.0 · capped by Orientation`. In that state the sensor's limit is the least useful of the
-      three — it decides nothing, and beside a rate it cannot explain it invites raising a figure that
-      will not move.
-      The work was deciding *which* subjects to flag, so the predicate is named and tested rather than
-      inline: `Settings.publishRateIsCapped()`. Three cases are deliberately not flagged, each a false
-      alarm — a derived subject merely **following** (no stored rate, so requested equals the ceiling by
-      construction and no request is denied; flagging it would put "capped by" on most of the registry
-      permanently), a **head** subject clamped to its own record rate (`publishCeiling` falls back to
-      `recordRate`, so there is no owner to name and `rec` is already on the row), and **Maximum mode**
-      (`publishRate` returns the ceiling whatever was asked, so the same comparison would flag a subject
-      the mode had *raised*). `RateSplitTest` pins all four.
-      Verified on a Pixel 6 with the owner at 1 Hz, three rows side by side: the owner and a merely
-      following subject both read `sensor 200`, the one that asked for 50 reads `capped by Orientation`.
-      Settings restored after. Done in f085bac.
 
 - [ ] **`ratesCanDiffer` still resolves through the owner**, which is now the only rate function that
       does so for a reason unrelated to recording. It decides whether the *record* control appears, so
@@ -118,9 +81,6 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       decimator, the interval map and the resolution are each covered, and the combination was checked
       by hand on a Pixel 6 (`course_over_ground_deg` at 0.2 Hz against the fix at 1.0). An instrumented
       test would need a running publisher and a real sensor, which is why it was not written.
-
-## Chart sources and zoom (2026-08-21)
-
 
 - [ ] **`SettingsProfileTest` does not catch a new `Settings` field on its own.** CLAUDE.md says a
       field added later "fails the test until somebody decides which side it belongs on", and that is
@@ -154,6 +114,19 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       silently dropped — a healthy run measures published, written and messages-in-file all equal.
       So this item is display-only, and its fix is to say what the chart is showing rather than to keep
       more of it.
+- 
+  [ ] **`entity_health`** (`keelson.EntityHealth`) — the app *already* computes per-subject health for
+  the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
+  the subject that puts it on the bus, so a fleet view can see a phone whose barometer stopped
+  without anybody looking at the phone. Needs `messages/payloads/EntityHealth.proto` vendored, and a
+  look at what upstream's other connectors put in it.
+  *(2026-08-19: upstream still forbids a connector computing and publishing this itself — unchanged in
+  `0.6.0-pre.3`. What the app can actually do for fleet health is the subject-level liveliness filed at
+  the end of this section, which is what lets `entity_health` tell "source up but doesn't advertise
+  this" from "advertised but silent".)*
+
+
+## Future long therm 
 
 ## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
 
