@@ -88,7 +88,25 @@ The design review's eight points on the Live screen, implemented and walked on a
 satellite, inline and full-screen. Findings:
 
 
-- [ ] **Add ad ligth and drak team switch into the setttings** 
+- [x] **Add a light and dark theme switch into the settings.**
+      `ThemeChoice` in `Settings` with a `Follow phone | Light | Dark` chip row under **Appearance**,
+      and it goes through `update()` rather than `saveSettings()` — the same rule the per-subject
+      switches and the tags follow, since redeclaring publishers to change a colour would tear down the
+      run being looked at. Verified on a Pixel 6: the chips show the stored choice after a force-stop,
+      Save stays greyed out, and Light renders with the traffic-light readouts still legible — `No fix`
+      and `±8 m` in amber against black figures.
+      **Three things drew in the phone's scheme rather than the app's, and all three were outside the
+      colour scheme**, which is why a screenshot of a settled screen missed them. The status bar icons
+      came from `enableEdgeToEdge()` in `onCreate`, before the choice is known, so a dark phone forced
+      to Light drew a white clock on white — `07:38` on screen and unreadable. The launch showed
+      **0.9 s** of the wrong scheme, screen-recorded at 20 fps and read off frame brightness, because
+      `settings` starts null while DataStore reads. And the "Loading settings…" branch is the one screen
+      with no `Scaffold`, so it fell through to the *window* background from the XML theme while its
+      text took the app's scheme. Done in 68ca807.
+      **What remains is the system splash** — about 0.6 s of icon on a ground that follows the phone's
+      night mode, since it is drawn from the launcher theme before any of this app runs. Fixing it means
+      `setTheme()` before `super.onCreate` off a blocking read, and every app on a light phone shows a
+      light splash, so it is filed rather than done.
 
 
 - [ ] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
@@ -154,7 +172,19 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
 
 - [ ] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
       hours at 1 Hz — the reader stops and downsamples what it has, so a twelve-hour passage shows its
-      first five hours and says nothing about the rest. Bounded work is right; saying so is missing.( WE  should never run any kindo of down sample as raw recoridngs of valueas must be in its orgnial the processign of information is done in other SW, check so we o not so it )
+      first five hours and says nothing about the rest. Bounded work is right; saying so is missing.
+      **Asked: never downsample, raw recordings must keep their original values, processing belongs in
+      other software. Checked, and nothing on the recording path does.** `OVERSAMPLE` and `downsample()`
+      are in `McapTrack.read`, which *reads* a closed `.mcap` out of `Downloads/Logline` to draw the
+      Files chart and the row thumbnail — the file on disk is never rewritten and the thinning never
+      reaches it. On the write side, `SubjectSink.wrap()` calls `recorder.offer()` unconditionally and
+      **before** the publish is considered, so the `PublishDecimator` thins the wire only; `recordRate`
+      is the rate the sensor is *registered* at rather than a thinning of what it delivered, and it
+      defaults to `SensorRate.Max`. The one way a sample fails to reach the file is the recorder's
+      bounded queue overflowing, which is *counted* as `RecordingStatus.dropped` and shown rather than
+      silently dropped — a healthy run measures published, written and messages-in-file all equal.
+      So this item is display-only, and its fix is to say what the chart is showing rather than to keep
+      more of it.
 
 ## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
 
