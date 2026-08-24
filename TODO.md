@@ -89,11 +89,32 @@ satellite, inline and full-screen. Findings:
 
 
 
-- [ ] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
+- [x] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
       line attached under it, the pair take a fixed 400dp plus about 40 — a little over half a Pixel 6's
       content height, and proportionally more on a small phone. Worth deriving from the available height
       rather than pinning, the same argument that removed the second hand-tuned constant from the
       full-screen branch.
+      Now a fraction of the scaffold's own `padding` — the same measurement the full-screen branch
+      fills, so the two cannot disagree about how much room there is. 0.57 because that is what 400dp
+      already *was*: the Pixel 6's scroll viewport measures 1831 px, i.e. 698dp, and the readouts below
+      the chart moved 6 px after the change. Two bounds on it, both design limits rather than tuned
+      numbers, and the ceiling was only found by turning the phone sideways — in landscape the viewport
+      is 215dp, where the 240dp floor alone made the chart 112% of it and put the fix line attached
+      underneath out of reach. `chartHeight()` is pure and `ChartHeightTest` pins all three cases; four
+      of its five assertions fail against the old constant, and the fifth is the one asserting the
+      reference phone's layout survives. Done in 37d5cef.
+      Verified by simulating a small phone with `wm size 720x1280` / `wm density 320`, i.e. 360x640dp:
+      chart 250dp against a 438dp viewport, with the fix line, the three navigation values *and* the
+      health chips all in the first screenful — where a pinned 400dp would have been 91% of it.
+
+- [ ] **The system splash still follows the phone's night mode, not the app's theme choice.** About
+      0.6 s of icon on a light ground when a dark phone is forced to Light, or the reverse: it is drawn
+      from the launcher theme before any of this app's code runs, so the choice cannot be known by then
+      without `setTheme()` ahead of `super.onCreate` off a blocking read. Filed rather than done because
+      every app on a light phone shows a light splash, so this is a nicety rather than the unreadable
+      status bar that came with it. Re-filed on its own after being pruned along with the ticked theme
+      item it was written inside — an open finding does not belong in a done item, which is the lesson.
+
 
 - [ ] **The health chips no longer say anything when a run is healthy**, by design — colour is spent
       only on the abnormal now. Flagged because it is the one change in this pass that removes a signal
