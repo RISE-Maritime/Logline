@@ -30,6 +30,16 @@ data class TrackScan(
     val fixes: List<TrackFix>,
     /** The walk ended on a malformed record or an exception, so [fixes] may not be the whole track. */
     val stoppedEarly: Boolean = false,
+    /**
+     * The walk stopped because it had **enough**, not because anything went wrong.
+     *
+     * Deliberately not folded into [stoppedEarly], for the same reason that one is kept apart from
+     * `channelFound`: they are different facts with different words owed to the reader. A file that
+     * cut off mid-record leaves it unknown whether more positions existed; this one *knows* more
+     * existed and chose not to read them, so a screen saying "reading stopped early" about it would be
+     * reporting a fault where there was a budget.
+     */
+    val truncated: Boolean = false,
 )
 
 /**
@@ -113,6 +123,7 @@ object McapTrack {
         // read as "GNSS was not publishing while this ran".
         var target = channelId
         var stoppedEarly = false
+        var truncated = false
         try {
             stream.buffered().use { input ->
                 // The opening magic, which nothing here checks beyond stepping over it: a file that got
@@ -166,8 +177,13 @@ object McapTrack {
                         input.skipExactly(length)
                     }
                     // Stop early rather than reading a 512 MB file to throw most of it away. The cap is
-                    // generous enough that this is the rare case, and it bounds the worst one.
-                    if (out.size >= maxPoints * OVERSAMPLE) break
+                    // generous enough that this is the rare case, and it bounds the worst one — but it
+                    // is recorded, because a twelve-hour passage drawn as its first five hours with
+                    // nothing saying so is a chart that lies about where the boat went.
+                    if (out.size >= maxPoints * OVERSAMPLE) {
+                        truncated = true
+                        break
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -181,6 +197,7 @@ object McapTrack {
             channelFound = target != null,
             fixes = downsample(out, maxPoints),
             stoppedEarly = stoppedEarly,
+            truncated = truncated,
         )
     }
 

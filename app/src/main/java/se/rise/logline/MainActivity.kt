@@ -172,6 +172,7 @@ import se.rise.logline.ui.SetupScreen
 import se.rise.logline.ui.SubjectDetailScreen
 import se.rise.logline.ui.SubjectQosScreen
 import se.rise.logline.ui.TrackMap
+import se.rise.logline.ui.TrackCoverage
 import se.rise.logline.ui.TrackState
 import se.rise.logline.ui.WINDOW_CHOICES
 import se.rise.logline.ui.components.LocalRunState
@@ -1364,7 +1365,14 @@ private fun App(
                     recordingTrack(context, uri, known?.channelId)
                 }
                 value = when {
-                    scan.channelFound -> TrackState.Ready(scan.fixes, partial = scan.stoppedEarly)
+                    scan.channelFound -> TrackState.Ready(
+                        scan.fixes,
+                        coverage = when {
+                            scan.stoppedEarly -> TrackCoverage.StoppedEarly
+                            scan.truncated -> TrackCoverage.Capped
+                            else -> TrackCoverage.Whole
+                        },
+                    )
                     // Nothing found and the walk did not finish: the reader cannot say either way, and
                     // must not fill the silence with a claim about the run.
                     scan.stoppedEarly -> TrackState.Unreadable

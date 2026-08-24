@@ -67,9 +67,34 @@ sealed interface TrackState {
 
     data class Ready(
         val fixes: List<TrackFix>,
-        /** The walk ended early, so these are the fixes so far rather than the whole track. */
-        val partial: Boolean = false,
+        /** How much of the recording's track these fixes are. */
+        val coverage: TrackCoverage = TrackCoverage.Whole,
     ) : TrackState
+}
+
+/**
+ * How much of a recording's track was actually read, which the footer owes the reader in words.
+ *
+ * Three states rather than a `partial` boolean, because two of them are **not** the same claim and the
+ * one sentence that used to serve both said the wrong thing about one. A reader that gave up cannot say
+ * whether more positions existed; a reader that hit its own cap knows they did.
+ */
+enum class TrackCoverage {
+    /** The walk reached the end of the data section. What is drawn is the whole track. */
+    Whole,
+
+    /** The file cut off mid-record. These are the fixes *so far*, and the rest is unknown. */
+    StoppedEarly,
+
+    /**
+     * The reader stopped at its own limit, so the run continues past what is drawn.
+     *
+     * `McapTrack` reads at most ten times the points it will keep — twenty thousand fixes, about five
+     * hours at 1 Hz — rather than decompressing half a gigabyte to throw most of it away. Bounding the
+     * work is right; drawing the first five hours of a twelve-hour passage as though it were the whole
+     * voyage is not.
+     */
+    Capped,
 }
 
 /**
@@ -277,16 +302,23 @@ private fun TrackCard(
                         }
                         val extent = trackExtentMetres(track.fixes)
                         Text(
-                            if (track.partial) {
-                                // "so far", because the count is the reader's progress rather than the
-                                // run's total — the same distinction the Unreadable state exists for.
-                                "${trackSummary(track.fixes.size, extent)} so far — " +
-                                    "reading stopped early"
-                            } else {
+                            when (track.coverage) {
                                 // **The extent, not just the count.** 1 843 positions reads as a voyage
                                 // whether they span thirteen metres or thirteen miles, and on this
                                 // phone every recording so far is the former.
-                                trackSummary(track.fixes.size, extent)
+                                TrackCoverage.Whole -> trackSummary(track.fixes.size, extent)
+                                // "so far", because the count is the reader's progress rather than the
+                                // run's total — the same distinction the Unreadable state exists for.
+                                TrackCoverage.StoppedEarly ->
+                                    "${trackSummary(track.fixes.size, extent)} so far — " +
+                                        "reading stopped early"
+                                // Not "stopped early", which would report a fault where there was a
+                                // budget: nothing went wrong and the rest of the track is known to be
+                                // there. What the reader owes here is that the chart is the beginning
+                                // of the run and not the shape of it.
+                                TrackCoverage.Capped ->
+                                    "${trackSummary(track.fixes.size, extent)} — " +
+                                        "the start of a longer run"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

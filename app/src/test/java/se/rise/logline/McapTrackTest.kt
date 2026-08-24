@@ -484,4 +484,56 @@ class McapTrackTest {
 
     private fun header(src: ByteArray, at: Int): Long =
         ByteBuffer.wrap(src, at + 1, 8).order(ByteOrder.LITTLE_ENDIAN).long
+
+    // ---- the reader's own cap ---------------------------------------------------------------------
+
+    /**
+     * **A track longer than the reader will read says so.**
+     *
+     * `McapTrack` stops at ten times the points it keeps rather than decompressing half a gigabyte to
+     * throw most of it away, which is the right trade — but a twelve-hour passage drawn as its first
+     * five hours with nothing saying so is a chart that lies about where the boat went. The scan now
+     * records that it stopped at its own limit, and the detail screen's footer says "the start of a
+     * longer run" instead of nothing.
+     *
+     * Driven through `maxPoints` rather than by writing twenty thousand fixes: the cap is
+     * `maxPoints * OVERSAMPLE`, so a small limit exercises the same branch for the price of a few
+     * dozen messages. Reaching the real one would mean a fixture the size of a real voyage.
+     */
+    @Test
+    fun `a track past the reader's cap is marked truncated`() {
+        val file = File.createTempFile("capped", ".mcap")
+        val fixes = (1..60).map { fix(57.0 + it * 0.001, 12.0) }
+        val channels = recording(file, listOf(phoneFix to fixes))
+
+        // maxPoints 2 caps the walk at 20 fixes, well short of the 60 in the file.
+        val scan = file.inputStream().use {
+            McapTrack.read(it, channels.getValue(phoneFix), maxPoints = 2)
+        }
+
+        assertTrue("it stopped at its own limit", scan.truncated)
+        // **Not the failure flag**, which is the whole point of keeping them apart: nothing went wrong
+        // here, and a screen saying "reading stopped early" would report a fault where there was a
+        // budget.
+        assertFalse("nothing went wrong", scan.stoppedEarly)
+        assertTrue("and it found the channel", scan.channelFound)
+        file.delete()
+    }
+
+    /** A track that fits says nothing, or every recording on the phone would claim to be a fragment. */
+    @Test
+    fun `a track inside the cap is not marked truncated`() {
+        val file = File.createTempFile("whole", ".mcap")
+        val fixes = (1..10).map { fix(57.0 + it * 0.001, 12.0) }
+        val channels = recording(file, listOf(phoneFix to fixes))
+
+        val scan = file.inputStream().use {
+            McapTrack.read(it, channels.getValue(phoneFix), maxPoints = 2_000)
+        }
+
+        assertFalse(scan.truncated)
+        assertFalse(scan.stoppedEarly)
+        assertEquals(10, scan.fixes.size)
+        file.delete()
+    }
 }
