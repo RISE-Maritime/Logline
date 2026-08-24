@@ -69,11 +69,24 @@ Left over from the platform library, and each is a finding rather than a fix. Al
 
 
 
-- [ ] **A revoked folder grant is noticed but never re-offered on the detail screen.** `folderGranted`
+- [x] **A revoked folder grant is noticed but never re-offered on the detail screen.** `folderGranted`
       is read once per composition of the Files list, so a grant taken back while the app is open shows
       the offer again on the next visit rather than at once, and a recording opened from a stale row
       fails to read with no explanation. Small, and only reachable by revoking in Android's settings
       mid-session.
+      `grantedFolders` is now an Activity field re-read in `onResume`, joining the location permission
+      and the battery exemption — a revoked grant is literally the trip to Android settings those two
+      exist for, so it rides their mechanism rather than getting a lifecycle observer of its own. The
+      listing is keyed on the result, so revoked rows go rather than staying as ghosts that fail on open.
+      The second half needed no work: `TrackState.Unreadable` already says "reading stopped early, so
+      whether it holds any positions is unknown — its messages are still in the file", which is honest
+      about a file it could not open and does not claim corruption.
+      **The revoked branch is not device-verified and cannot be from here.** Android offers no way to
+      release another app's persisted grant — `cmd uri_grants` has no shell implementation — and this
+      app deliberately has no "forget the folder" control, since revoking a permission belongs to the
+      system. Verified instead that the working case survives the new read: with a file present that
+      only the grant can see, the list shows 16 before and after a trip to the launcher and back.
+      Done in d8873cc.
 
 - [ ] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
       hours at 1 Hz — the reader stops and downsamples what it has, so a twelve-hour passage shows its
