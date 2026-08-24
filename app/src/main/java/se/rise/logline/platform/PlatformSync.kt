@@ -28,6 +28,7 @@ import se.rise.logline.calibrate.toPlatformGeometryJson
 import se.rise.logline.config.TlsCredentialStore
 import se.rise.logline.keelson.KeelsonSession
 import se.rise.logline.keelson.Subjects
+import se.rise.logline.keelson.ZenohBinding
 import se.rise.logline.keelson.entityIdFromKey
 import se.rise.logline.keelson.qosForSubject
 import se.rise.logline.keelson.rpcInterfaceLivelinessKey
@@ -244,12 +245,24 @@ class PlatformSync(private val appContext: Context) {
             // must never be the thing that blocks.
             val documents = Channel<Pair<String, ByteArray>>(Channel.UNLIMITED)
 
-            // Documents first, because they are the half that carries anything worth reading.
-            val subscriber = runCatching {
-                open.declareSubscriber(
-                    "${current.realm}/@v0/*/pubsub/${Subjects.CONFIGURATION_JSON}/*"
-                ) { key, payload -> documents.trySend(key to payload) }
-            }.onFailure { Log.w(TAG, "configuration_json subscription failed", it) }.getOrNull()
+            // Documents first, because they are the half that carries anything worth reading — and
+            // skipped entirely where a subscription would abort the process. The `runCatching` below
+            // protects the *declaration*; it cannot protect the delivery, which is a native abort on
+            // Zenoh's own thread. See `ZenohBinding.SUBSCRIPTIONS_SAFE`.
+            //
+            // The scan still runs: the liveliness get below supplies entity ids, so discovery degrades
+            // to platforms named but not described rather than to nothing. `documentsUnavailable` is
+            // what makes that visible instead of reading as "these platforms have no geometry".
+            val subscriber = if (ZenohBinding.SUBSCRIPTIONS_SAFE) {
+                runCatching {
+                    open.declareSubscriber(
+                        "${current.realm}/@v0/*/pubsub/${Subjects.CONFIGURATION_JSON}/*"
+                    ) { key, payload -> documents.trySend(key to payload) }
+                }.onFailure { Log.w(TAG, "configuration_json subscription failed", it) }.getOrNull()
+            } else {
+                documents.close()
+                null
+            }
 
             val reader = launch {
                 for ((key, payload) in documents) {
@@ -356,6 +369,11 @@ class PlatformSync(private val appContext: Context) {
     // ── the shared library ──────────────────────────────────────────────────────────────────────
 
     private fun subscribeLibrary(open: KeelsonSession, current: PlatformSyncConfig) {
+        // **The standing one, and the one that was going to bite first.** `platform_registry` is
+        // storage-backed on this fleet's router, so every sample carries a timestamp and the first
+        // library any station shares would abort the app — silently latent until somebody shared one.
+        // See `ZenohBinding.SUBSCRIPTIONS_SAFE`. Publishing this phone's own library is unaffected.
+        if (!ZenohBinding.SUBSCRIPTIONS_SAFE) return
         val key = PlatformRegistry.key(current.realm)
         val subscriber = runCatching {
             open.declareSubscriber(key) { _, payload ->

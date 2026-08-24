@@ -28,6 +28,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import java.io.File
+import se.rise.logline.keelson.ZenohBinding
+import se.rise.logline.keelson.PLATFORM_DOCUMENTS_UNAVAILABLE_REASON
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.platform.DiscoveredPlatform
 import se.rise.logline.platform.DiscoveryState
@@ -395,10 +397,18 @@ private fun DiscoveredRow(platform: DiscoveredPlatform, known: Boolean, onAdopt:
                 Text(
                     // Liveliness gives an id and nothing else, so an entity with no document is worth
                     // showing and not worth adopting — there is no geometry to copy.
-                    if (platform.hasGeometry) {
-                        "${platform.entityId} · ${platform.geometry!!.sensors.size} sensors"
-                    } else {
-                        "${platform.entityId} · alive, no geometry published"
+                    //
+                    // **Which of the two "no geometry" states this is matters.** "Nothing published"
+                    // is a claim about the other station; with subscriptions gated it is probably
+                    // false, since the platform may be publishing and this phone cannot listen — see
+                    // `ZenohBinding.SUBSCRIPTIONS_SAFE`. Saying it anyway sends somebody to fix a
+                    // connector that is working.
+                    when {
+                        platform.hasGeometry ->
+                            "${platform.entityId} · ${platform.geometry!!.sensors.size} sensors"
+                        !ZenohBinding.SUBSCRIPTIONS_SAFE ->
+                            "${platform.entityId} · $PLATFORM_DOCUMENTS_UNAVAILABLE_REASON"
+                        else -> "${platform.entityId} · alive, no geometry published"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

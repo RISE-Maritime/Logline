@@ -82,11 +82,17 @@ class KeelsonSession private constructor(private val session: Session) {
      * here blocks Zenoh's own receive path. Same discipline as the sensor `callbackFlow`s, for the
      * same reason.
      *
-     * Safe on Android despite the `Zenoh.scout` crash in `Scout.kt`: every `io.zenoh.jni.callbacks.*`
-     * interface marshals **primitives only** — `JNISubscriberCallback.run` takes
-     * `(String, byte[], int, String, int, long, boolean, byte[], boolean, int, int)` — so the `Sample`
-     * is built by Kotlin on the app's own class loader, with no native `FindClass` against an app
-     * class. Verified against zenoh-kotlin 1.10.0.
+     * **Not safe on Android, and the comment that used to stand here is why that took so long to find.**
+     * It claimed every `io.zenoh.jni.callbacks.*` interface marshals primitives only, and named
+     * `JNISubscriberCallback.run` with an all-primitive signature. There is no `io.zenoh.jni.callbacks`
+     * package in 1.10.0 and no such class. The real interface is `io.zenoh.jni.sample.SampleCallback`,
+     * whose `run` takes an `io.zenoh.jni.time.Timestamp` and an `io.zenoh.jni.sample.SourceInfo` — read
+     * off the jar with `javap` rather than inferred — so a sample carrying either builds an app class on
+     * Zenoh's own thread, which is exactly the `FindClass` failure `Scout.kt` exists to avoid.
+     *
+     * Every caller is therefore gated on [ZenohBinding.SUBSCRIPTIONS_SAFE], which owns the mechanism and
+     * the evidence. This function is left intact rather than deleted: it is correct code waiting on a
+     * binding fix, and the gate is one boolean.
      */
     fun declareSubscriber(key: String, onSample: (String, ByteArray) -> Unit): Subscriber<Unit> {
         val keyExpr = key.intoKeyExpr().getOrThrow()

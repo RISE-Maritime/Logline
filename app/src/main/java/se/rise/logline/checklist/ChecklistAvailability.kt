@@ -1,5 +1,7 @@
 package se.rise.logline.checklist
 
+import se.rise.logline.keelson.ZenohBinding
+
 /**
  * Whether the checklist feature can be used at all on this build.
  *
@@ -42,12 +44,16 @@ package se.rise.logline.checklist
  * never have survived a second station being present. It crashed on the bootstrap query first, so the
  * subscription half was never reached — one bug hiding behind another.
  *
- * So the gate is not about queries. **Nothing that subscribes to a timestamped key can work on this
- * binding**, and catching does not help: it is a native abort, not an exception. The query-free sync
- * and the simplified screen are kept because they are correct and tested, and because they shorten the
- * work to whatever comes after the binding is fixed — not because they made the feature usable.
+ * So the gate is not about queries, and it is not about checklists either — **no subscription is safe
+ * on this binding at all**, which is [ZenohBinding.SUBSCRIPTIONS_SAFE]'s business and not restated
+ * here. This constant derives from it so the two cannot drift, and so re-enabling is one boolean rather
+ * than a hunt.
+ *
+ * The query-free sync and the simplified screen are kept because they are correct and tested, and
+ * because they shorten the work to whatever comes after the binding is fixed — not because they made
+ * the feature usable.
  */
-const val CHECKLISTS_AVAILABLE = false
+const val CHECKLISTS_AVAILABLE = ZenohBinding.SUBSCRIPTIONS_SAFE
 
 /**
  * Kept for the moment a query is unavoidable again — an interface this app must serve, say — so the
