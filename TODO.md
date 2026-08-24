@@ -7,7 +7,7 @@ gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where som
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
-- [ ] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
+- [x] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
       hours at 1 Hz — the reader stops and downsamples what it has, so a twelve-hour passage shows its
       first five hours and says nothing about the rest. Bounded work is right; saying so is missing.
       **Asked: never downsample, raw recordings must keep their original values, processing belongs in
@@ -22,6 +22,18 @@ the section they belong to.
       silently dropped — a healthy run measures published, written and messages-in-file all equal.
       So this item is display-only, and its fix is to say what the chart is showing rather than to keep
       more of it.
+      Done that way. The scan records the cap as its **own** fact rather than reusing `stoppedEarly`:
+      those are different claims and owe the reader different words — a file that cut off mid-record
+      leaves it unknown whether more positions existed, while a reader that hit its own limit knows they
+      did, so "reading stopped early" would report a fault where there was a budget. `TrackState.Ready`
+      now carries a three-valued `TrackCoverage` instead of a `partial` boolean, because that boolean
+      had one sentence serving two states and it was the wrong sentence for one of them. The footer
+      reads "the start of a longer run".
+      Tested by driving `maxPoints`, the real cap needing a fixture the size of a real voyage; the test
+      fails against a build without the flag, checked by reverting it. The wording was also read off the
+      device by temporarily lowering the cap until a short recording tripped it — "3 positions within
+      3 m — the start of a longer run" — with the constants restored and diffed against HEAD after.
+      Done in 437508d.
 - 
   [ ] **`entity_health`** (`keelson.EntityHealth`) — the app *already* computes per-subject health for
   the status card (`subjectHealth()`: waiting, stalled, failed) and then keeps it to itself. This is
