@@ -7,99 +7,30 @@ gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where som
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
--
-- [ ] **The checklist protocol has grown a run model and photo evidence, and this app knows neither.**
-      Looked at properly at `0.6.0-pre.12`, against crowsnest at `origin/main`.
-      **`checklist_evidence` is `foxglove.CompressedImage`, one key per `evidence_id`** — deliberately
-      its own subject rather than a field on the snapshot, because that snapshot is republished every
-      30 s per active run and photos in it would be megabytes on the wire twice a minute into a durable
-      store. The *metadata* that names the key rides inside `checklist_event.evidence` (13) and
-      `ChecklistState.ItemState.evidence`, and is fetched lazily one key at a time.
-      **Crowsnest uses it fully**: `checklistEvidence.js` (fetch by RPC, delete), `checklistEvidenceModel.js`,
-      `evidenceKeyExpr` in `checklistWire.js`, and `imageDownscale.js` on the way in.
-      **Nothing is broken, and that took checking twice.** A first pass suggested `ChecklistState` had
-      been *renumbered* — `status` 2→8, `started_at` 3→9 — which would have been a wire break of the
-      exact kind `ChecklistWireTest` exists to catch. It was an artefact of comparing fields across
-      nested messages: `ItemState.status = 2` here against `ChecklistState.status = 8` upstream are
-      different messages. Compared per message, **every upstream change is additive** and the shared
-      fields keep their numbers, so messages still decode correctly in both directions.
-      **The key shape did change and crowsnest already tolerates it.** `checklist_state` is now keyed on
-      `run_id` rather than `procedure_id` — a procedure is a template and each execution is a run, so
-      two runs of one procedure used to overwrite each other. This app still keys on the procedure id,
-      and `runIdFor()` in `checklistWire.js` falls back to `procedureId` precisely to tolerate
-      "publishers that predate the run model", so its snapshots are accepted rather than dropped.
-      So this is a *degraded but tolerated* participant, not a fault. What it cannot do: see or attach
-      photo evidence; know a run was planned, abandoned or had a timestamp corrected
-      (`EVENT_TYPE_RUN_PLANNED`/`RUN_ABANDONED`/`EVIDENCE_ATTACHED`/`TIME_SET`); render sub-items
-      (`ChecklistProcedure.Item.parent_item_id`); or say which runs it has open
-      (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos —/pl `ChecklistEvidence.proto`
-      is not vendored at all — and reworking `ChecklistSync`/`ChecklistStore` around runs. A product
-      decision, not a bug fix, and the checklist feature is off by default meanwhile.
-      **Moot until the JNI crash is fixed**: tested on the live bus, turning checklists on crashes the
-      app on the bootstrap query's reply before any of this matters — see the `EntityGlobalId` item.
-
-
 ## Future long therm 
 
 
-## Platform Config
+## Shared platform library (2026-08-24)
 
-Left over from the platform library, and each is a finding rather than a fix. All five are Fre this repo can act on.
+- [x] **Crowsnest's half of the platform library is written — and untracked.** The old item said
+      crowsnest does not publish its overlay, so sharing was one-way. **It does now.**
+      `services/platformLibrarySync.js`, `hooks/usePlatformLibrarySync.js`, `jotai/platformLibraryAtoms.js`
+      and `scripts/checks/platformLibrary.mjs` all exist in `../crowsnest-dev`, the hook is mounted in
+      `BasePage.jsx`, and the check is already in `npm run check`. The key builders are
+      character-identical to `PlatformRegistry.key()`, `platforms` entity default included.
+      **All of it is untracked in a 139-file WIP tree** — written, not shipped, the same trap the
+      `os_config` item warned about. Not this repo's to commit.
+      Verified rather than read: `PlatformLibraryInteropTest` decodes the literal output of crowsnest's
+      `encodeLibrary()` over its own `sf18` registry entry — sensors, offsets and a negative camera yaw
+      all intact — and fails if the transforms array is renamed. Neither project had a
+      cross-implementation test for this document before, and a renamed field is the failure that makes
+      both sides work perfectly and never meet. Done in 4b53b16.
 
-- [ ] **The crowsnest probe fix has never been exercised against a phone.** Everything about it is
-  offline: `npm run check` green, eslint and `vite build` clean, the key matching measured against
-  zenoh's matcher, and the new filter shown to select the same six registry platforms as the old
-  one. What has not happened is a phone publishing a platform and crowsnest's os_config showing it
-  online with the config fetched — which needs crowsnest's dev server and the phone on a shared
-  router. Worth doing twice: once on this app's default `calibration` source and once with the
-  source changed, since reaching both is the entire point of the wildcard. Also confirm a platform
-  declaring no `get_config` still shows *no* dot rather than a grey one.
-  **This matters more than when it was filed.** The legacy key was a safety net while it was still
-  served: if the wildcard probe turned out not to work in practice, crowsnest fell back to a shape
-  that did. That net is gone, so this is now the only path from a station to a phone's config, and
-  it is unproven on a bus. Do it before anyone relies on it in the field.
--
-- [ ] **Crowsnest does not publish its platform overlay**, so the shared library is one-way today —
-  the phone shares and nothing answers. The change is small and belongs in that repo; the pattern
-  to copy is its own `dataflowConfigSync.js`.
--
-- [ ] **Per-platform failure attribution.** `PublisherStatus` is keyed on the registry entry, so three platforms
-  publishing `frame_transform` share one row: platform B's failure can be cleared by platform A's next tick.
-  Acceptable for a 0.1 Hz loop, and worth revisiting only if a platform ever fails alone in the field.
-- [ ] **An import drops what this app does not model** — MMSI, call sign, `data_streams`, `queryables`,
-  camera calibrations — and a re-export therefore loses them. The screen says so, which is the
-  minimum; keeping the untouched document alongside the platform and merging it back on export is the
-  real fix, and it would put a `JsonElement` inside a data model whose whole point is not having one.
-- [ ] **The single-platform migration is one-way.** After the first save on this build the old `calib_*`
-  keys are gone, so an older APK sees no calibration. Deliberate — mirroring index 0 into them
-  forever is a second source of truth that will drift — but worth knowing before a downgrade.
-- [ ] **The `rig_*` → `platform_*` key migration is one-way too**, and now there are two legacy schemes
-  stacked behind the current one. After the first save on this build the `rig_*` keys are gone, so an
-  older APK sees no platform library at all — verified on a Pixel 6 by reading the preferences file
-  before and after: the six keys were renamed, every value carried across (`platform_count` stayed
-  `0`, `platform_registry_version` stayed `2`), and nothing else in the file changed. Worth knowing
-  before a downgrade, and worth deleting the fallback once no phone in the fleet predates it.
-- [ ] **A measured sensor rotation is only as good as the compass, and indoors that is ±90°.** The
-  screen says so in red past 15°, which is the honest thing to do and not a solution. Worth knowing
-  before reading a yaw off a phone next to a radar: pitch and roll are unaffected, being gravity's.
-  A sight against a known bearing is the check nobody has automated.
-- [ ] **A measured rotation assumes the platform is level and cannot tell when it is not.** Heel and
-  trim at the moment of measurement go straight into pitch and roll, and afterwards a heeled boat
-  and a tilted sensor are the same reading. The screen instructs; nothing verifies. A phone that is
-  already publishing `roll_deg`/`pitch_deg` could in principle warn when the platform is visibly
-  moving, which is a real improvement and a separate change.
-- [ ] **Mirrored EXIF orientations (2, 4, 5, 7) are not corrected**, only the three rotations. They come
-  from a flipped front camera and a wrong flip is worse than none — it puts the port side to
-  starboard in a picture somebody is placing sensors from — but a photo that arrives mirrored will
-  stay mirrored with nothing on screen saying so.
-- [ ] **The platform screens' route values changed with the rename** — `calibration/rig/{entityId}` is now
-  `calibration/platform/{entityId}`. Harmless today, because routes are not persisted and the two
-  Zenoh sessions are scoped on the `calibration` prefix, which did not move. Filed because a prefix
-  match that goes wrong fails *silently*: the screen still opens and simply never finds anything on
-  the bus, so any future route rename has to be re-checked on a device rather than reasoned about.
-
--
-
+- [ ] **Neither live direction of the library exchange has been tested on a bus.** Phone → crowsnest is
+      testable today, since publishing is unaffected by the binding fault, but it needs a platform in the
+      phone's library and this phone has none. Crowsnest → phone **cannot** be tested until
+      eclipse-zenoh/zenoh-flat-jni#49 lands: receiving a library means subscribing, which aborts. The
+      fixture test covers the shape; it cannot cover the wire.
 
 ## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
 
@@ -131,14 +62,27 @@ completes, and that is not something app code can fix.
       `ClassNotFoundException: io.zenoh.jni.time.Timestamp`, raised in a **subscriber callback** by
       `JNI NewStringUTF`. The trigger is any sample carrying a Zenoh timestamp, and on this bus every
       checklist key carries one: measured with a Python subscriber, `checklist_state` and
-      `checklist_presence` both arrive `timestamped=True`, because the router timestamps what its
-      storages keep. `checklist_presence` was already subscribed before any of that work, so the feature
+      `checklist_presence` both arrive `timestamped=True`.
+      **The "storages" explanation was wrong** — corrected by the crowsnest session, and my own data had
+      already disproved it: `checklist_presence` has *no* storage in the router's compose and was
+      timestamped anyway. A Zenoh router timestamps **every sample it forwards**
+      (`timestamping.enabled.router` is true by default); storages merely require it, they do not scope
+      it. Measured across the fleet bus: 15 053 samples, 42 subjects, four realms, 100% timestamped. `checklist_presence` was already subscribed before any of that work, so the feature
       could never have survived a second station being present — the query crashed it first, so the
       subscription half was never reached. One bug hiding behind another.
-      So the blocker is not "queries": **nothing that subscribes to a timestamped key works on this
-      binding.** That also raises a question nobody has asked yet — whether platform discovery, which
-      subscribes to `configuration_json`, survives on a bus whose router timestamps that key. It has only
-      ever been exercised on `rise`, where apparently nothing does.
+      So the blocker is not "queries" and not "checklist keys": **no subscription is safe on this
+      binding at all**, and `io.zenoh.jni.sample.SourceInfo` is the next class to bite —
+      `SampleCallback.run` takes it alongside the `Timestamp`. `keelson/ZenohBinding.kt` owns the
+      diagnosis now; upstream is eclipse-zenoh/zenoh-flat-jni#49, filed against the shared JNI layer
+      because it affects zenoh-java identically. 1.10.0 is the newest release, so no bump escapes it.
+      **The question about platform discovery is answered: it was affected, and is now gated.** Both of
+      `PlatformSync`'s subscriptions are skipped while the gate is on — `platform_registry` especially,
+      which is storage-backed and would have aborted the first time any station shared a library, latent
+      until somebody did. `livelinessGet` was *verified* rather than assumed: with a run going so the
+      phone's own tokens answered it, a scan returned three entities and the app survived, so discovery
+      degrades to ids without geometry rather than dying and `shouldSyncPlatforms` needs no gate.
+      **A comment in `KeelsonSession` is what hid this for months**: it named an `io.zenoh.jni.callbacks`
+      package that does not exist in 1.10.0 and claimed subscriptions marshal primitives only. Replaced.
       **Checklists are gated off meanwhile**, in `checklist/ChecklistAvailability.kt`. The constant is
       checked in `Routes.shouldSyncChecklists` rather than only on the Settings switch, because that is
       the single place a session opens and there are four ways the flag gets set. Re-enabling once the
@@ -175,3 +119,34 @@ completes, and that is not something app code can fix.
 - [ ] **MediaMTX silently drops AAC for WebRTC.** `skipping track 2 (MPEG-4 Audio)` — a WHEP viewer
       gets video and no sound. The source has to publish Opus. Not an app problem, but it is the first
       thing to check when a feed has no audio.
+
+
+- [ ] **BLOKED by Kotlin Zheno - The checklist protocol has grown a run model and photo evidence, and this app knows neither.**
+  Looked at properly at `0.6.0-pre.12`, against crowsnest at `origin/main`.
+  **`checklist_evidence` is `foxglove.CompressedImage`, one key per `evidence_id`** — deliberately
+  its own subject rather than a field on the snapshot, because that snapshot is republished every
+  30 s per active run and photos in it would be megabytes on the wire twice a minute into a durable
+  store. The *metadata* that names the key rides inside `checklist_event.evidence` (13) and
+  `ChecklistState.ItemState.evidence`, and is fetched lazily one key at a time.
+  **Crowsnest uses it fully**: `checklistEvidence.js` (fetch by RPC, delete), `checklistEvidenceModel.js`,
+  `evidenceKeyExpr` in `checklistWire.js`, and `imageDownscale.js` on the way in.
+  **Nothing is broken, and that took checking twice.** A first pass suggested `ChecklistState` had
+  been *renumbered* — `status` 2→8, `started_at` 3→9 — which would have been a wire break of the
+  exact kind `ChecklistWireTest` exists to catch. It was an artefact of comparing fields across
+  nested messages: `ItemState.status = 2` here against `ChecklistState.status = 8` upstream are
+  different messages. Compared per message, **every upstream change is additive** and the shared
+  fields keep their numbers, so messages still decode correctly in both directions.
+  **The key shape did change and crowsnest already tolerates it.** `checklist_state` is now keyed on
+  `run_id` rather than `procedure_id` — a procedure is a template and each execution is a run, so
+  two runs of one procedure used to overwrite each other. This app still keys on the procedure id,
+  and `runIdFor()` in `checklistWire.js` falls back to `procedureId` precisely to tolerate
+  "publishers that predate the run model", so its snapshots are accepted rather than dropped.
+  So this is a *degraded but tolerated* participant, not a fault. What it cannot do: see or attach
+  photo evidence; know a run was planned, abandoned or had a timestamp corrected
+  (`EVENT_TYPE_RUN_PLANNED`/`RUN_ABANDONED`/`EVIDENCE_ATTACHED`/`TIME_SET`); render sub-items
+  (`ChecklistProcedure.Item.parent_item_id`); or say which runs it has open
+  (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos —/pl `ChecklistEvidence.proto`
+  is not vendored at all — and reworking `ChecklistSync`/`ChecklistStore` around runs. A product
+  decision, not a bug fix, and the checklist feature is off by default meanwhile.
+  **Moot until the JNI crash is fixed**: tested on the live bus, turning checklists on crashes the
+  app on the bootstrap query's reply before any of this matters — see the `EntityGlobalId` item.

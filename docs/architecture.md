@@ -132,7 +132,11 @@ The protocol layer. Three small files, deliberately free of Android imports:
   side builds the `ZenohId` argument with `FindClass`, which on a natively-attached thread resolves
   against the system class loader and cannot see app classes: the process dies with
   `JNI DETECTED ERROR IN APPLICATION … ClassNotFoundException: io.zenoh.jni.config.ZenohId` the moment
-  any router answers. Verified on zenoh-kotlin 1.10.0; no app-side callback avoids it. The exchange is
+  any router answers. Verified on zenoh-kotlin 1.10.0; no app-side callback avoids it.
+  **Scout is only the first of four.** The same fault fires for a query reply (`EntityGlobalId`) and for
+  any subscribed sample carrying a `Timestamp` or `SourceInfo` — and a Zenoh router timestamps every
+  sample it forwards, so no subscription is safe. `ZenohBinding.SUBSCRIPTIONS_SAFE` gates what that
+  breaks; upstream is eclipse-zenoh/zenoh-flat-jni#49. The exchange is
   three bytes out (`encodeScout`) and one datagram back (`decodeHello`), both pinned by `ScoutWireTest`
   against captures from a real Zenoh node — including a cross-check that the zid string matches what
   zenoh-python prints for the same live router. Two Android details are load-bearing: the socket is

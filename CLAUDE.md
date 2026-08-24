@@ -892,6 +892,19 @@ simply never finds anything on the bus.
   any Kotlin runs. The replacement is three bytes out and one datagram back, pinned by `ScoutWireTest`
   against captures from a real Zenoh node; if a future zenoh changes the framing, that test is what
   fails. Don't "simplify" it back to `Zenoh.scout`.
+  **It was never scout-only, and that mistake cost a lot.** The same `FindClass` fault fires for a
+  *query reply* (`io.zenoh.jni.pubsub.EntityGlobalId`) and for **any subscribed sample carrying a Zenoh
+  timestamp** (`io.zenoh.jni.time.Timestamp`; `io.zenoh.jni.sample.SourceInfo` is the same path and has
+  not been seen yet only because the other fires first). A router timestamps *every* sample it forwards
+  by default, so in practice **no subscription is safe on this binding at all** — measured across this
+  fleet's bus, 15 053 samples over 42 subjects and four realms, 100% timestamped. `ZenohBinding` in
+  `keelson/` owns the diagnosis and the evidence; upstream is eclipse-zenoh/zenoh-flat-jni#49.
+  Two wrong diagnoses got written down before that one, and both came from stopping too early: that it
+  was queries (removing them exposed the subscriber fault), and that the router timestamps "what its
+  storages keep" (the measurement disproving it — `checklist_presence` timestamped with no storage —
+  was already in hand). A comment in `KeelsonSession` naming a non-existent `io.zenoh.jni.callbacks`
+  package is what made the subscription path look safe for months; the real interface is
+  `io.zenoh.jni.sample.SampleCallback`, whose `run` takes a `Timestamp` **and** a `SourceInfo`.
 - **Android 17 gates the local network behind `ACCESS_LOCAL_NETWORK`.** Local Network Protections make
   any LAN address *and* multicast a runtime permission. Without it the failure is `EPERM` from `sendto`
   deep inside Zenoh — the scan looks like an empty network and a `tcp/192.168.x.x` endpoint silently
