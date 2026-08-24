@@ -107,9 +107,12 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `speed_over_ground_knots`, `course_over_ground_deg`, and both headings), three `transient` (`audio`,
   `image_compressed`, `video_compressed`), two `background` (`raw_nmea0183`, `log_message`) — and
   everything else is unlisted upstream and inherits `default` on purpose, so the same subject travels
-  identically from every connector. Verified against `0.6.0-pre.5` with no drift; that check is a
-  dozen lines of script and worth re-running against each release rather than reading this list, which
-  has been wrong before. The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
+  identically from every connector. **Re-verified against `0.6.0-pre.12`: zero drift** — all ten still
+  match, and every other subject this app publishes is still unlisted upstream. That check is a dozen
+  lines of script and worth re-running against each release rather than reading this list, which has
+  been wrong before. Upstream now names **52** non-default subjects across *five* profiles, having
+  gained a `realtime` one for the hand-controller inputs; `QosProfile` already transcribes all five and
+  this app publishes nothing in that profile. The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
   is upstream policy, `qosForSubject(subject, overrides)` is what actually gets used. Overrides are an
   escape hatch, not the norm: default them to Auto and keep the policy path the one that works.
 - **Liveliness is three tiers, and the app declares two of them** (protocol specification §5, as
@@ -147,18 +150,18 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   switches now do something on the wire, having previously done nothing beyond the phone.
 - **Subject names only via `Subjects`** in `keelson/Keys.kt`, and the subject *set* only via
   `PublishedSubject` in `keelson/SubjectRegistry.kt`. A new subject means a constant plus a registry
-  entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **Check `dev`,
-  not just the checked-out branch** — the `radio_*` subjects live on `dev` and are not yet on `main`, so
-  a `git show dev:messages/subjects.yaml` is the honest lookup. **And check `0.6.0-pre.5` as well as
-  `dev`:** it was cut from a feature branch and ships `illuminance_lux` and the four `checklist_*`
-  subjects that `dev` still does not have, so a release can be *ahead* of `dev` rather than behind it.
-  **Do not reach for the newest tag to find them.** That rule used to say
-  `git tag --sort=-creatordate | head -1`, and it stopped working when `0.6.0-pre.6` and `-pre.7` were
-  cut: `pre.7` *is* `dev`, on a different lineage from `pre.5` — they fork at `8621035` and neither is
-  an ancestor of the other — so the newest tag has none of those five subjects. Following the old
-  advice today would report that `illuminance_lux` does not exist upstream, which is a subject this
-  app publishes. `git tag --sort=-creatordate` still lists them; which one carries what is the part
-  that has to be looked up rather than assumed.
+  entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **The newest tag is now the
+  right place to look** — re-checked at `0.6.0-pre.12`, where `pre.3`, `pre.5` and `pre.7` are *all*
+  ancestors and every subject this app publishes is present, `illuminance_lux` and the four
+  `checklist_*` ones included.
+  **That was not true for most of this project's life, and the reason is worth keeping.** The lineages
+  had forked: `pre.7` *was* `dev` while `pre.5` was cut from a feature branch, they diverged at
+  `8621035` with neither an ancestor of the other, and the newest tag carried none of those five
+  subjects — so "check the newest tag" would have reported that `illuminance_lux` does not exist
+  upstream, which is a subject this app publishes. The lesson that survives the merge: **a tag being
+  newest does not make it a superset**, so when a subject seems to be missing, check whether the
+  lineages have forked again — `git merge-base --is-ancestor <older-tag> <newest>` — before concluding
+  it is not there.
 - **Rate ownership resolves by (subject, `SourceKind`), never by subject alone.**
   `PublishedSubject.rateOwnerEntry()` is the one way to get from a derived subject to the one whose
   rate governs it, and it matches the source kind as well as the subject because a subject string does
