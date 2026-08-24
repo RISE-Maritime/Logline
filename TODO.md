@@ -82,27 +82,6 @@ The wire format did not move: `messages/` is byte-identical between `dev` and `0
 policy — checked programmatically, no drift. The *specification* moved by 539 lines, and §5 was
 rewritten from the ground up. These are the consequences.
 
-## Live view, second pass (2026-08-20)
-
-The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
-satellite, inline and full-screen. Findings:
-
-
-
-- [x] **The health chips no longer say anything when a run is healthy**, by design — colour is spent
-      only on the abnormal now. Flagged because it is the one change in this pass that removes a signal
-      rather than quietening it: if a glance at a good run comes to feel like the row is dead, the fix
-      is one quiet green dot on the row as a whole, not one per chip.
-      **Looked at with a run going, and the diagnosis was identity rather than deadness.** Healthy, the
-      row is five identical outlined pills — the same vocabulary as the window lengths directly beneath
-      and the `Configured | Maximum` pair on Session — so it read as a second *filter strip*, with
-      nothing saying it was also the run's health. The abnormal case pops perfectly well, so the trade
-      the design makes is sound; what was missing was a name.
-      So it took a caption, `GROUP HEALTH`, styled as `Vital`'s captions down to the letter spacing so
-      the two rows read as one block of small print. **Not the green dot**, which would put colour back
-      on the normal case — the one thing this design gave up on purpose. Done in d47754c.
-
-
 ## Per-subject publish rates (2026-08-20)
 
 Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
