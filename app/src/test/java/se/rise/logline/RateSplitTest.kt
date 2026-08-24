@@ -1,6 +1,8 @@
 package se.rise.logline
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.rise.logline.config.Settings
 import se.rise.logline.keelson.Subjects
@@ -248,5 +250,96 @@ class RateSplitTest {
             settings.publishRate(Subjects.AIR_PRESSURE_PA),
             settings.rate(Subjects.AIR_PRESSURE_PA),
         )
+    }
+
+    // ---- when another subject's rate is what is holding this one down -----------------------------
+
+    /**
+     * **A derived subject that asked for more than its owner allows is capped, and the row says so.**
+     *
+     * The case the flag exists for: `heading_magnetic_deg` rides `orientation_quaternion`, so with the
+     * owner at 1 Hz and this subject explicitly set to 50, what goes out is 1 Hz — a figure the person
+     * never typed, previously printed beside `sensor 200`, which is a limit they cannot reach from this
+     * subject's page.
+     */
+    @Test
+    fun `a derived subject held below its request is capped`() {
+        val tuned = settings.copy(
+            sensorRates = mapOf(
+                Subjects.ORIENTATION_QUATERNION to SensorRate.Hz(1.0),
+                Subjects.HEADING_MAGNETIC_DEG to SensorRate.Hz(50.0),
+            ),
+        )
+
+        assertEquals(SensorRate.Hz(1.0), tuned.publishRate(Subjects.HEADING_MAGNETIC_DEG))
+        assertEquals(SensorRate.Hz(50.0), tuned.requestedPublishRate(Subjects.HEADING_MAGNETIC_DEG))
+        assertTrue(tuned.publishRateIsCapped(Subjects.HEADING_MAGNETIC_DEG))
+    }
+
+    /**
+     * **Following is not capping**, and this is the distinction the whole flag turns on. With no stored
+     * rate the subject takes its owner's through `requestedPublishRate`, so requested and ceiling are
+     * equal by construction: the figure on the row *is* the owner's, and no request is being denied.
+     * Flagging it would put "capped by" on most of the registry, permanently.
+     */
+    @Test
+    fun `a derived subject merely following its owner is not capped`() {
+        val tuned = settings.copy(
+            sensorRates = mapOf(Subjects.ORIENTATION_QUATERNION to SensorRate.Hz(1.0)),
+        )
+
+        assertEquals(SensorRate.Hz(1.0), tuned.publishRate(Subjects.HEADING_MAGNETIC_DEG))
+        assertFalse(tuned.publishRateIsCapped(Subjects.HEADING_MAGNETIC_DEG))
+    }
+
+    /** Asking for less than the owner allows is not capping either — nothing is being denied. */
+    @Test
+    fun `a derived subject slower than its owner is not capped`() {
+        val tuned = settings.copy(
+            sensorRates = mapOf(
+                Subjects.ORIENTATION_QUATERNION to SensorRate.Hz(50.0),
+                Subjects.HEADING_MAGNETIC_DEG to SensorRate.Hz(0.5),
+            ),
+        )
+
+        assertEquals(SensorRate.Hz(0.5), tuned.publishRate(Subjects.HEADING_MAGNETIC_DEG))
+        assertFalse(tuned.publishRateIsCapped(Subjects.HEADING_MAGNETIC_DEG))
+    }
+
+    /**
+     * **A head subject clamped to its own record rate is not flagged**, because there is no owner to
+     * name — `publishCeiling` falls back to `recordRate` where there is no `rateOwner`, so comparing
+     * the rates alone would fire on a row with nothing to put in the slot. The `rec` figure is already
+     * a few characters to its left.
+     */
+    @Test
+    fun `a head subject clamped to its own record rate is not capped`() {
+        val tuned = settings.copy(
+            recordRates = mapOf(Subjects.AIR_PRESSURE_PA to SensorRate.Hz(1.0)),
+            sensorRates = mapOf(Subjects.AIR_PRESSURE_PA to SensorRate.Hz(10.0)),
+        )
+
+        // The clamp is real — this is the rate comparison the flag deliberately does not act on.
+        assertEquals(SensorRate.Hz(1.0), tuned.publishRate(Subjects.AIR_PRESSURE_PA))
+        assertEquals(SensorRate.Hz(10.0), tuned.requestedPublishRate(Subjects.AIR_PRESSURE_PA))
+        assertFalse(tuned.publishRateIsCapped(Subjects.AIR_PRESSURE_PA))
+    }
+
+    /**
+     * **Nothing is capped in Maximum mode**, where `publishRate` returns the ceiling whatever was
+     * asked. Without this the mode would flag a subject it had *raised* as one being held down — the
+     * comparison is the same, and its meaning is inverted.
+     */
+    @Test
+    fun `maximum mode flags nothing`() {
+        val tuned = settings.copy(
+            publishAllMax = true,
+            sensorRates = mapOf(
+                Subjects.ORIENTATION_QUATERNION to SensorRate.Hz(1.0),
+                Subjects.HEADING_MAGNETIC_DEG to SensorRate.Hz(50.0),
+            ),
+        )
+
+        assertFalse(tuned.publishRateIsCapped(Subjects.HEADING_MAGNETIC_DEG))
     }
 }

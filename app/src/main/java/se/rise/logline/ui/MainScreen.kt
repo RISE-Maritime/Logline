@@ -384,6 +384,9 @@ fun MainScreen(
                                     requested = settings.publishRate(entry.subject),
                                     recording = settings.recordRate(entry.subject)
                                         .takeIf { it != settings.publishRate(entry.subject) },
+                                    cappedBy = entry.rateOwnerEntry()
+                                        ?.takeIf { settings.publishRateIsCapped(entry.subject) }
+                                        ?.let { labelOf(it).name },
                                     onOpen = { onOpenSubjectQos(entry) },
                                     onToggle = { onToggleSubject(entry, it) },
                                 )
@@ -782,6 +785,20 @@ private fun rateLine(
     ceiling: RateCeiling?,
     /** The recording rate, when it differs from the publish rate. Null when the two agree. */
     recording: SensorRate? = null,
+    /**
+     * The subject whose rate is holding this one down, when one is — otherwise null.
+     *
+     * **It replaces the ceiling rather than joining it**, which is what keeps this to three numbers.
+     * In this state the sensor's own limit is the least useful of the three: it is not what is
+     * deciding anything, and printed beside a rate it cannot explain it actively invites raising a
+     * figure that will not move. What is worth a slot is the name of the thing to go and change.
+     *
+     * Only for a subject that *rides* another and asked for more than it is getting. A subject merely
+     * following its owner is not flagged — its stored rate is absent, so the figure shown **is** the
+     * owner's and contradicts nothing. And a head subject clamped to its own record rate is not
+     * flagged either: the `rec` figure is already on the row, a few characters to the left.
+     */
+    cappedBy: String? = null,
 ): String =
     listOfNotNull(
         achievedHz?.let { "${formatRate(it)} Hz" },
@@ -789,7 +806,7 @@ private fun rateLine(
         // Labelled `pub` only when there is a `rec` beside it to be told apart from; on a subject where
         // the file and the wire agree, one unqualified figure is the honest reading.
         if (recording != null) "pub ${rateWord(requested)}" else requestedLabel(requested),
-        ceiling?.label(),
+        cappedBy?.let { "capped by $it" } ?: ceiling?.label(),
     ).joinToString(" · ")
 
 /** `50`, or `max` — the figure without its verb, for the two-rate form. */
@@ -1303,6 +1320,8 @@ private fun SubjectRow(
      * itself — the row only mentions two when there are two.
      */
     recording: SensorRate? = null,
+    /** The subject holding this one's publish rate down, when one is. See [rateLine]. */
+    cappedBy: String? = null,
     onOpen: () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
@@ -1331,10 +1350,10 @@ private fun SubjectRow(
         // moment it is worth reading, since deciding what to ask a source for happens before a run and
         // not during one. Once there is a sample count from the last run, that is the better fact and
         // the line is long enough without both.
-        SubjectHealth.Waiting -> "Waiting · ${rateLine(null, requested, ceiling, recording)}"
+        SubjectHealth.Waiting -> "Waiting · ${rateLine(null, requested, ceiling, recording, cappedBy)}"
         SubjectHealth.Idle ->
             if (status.samplesPublished == 0L) {
-                rateLine(null, requested, ceiling, recording).replaceFirstChar { it.uppercase() }
+                rateLine(null, requested, ceiling, recording, cappedBy).replaceFirstChar { it.uppercase() }
             } else {
                 // `formatCount` rather than `formatCounted`: dropping the word "samples" is what keeps
                 // the commonest of these lines on one row once the rate is appended.
@@ -1365,7 +1384,7 @@ private fun SubjectRow(
             // the achieved rate alone rather than an invented ceiling.
             // Before the first two samples there is no achieved rate to divide out, so the line is
             // the other two numbers — more use than "Publishing" was on a 0.1 Hz subject.
-            rateLine(hz, requested, ceiling, recording).replaceFirstChar { it.uppercase() }
+            rateLine(hz, requested, ceiling, recording, cappedBy).replaceFirstChar { it.uppercase() }
                 .ifBlank { "Publishing" }
         }
     }

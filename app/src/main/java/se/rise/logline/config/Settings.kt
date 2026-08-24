@@ -553,6 +553,31 @@ data class Settings(
     }
 
     /**
+     * Whether another subject's rate is holding this one below what it asked for.
+     *
+     * True only for a subject that **rides** another and would publish faster if the owner let it. The
+     * subject row uses it to name the owner in place of the sensor's own limit, which in that state is
+     * the least useful of the three numbers on the row — it is not deciding anything, and printed
+     * beside a rate it cannot explain it invites raising a figure that will not move.
+     *
+     * Three cases are deliberately *not* capped, and each would be a false alarm:
+     *
+     * - **Following.** A derived subject with no stored rate takes the owner's through
+     *   [requestedPublishRate], so requested and ceiling are equal by construction. The figure shown
+     *   is the owner's and contradicts nothing — there is no request being denied.
+     * - **A head subject clamped to its own record rate.** [publishCeiling] falls back to
+     *   [recordRate] where there is no owner, so this would fire on a subject with no owner to name.
+     *   The row already carries the `rec` figure a few characters to the left.
+     * - **[publishAllMax].** There [publishRate] returns the ceiling whatever was asked, so comparing
+     *   the two would flag a subject the mode had *raised* as one being held down.
+     */
+    fun publishRateIsCapped(subject: String): Boolean {
+        if (publishAllMax) return false
+        if (PublishedSubject.forSubject(subject)?.rateOwner == null) return false
+        return publishRate(subject) != requestedPublishRate(subject)
+    }
+
+    /**
      * What was *asked for*, before any clamping — which is what an editor has to show.
      *
      * [publishRate] answers "what will go out", and a text field showing that cannot be edited: typing
