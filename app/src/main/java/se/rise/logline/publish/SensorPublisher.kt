@@ -700,19 +700,6 @@ class SensorPublisher(private val appContext: Context) {
      * dropped frames do not decode; `audio`'s rate is a *chunk length*, so dropping one leaves a hole in
      * the sound rather than a thinner stream; and `log_message` is a person pressing a button.
      */
-    private fun publishIntervals(settings: Settings): Map<PublishedSubject, Long> =
-        PublishedSubject.entries.mapNotNull { entry ->
-            if (entry.eventDriven) return@mapNotNull null
-            // The flag rather than the two names, so the subject page that *states* this and the
-            // publish path that *enforces* it cannot drift — see PublishedSubject.neverThinned.
-            if (entry.neverThinned) return@mapNotNull null
-            val publish = settings.publishRate(entry.subject)
-            val record = settings.recordRate(entry.subject)
-            if (publish == record) return@mapNotNull null
-            val hz = (publish as? SensorRate.Hz)?.hz ?: return@mapNotNull null
-            entry to (1_000_000_000.0 / hz).toLong()
-        }.toMap()
-
     private fun declareLiveliness(session: KeelsonSession, settings: Settings) {
         // Every source this run actually publishes under, taken from the registry rather than listed by
         // hand — otherwise the radio links would publish on keys no liveliness token covers, and a

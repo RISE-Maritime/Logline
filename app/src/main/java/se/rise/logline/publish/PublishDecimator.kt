@@ -1,5 +1,9 @@
 package se.rise.logline.publish
 
+import se.rise.logline.config.Settings
+import se.rise.logline.keelson.PublishedSubject
+import se.rise.logline.sensors.SensorRate
+
 /**
  * Whether enough time has passed to put another sample of this subject on the wire.
  *
@@ -47,3 +51,30 @@ class PublishDecimator(private val intervalNanos: Long) {
         return false
     }
 }
+
+/**
+ * How long the wire must wait between samples of each subject, for subjects that are thinned at all.
+ *
+ * One entry per subject whose publish rate is slower than its record rate; everything absent from the
+ * map publishes every sample it is given. `SensorPublisher` builds this once when a run starts and each
+ * [se.rise.logline.publish.SensorPublisher] subject sink takes its own [PublishDecimator] from it —
+ * **per sink, never per collector**, which is what makes a shared listener come out right. Eight
+ * subjects ride one `Location` callback, and thinning at the callback would drag speed and course down
+ * with the fix.
+ *
+ * Top-level and pure so it can be driven from a JVM test. It was a private member of `SensorPublisher`,
+ * which put the one place the rates, the registry and the decimator meet behind a class that cannot be
+ * built without Android and Zenoh — so the combination could only ever be checked by hand on a phone.
+ */
+internal fun publishIntervals(settings: Settings): Map<PublishedSubject, Long> =
+    PublishedSubject.entries.mapNotNull { entry ->
+        if (entry.eventDriven) return@mapNotNull null
+        // The flag rather than the two names, so the subject page that *states* this and the
+        // publish path that *enforces* it cannot drift — see PublishedSubject.neverThinned.
+        if (entry.neverThinned) return@mapNotNull null
+        val publish = settings.publishRate(entry.subject)
+        val record = settings.recordRate(entry.subject)
+        if (publish == record) return@mapNotNull null
+        val hz = (publish as? SensorRate.Hz)?.hz ?: return@mapNotNull null
+        entry to (1_000_000_000.0 / hz).toLong()
+    }.toMap()
