@@ -49,8 +49,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import se.rise.logline.keelson.PublishedSubject
@@ -82,8 +85,65 @@ val WINDOW_CHOICES = listOf(30 to "30 s", 120 to "2 min", 600 to "10 min")
  * ticker rather than pushed — the publish path runs at hundreds of samples a second and must never
  * drive recomposition.
  */
-/** Tall enough to navigate by, against the 240dp it started at. */
-private val MAP_HEIGHT = 400.dp
+/**
+ * How much of the space between the bars the collapsed chart takes.
+ *
+ * **A fraction rather than a height, for the same reason the full-screen branch below stopped carrying
+ * one.** This was a pinned 400dp, tuned on a Pixel 6 where the chart and the fix line attached under it
+ * come to a little over half the content height — which is the right proportion there and wrong
+ * everywhere else: on a small phone the same 400dp is nearly the whole viewport, so the three
+ * navigation values the hierarchy puts directly under the chart fall below the fold on the one device
+ * with the least room to spare.
+ *
+ * 0.57 because that is what 400dp *was*: measured on a Pixel 6 with uiautomator, the scroll viewport
+ * between the top bar and the navigation bar is 1831 px, i.e. 698dp, and 400/698 = 0.573. So the phone
+ * this was tuned on keeps its layout to within a couple of dp — chart, fix line, the three readouts,
+ * the vitals row, the health chips and the window chips all still land in the first screenful — and
+ * every other phone now gets the same *proportion* instead of the same number.
+ *
+ * Taken from the scaffold's own `padding` rather than from `LocalConfiguration.screenHeightDp`: the
+ * padding already has the two bars and the system insets taken off, and doing that subtraction by hand
+ * is exactly the arithmetic that made a pinned number wrong in the first place. `markListMaxHeight()` on
+ * the Events tab has to use `screenHeightDp` because it is measured *inside* a scroll, where the height
+ * on offer is infinite; here the number is read before the scroll begins.
+ */
+private const val CHART_HEIGHT_FRACTION = 0.57f
+
+/**
+ * The floor and the ceiling, which are two design limits rather than two tuned numbers.
+ *
+ * The chart started at 240dp and was made taller because that was not enough to navigate by, so a
+ * proportion alone must not take it back under: below [MIN_CHART_HEIGHT] the chart keeps its height and
+ * the readouts move below the fold instead, which is the right way round — a chart too small to read is
+ * no use whether or not the numbers beside it are visible.
+ *
+ * [MAX_CHART_VIEWPORT_FRACTION] is the other end, and **landscape is what needs it**: measured on a
+ * Pixel 6 turned sideways, the viewport is 215dp, so the floor alone made the chart 112% of it and the
+ * fix line attached underneath could not be reached without scrolling. That fix line is part of the same
+ * instrument — the position and its accuracy are inside the chart's own surface precisely so the two read
+ * as one thing — so the chart may not grow to hide it. The cap is applied *after* the floor and
+ * therefore wins, which is the intended precedence: being navigable matters less than being attached to
+ * a reading. In portrait neither bound binds on any phone measured.
+ */
+private val MIN_CHART_HEIGHT = 240.dp
+
+/** See [MIN_CHART_HEIGHT]. */
+private const val MAX_CHART_VIEWPORT_FRACTION = 0.8f
+
+/**
+ * The collapsed chart's height, given the space between the bars.
+ *
+ * Pure and tested because none of it is visible until it is wrong: three bounds interact here, they
+ * disagree only on devices nobody has in hand, and a chart that is merely the wrong size still looks
+ * like a chart. The landscape case was found by turning a phone sideways and measuring, not by reading
+ * this.
+ *
+ * Floor then ceiling, in that order, and the order is the decision: `coerceIn` throws where the ceiling
+ * is under the floor, which is precisely landscape.
+ */
+internal fun chartHeight(contentHeight: Dp): Dp = (contentHeight * CHART_HEIGHT_FRACTION)
+    .coerceAtLeast(MIN_CHART_HEIGHT)
+    .coerceAtMost(contentHeight * MAX_CHART_VIEWPORT_FRACTION)
 
 
 @Composable
@@ -244,6 +304,20 @@ fun LiveScreen(
             return@ScreenScaffold
         }
 
+        // The space between the bars, which is what the chart should be a fraction *of*. `padding` is
+        // the scaffold's own measurement of its two bars and the system insets — the same value the
+        // full-screen branch above fills, so the two cannot disagree about how much room there is — and
+        // `containerSize` is the window it took them from.
+        //
+        // Read flat rather than through `BoxWithConstraints`: that would have to sit outside the scroll,
+        // since the height reported inside one is infinite, and it re-subcomposes its content on every
+        // measure — a cost this screen would pay on a 5 Hz ticker for a number that changes only when
+        // the phone is turned.
+        val contentHeight = with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.height.toDp()
+        } - padding.calculateTopPadding() - padding.calculateBottomPadding()
+        val chartHeight = chartHeight(contentHeight)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -268,7 +342,7 @@ fun LiveScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
               Column {
-                Box(Modifier.fillMaxWidth().height(MAP_HEIGHT)) {
+                Box(Modifier.fillMaxWidth().height(chartHeight)) {
                 mapView(Modifier.fillMaxSize())
                 MapToolbar(
                     followFix = followFix,
