@@ -70,28 +70,6 @@ Left over from the platform library, and each is a finding rather than a fix. Al
 
 
 
-- [x] **The layer menu says a layer needs a key, but not that a key has stopped working.** An expired
-      or over-quota MapTiler key fails per tile, so the chart simply goes blank with the layer still
-      ticked — the gear only appears when the field is *empty*. A tile-fetch failure is not currently
-      surfaced anywhere.
-      Both places now say it: the menu marks every MapTiler layer "Key not accepted" with the same gear
-      a missing key gets, and a line under the chart says so where the blankness is, for somebody who
-      never thought to open the menu.
-      **Watching tile failures cannot work, and that took measuring to find out.** With a deliberately
-      invalid key the tile handler reported **4974 successes and zero failures** — `MapTileApproximater`
-      supplies a scaled tile from a neighbouring zoom and that counts as success, so a chart degrading
-      to blur reports itself healthy and `MAPTILE_FAIL_ID` never fires. The whole tally-and-threshold
-      approach went in the bin.
-      Asking the service is definite instead: probed with a real key and an invalid one, MapTiler
-      answers **200** and **403** ("Invalid key" in the body), so `probeMapTilerKey` does one HEAD of one
-      zoom-1 tile when the key or the layer changes — which also notices a key that comes back after a
-      quota reset. Everything unrecognised is `Unknown` and reported to nobody, so a 500, a captive
-      portal or no coverage never accuses a key that is fine; and `usesMapTiler` keeps OpenStreetMap's
-      deliberate 404s past zoom 19 out of it while keeping **Satellite** in whenever a key is set, since
-      it silently upgrades from Esri and is the default layer.
-      **A dead key does not blank the chart, it degrades it** — cached tiles keep drawing and osmdroid
-      upscales the rest — which is why the wording is "not loading" rather than "blank". Done in
-      dcbeeb2.
 
 - [ ] **The Files list only shows recordings written by the current install.** MediaStore ties a file
       to the package that created it, so 101 of the 216 recordings in `Downloads/Logline` on the dev
