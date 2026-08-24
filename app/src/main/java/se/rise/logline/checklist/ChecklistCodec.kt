@@ -131,7 +131,21 @@ object ChecklistCodec {
             procedureId = m.procedureId,
             eventCount = m.eventCount,
             items = m.itemsList.associate { it.itemId to it.toModel() },
+            // Empty from a publisher that predates the run model, which is the same fallback
+            // crowsnest's own `runIdFor` makes for this app's events.
+            runId = m.runId.ifEmpty { m.procedureId },
+            procedureTitle = m.procedureTitle,
+            status = m.status.toModel(),
         )
+    }
+
+    private fun ChecklistStateMessage.RunStatus.toModel(): RunStatus = when (this) {
+        ChecklistStateMessage.RunStatus.RUN_STATUS_PLANNED -> RunStatus.Planned
+        ChecklistStateMessage.RunStatus.RUN_STATUS_ACTIVE -> RunStatus.Active
+        ChecklistStateMessage.RunStatus.RUN_STATUS_COMPLETED -> RunStatus.Completed
+        ChecklistStateMessage.RunStatus.RUN_STATUS_ABANDONED -> RunStatus.Abandoned
+        // Includes UNRECOGNIZED: a status this build does not know is not a status to guess at.
+        else -> RunStatus.Unknown
     }
 
     fun decodePresence(envelopeBytes: ByteArray, seenAtEpochMillis: Long): RemotePresence? =

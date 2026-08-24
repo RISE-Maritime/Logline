@@ -57,7 +57,6 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
 
     private var eventPublisher: AdvancedPublisher? = null
     private var presencePublisher: AdvancedPublisher? = null
-    private val statePublishers = mutableMapOf<String, AdvancedPublisher>()
     private var subscribers: List<Subscriber<Unit>> = emptyList()
 
     /**
@@ -129,11 +128,21 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
 
                 subscribeEvents(opened, checklistKeys)
                 subscribePresence(opened, checklistKeys)
+                subscribeState(opened, checklistKeys)
+                subscribeProcedures(opened, checklistKeys)
+                // **Nothing here issues a Zenoh query, and that is the design rather than an
+                // omission.** A query's *reply* aborts the process — see `CHECKLISTS_AVAILABLE` — so
+                // the bootstrap `get` this used to run is gone and everything arrives by
+                // subscription: crowsnest republishes `checklist_state` periodically, and the item
+                // text comes from this phone's own store, which `ChecklistRepository` persists and
+                // `STARTER_PROCEDURES` seeds with crowsnest's own ids.
+                //
+                // The cost is a procedure this phone has never held and nobody republishes while it
+                // listens: that run renders by item id, and the screen says so.
+                store.setBootstrapped(true)
 
-                launch { bootstrap(opened, checklistKeys) }
                 launch { watchConnection(opened) }
                 launch { heartbeat() }
-                launch { snapshotLoop() }
                 // The only signal that this worked. Everything else in this class logs a *failure*,
                 // so a session that opened correctly used to be indistinguishable from one that was
                 // never asked for — which is why the route-scoping this hangs off went unverified on
@@ -163,7 +172,6 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
         session = null
         eventPublisher = null
         presencePublisher = null
-        statePublishers.clear()
         subscribers = emptyList()
         store.setLink(ChecklistLink.Off)
         store.setBootstrapped(false)
@@ -351,27 +359,49 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
     }
 
     /**
-     * Read the library and any progress out of the router's storage.
+     * Run snapshots, from every site — the half that replaces the bootstrap query.
      *
-     * Both are `get`s rather than subscriptions because a storage answers queries — a subscriber would
-     * hear only what is published *from now on*, which for a procedure written months ago is nothing.
-     * An empty result is not an error: it means nobody has published to this bus yet, or no storage is
-     * configured for the key, and neither is distinguishable from here.
+     * Same key expression the `get` used; a different thing answers it. Crowsnest republishes each
+     * active run periodically, so a late joiner is caught up within one interval rather than by asking.
+     * The reducer decides whether a snapshot is worth applying, exactly as it did for the query's
+     * replies, so nothing downstream knows the difference.
      */
-    private suspend fun bootstrap(open: KeelsonSession, checklistKeys: ChecklistKeys) {
-        runCatching {
-            val procedures = open.query(checklistKeys.procedureQuery())
-                .mapNotNull { (_, payload) -> ChecklistCodec.decodeProcedure(payload) }
-            if (procedures.isNotEmpty()) {
-                store.mergeProcedures(procedures)
-                repository.saveProcedures(store.state.value.procedures)
+    private fun subscribeState(open: KeelsonSession, checklistKeys: ChecklistKeys) {
+        val runScope = scope ?: return
+        val inbox = Channel<ByteArray>(Channel.BUFFERED)
+        val subscriber = open.declareSubscriber(checklistKeys.stateQuery()) { _, payload ->
+            inbox.trySend(payload)
+        }
+        subscribers = subscribers + subscriber
+        runScope.launch {
+            for (payload in inbox) {
+                val snapshot = ChecklistCodec.decodeSnapshot(payload) ?: continue
+                store.apply(snapshot)
+                persistProgress()
             }
-            // After the procedures, so a snapshot's items already have titles to resolve against.
-            open.query(checklistKeys.stateQuery())
-                .mapNotNull { (_, payload) -> ChecklistCodec.decodeSnapshot(payload) }
-                .forEach(store::apply)
-            store.setBootstrapped(true)
-        }.onFailure { Log.w(TAG, "checklist bootstrap failed", it) }
+        }
+    }
+
+    /**
+     * Procedure definitions published while this phone is listening.
+     *
+     * Best-effort by nature — see `ChecklistKeys.procedureQuery`. What arrives here is merged into the
+     * store and persisted, so a procedure seen once is held for every session after.
+     */
+    private fun subscribeProcedures(open: KeelsonSession, checklistKeys: ChecklistKeys) {
+        val runScope = scope ?: return
+        val inbox = Channel<ByteArray>(Channel.BUFFERED)
+        val subscriber = open.declareSubscriber(checklistKeys.procedureQuery()) { _, payload ->
+            inbox.trySend(payload)
+        }
+        subscribers = subscribers + subscriber
+        runScope.launch {
+            for (payload in inbox) {
+                val procedure = ChecklistCodec.decodeProcedure(payload) ?: continue
+                store.mergeProcedures(listOf(procedure))
+                runCatching { repository.saveProcedures(store.state.value.procedures) }
+            }
+        }
     }
 
     private suspend fun watchConnection(open: KeelsonSession) {
@@ -427,39 +457,12 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
         }
     }
 
-    /**
-     * Publish this site's view of the active procedure, periodically.
-     *
-     * This is what a late joiner bootstraps from, and the router's storage keeps the last one — so a
-     * phone that has been ticking items offline puts them where crowsnest can find them the moment it
-     * is back, without either side replaying an event stream.
-     */
-    private suspend fun snapshotLoop() {
-        while (true) {
-            delay(SNAPSHOT_MILLIS)
-            val procedureId = activeProcedureId
-            if (procedureId.isEmpty()) continue
-            val open = session ?: continue
-            val checklistKeys = keys ?: continue
-            val who = operator ?: continue
-            val progress = store.state.value.state.progress[procedureId] ?: continue
-            val publisher = statePublishers.getOrPut(procedureId) {
-                open.declarePublisher(
-                    checklistKeys.state(procedureId),
-                    qosForSubject(Subjects.CHECKLIST_STATE),
-                )
-            }
-            open.publish(publisher, ChecklistCodec.encodeSnapshot(procedureId, progress, who))
-        }
-    }
-
     private companion object {
         const val TAG = "ChecklistSync"
 
         /** Crowsnest's numbers, matched so the two sites agree on when somebody has gone quiet. */
         const val HEARTBEAT_MILLIS = 5_000L
         const val PRESENCE_STALE_MILLIS = 15_000L
-        const val SNAPSHOT_MILLIS = 30_000L
 
         const val CONNECTION_POLL_MILLIS = 2_000L
         const val REPLAY_SPACING_MILLIS = 20L

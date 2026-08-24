@@ -3,45 +3,55 @@ package se.rise.logline.checklist
 /**
  * Whether the checklist feature can be used at all on this build.
  *
- * **False, because turning it on crashes the app.** Verified against the live `router.example.com` bus on a
- * Pixel 6, three attempts out of three: the session opens, the presence heartbeat goes out, the
- * bootstrap `get` on the wildcard `checklist_procedure` and `checklist_state` keys is answered by the
- * router storage,
- * and the reply callback aborts the process in `finalize_pending_query` with
+ * **False. Two separate JNI faults, and removing the first only exposed the second.** Turning
+ * checklists on used to
+ * abort the process three times out of three against the live bus: the session opened, the presence
+ * heartbeat went out, the bootstrap `get` was answered by the router storage, and the reply callback
+ * killed the app in `finalize_pending_query` with
  *
  * ```
  * JNI DETECTED ERROR IN APPLICATION: JNI NewByteArray called with pending exception
  * java.lang.ClassNotFoundException: Didn't find class "io.zenoh.jni.pubsub.EntityGlobalId"
  * ```
  *
- * It is the **same binding bug as `Zenoh.scout`** — the binding builds a class in native code with
- * `FindClass`, on one of Zenoh's own threads, where JNI resolves against the system class loader and
- * cannot see app classes — and `keelson/Scout.kt` exists because of it. The same fault already blocks
- * WHEP; that TODO item asked whether `KeelsonSession.query()` was affected when a storage actually
- * answers, and said it mattered because the checklist bootstrap uses it. It is, and it does.
+ * That is the **same binding bug as `Zenoh.scout`** — a class built in native code with `FindClass`, on
+ * one of Zenoh's own threads, where JNI resolves against the system class loader and cannot see app
+ * classes — and it still blocks WHEP. Nothing about it has been repaired.
  *
- * **Nothing in this app's own code is wrong**, which is why this is a gate rather than a fix. The one
- * message that escapes before the abort is well-formed: captured off the bus and decoded with keelson's
- * *own* Python bindings, the presence lands on
- * `crowsnest/@v0/checklist/pubsub/checklist_presence/{roc_site}/{operator_id}` carrying `username`,
- * `roc_site` and a timestamp. There is no repair from this side — the binding has to change upstream,
- * or the bootstrap has to stop being a Zenoh query.
+ * What changed is that `ChecklistSync` no longer issues a Zenoh **query**, which was the only thing in
+ * the checklist path that could reach the faulty reply handler. Run snapshots arrive by subscription
+ * instead, which works because crowsnest republishes them periodically, and the item text comes from
+ * this phone's own store. See `ChecklistRunsScreen` for what that costs.
  *
- * What the gate is *for* is the part that is this app's business: a switch a person can reach must not
- * reliably kill the app. Until then a crowsnest station sees this phone announce itself and vanish,
- * over and over.
+ * **Removing the query was not enough, and the second measurement is the important one.** With the
+ * bootstrap gone and run snapshots arriving by subscription instead, the app still died — on a
+ * *different* class, from a *different* code path:
  *
- * **Re-enabling is this one boolean.** Flip it to true, run the checklist screens against a bus whose
- * router has the checklist storages, and confirm `adb logcat -b crash | grep EntityGlobalId` stays
- * empty. Everything else — the sync, the store, the reducer, the screens — is written and untouched.
+ * ```
+ * JNI NewStringUTF called with pending exception
+ * java.lang.ClassNotFoundException: Didn't find class "io.zenoh.jni.time.Timestamp"
+ * ```
+ *
+ * in a **subscriber callback**, not a query reply. The cause is the same — `FindClass` on one of
+ * Zenoh's own threads cannot see app classes — but the trigger is any sample carrying a Zenoh
+ * timestamp, and on this bus every checklist key carries one: measured with a Python subscriber,
+ * `checklist_state` and `checklist_presence` both arrive `timestamped=True`, because the router
+ * timestamps what its storages keep.
+ *
+ * **`checklist_presence` was already subscribed before any of this**, which means the feature could
+ * never have survived a second station being present. It crashed on the bootstrap query first, so the
+ * subscription half was never reached — one bug hiding behind another.
+ *
+ * So the gate is not about queries. **Nothing that subscribes to a timestamped key can work on this
+ * binding**, and catching does not help: it is a native abort, not an exception. The query-free sync
+ * and the simplified screen are kept because they are correct and tested, and because they shorten the
+ * work to whatever comes after the binding is fixed — not because they made the feature usable.
  */
 const val CHECKLISTS_AVAILABLE = false
 
 /**
- * Why not, in the words the Settings row shows.
- *
- * A disabled control has to say what disabled it: that is the app's rule that *state* — including why a
- * control cannot be used — stays on the page rather than moving behind the ⓘ.
+ * Kept for the moment a query is unavoidable again — an interface this app must serve, say — so the
+ * switch has words ready rather than being silently disabled by whoever needs to gate it next.
  */
 const val CHECKLISTS_UNAVAILABLE_REASON =
     "Unavailable on this build: the Zenoh binding crashes on the first reply from the router."

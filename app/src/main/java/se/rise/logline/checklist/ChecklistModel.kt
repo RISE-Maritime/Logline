@@ -68,6 +68,16 @@ data class ItemProgress(
 data class ProcedureProgress(
     val items: Map<String, ItemProgress> = emptyMap(),
     val eventCount: Int = 0,
+    /**
+     * What the run calls itself and how it is going, taken from the last snapshot that carried them.
+     *
+     * **This is what lets a run render when its procedure is unknown to this phone.** The item *text*
+     * lives in `checklist_procedure`, which is storage-only and therefore out of reach without a query
+     * — but the run's own title travels in the snapshot, so the row has a name even when its items can
+     * only be listed by id.
+     */
+    val title: String = "",
+    val status: RunStatus = RunStatus.Unknown,
 ) {
     fun item(itemId: String): ItemProgress = items[itemId] ?: ItemProgress()
 

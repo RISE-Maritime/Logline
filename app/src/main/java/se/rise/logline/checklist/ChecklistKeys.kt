@@ -37,7 +37,15 @@ class ChecklistKeys(private val realm: String, private val entityId: String) {
     fun state(procedureId: String): String =
         pubsubKey(realm, entityId, Subjects.CHECKLIST_STATE, procedureId)
 
-    /** Every procedure's snapshot in one query — the storage answers each key it holds. */
+    /**
+     * Every run's snapshot, as a **subscription**.
+     *
+     * It was a query, against the router's storage, and that is what crashed the app — a query's reply
+     * aborts the process on this binding. It works as a subscription because crowsnest republishes each
+     * active run's snapshot periodically rather than only writing it once: measured on the live bus,
+     * five concurrent runs each arrived more than once inside twelve seconds. The wildcard is the same
+     * either way; only who answers it changes.
+     */
     fun stateQuery(): String =
         pubsubKey(realm, entityId, Subjects.CHECKLIST_STATE, "*")
 
@@ -62,7 +70,15 @@ class ChecklistKeys(private val realm: String, private val entityId: String) {
     fun procedure(procedureId: String): String =
         pubsubKey(realm, entityId, Subjects.CHECKLIST_PROCEDURE, procedureId)
 
-    /** The whole library, in one query against the router's storage. */
+    /**
+     * The whole library — now a subscription, and a *best-effort* one.
+     *
+     * Unlike the run snapshots, procedures are not republished on a timer: crowsnest `put`s one when
+     * somebody edits it, so this catches an edit made while the phone is listening and nothing else.
+     * The library the phone actually renders from is its own, persisted by `ChecklistRepository` and
+     * seeded from `STARTER_PROCEDURES` with crowsnest's own ids. A run whose procedure is in neither
+     * renders by item id, and the screen says why.
+     */
     fun procedureQuery(): String =
         pubsubKey(realm, entityId, Subjects.CHECKLIST_PROCEDURE, "*")
 }

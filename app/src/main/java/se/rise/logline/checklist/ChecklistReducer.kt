@@ -29,12 +29,31 @@ data class ChecklistEventRecord(
     val referenceId: String = "",
 )
 
-/** A decoded `keelson.ChecklistState` — one procedure's progress as some other site sees it. */
+/** A decoded `keelson.ChecklistState` — one run's progress as some other site sees it. */
 data class ProcedureSnapshot(
     val procedureId: String,
     val eventCount: Int,
     val items: Map<String, ItemProgress>,
+    /**
+     * The run this snapshot belongs to, and the title and status it carries — all three added upstream
+     * and read here for **display only**.
+     *
+     * **Progress is still keyed on the procedure**, deliberately and with a known cost: two runs of one
+     * procedure live at the same time collapse into a single row. Re-keying the map on the run would
+     * touch the reducer, both existing screens, the reminder receiver, persistence and their tests —
+     * and events would have to be re-keyed with it, or snapshots and events would write to different
+     * keys in one map, which is worse than either choice. Filed rather than smuggled in here.
+     *
+     * The title is what lets a run render when its *procedure* is unknown to this phone: without it a
+     * run the phone has never held a definition for would have nothing to call itself.
+     */
+    val runId: String = "",
+    val procedureTitle: String = "",
+    val status: RunStatus = RunStatus.Unknown,
 )
+
+/** A run's own state, as upstream models it. Unknown covers a publisher that predates the run model. */
+enum class RunStatus { Unknown, Planned, Active, Completed, Abandoned }
 
 /**
  * Everything the reducer owns: progress per procedure, a timeline to show, and what it has already
@@ -250,6 +269,11 @@ fun applySnapshot(state: ChecklistState, snapshot: ProcedureSnapshot): Checklist
             snapshot.procedureId to ProcedureProgress(
                 items = current.items + snapshot.items,
                 eventCount = snapshot.eventCount,
+                // Kept from whatever last carried them: an older publisher sends neither, and losing a
+                // title the phone already has because the next snapshot came from a pre-run-model
+                // station would make the row anonymous for no reason.
+                title = snapshot.procedureTitle.ifEmpty { current.title },
+                status = if (snapshot.status == RunStatus.Unknown) current.status else snapshot.status,
             )
             ),
     )

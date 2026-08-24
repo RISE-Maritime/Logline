@@ -147,6 +147,7 @@ import se.rise.logline.ui.CapturedOffset
 import se.rise.logline.ui.CapturedRotation
 import se.rise.logline.ui.ChartMarks
 import se.rise.logline.ui.ChecklistScreen
+import se.rise.logline.ui.ChecklistRunsScreen
 import se.rise.logline.ui.ChecklistsScreen
 import se.rise.logline.ui.ConnectionQrDialog
 import se.rise.logline.ui.HEADING_SECONDS
@@ -1622,34 +1623,22 @@ private fun App(
             )
         }
         composable(Routes.CHECKLISTS) {
-            ChecklistsScreen(
+            // **The simplified, query-free view** — see `ChecklistRunsScreen`. The fuller pair beside
+            // it bootstraps with a Zenoh `get`, whose reply aborts the process on this binding, which
+            // is what had checklists switched off entirely. They are still in the tree; nothing routes
+            // to them, and whether they come back is a decision filed in TODO.md rather than one made
+            // by deleting somebody's working feature as a side effect.
+            ChecklistRunsScreen(
                 state = checklistState,
-                operatorName = current.operatorName,
-                operatorRole = current.operatorRole,
-                rocSite = current.rocSite(),
-                onSaveIdentity = { name, role, site ->
-                    scope.launch {
-                        // The operator id is generated once and then never moves: it is what stops
-                        // this phone's own presence heartbeat, which comes back on the wildcard
-                        // subscription, from showing up as another operator.
-                        app.settingsRepository.update(
-                            current.copy(
-                                operatorId = current.operatorId.ifBlank { UUID.randomUUID().toString() },
-                                operatorName = name,
-                                operatorRole = role,
-                                rocSiteId = site,
-                                // Entering a name is the act of opting in; making them then find a
-                                // switch in Settings would be a second gate on the same decision.
-                                checklistEnabled = true,
-                            )
-                        )
+                canTick = current.hasChecklistIdentity(),
+                onSetIdentity = { nav.navigate(Routes.SETTINGS) },
+                onToggleItem = { procedureId, itemId, done ->
+                    if (done) {
+                        app.checklist.revertItem(procedureId, itemId)
+                    } else {
+                        app.checklist.completeItem(procedureId, itemId)
                     }
                 },
-                onOpenProcedure = { procedureId ->
-                    app.checklist.openProcedure(procedureId)
-                    nav.navigate("${Routes.CHECKLIST_PREFIX}/$procedureId")
-                },
-                onPublishStarter = { app.checklist.publishStarterProcedures() },
                 onBack = { nav.popBackStack() },
             )
         }
