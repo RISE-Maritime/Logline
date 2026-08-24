@@ -96,9 +96,11 @@ import se.rise.logline.keelson.DiscoveredRouter
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.keelson.isLocalEndpoint
+import se.rise.logline.keelson.policyQosForSubject
 import se.rise.logline.keelson.pubsubKey
 import se.rise.logline.keelson.qosForSubject
 import se.rise.logline.keelson.scoutRouters
+import se.rise.logline.keelson.toSubjectQos
 import se.rise.logline.map.deleteOfflineMap
 import se.rise.logline.map.displayNameOf
 import se.rise.logline.map.importOfflineMap
@@ -1375,7 +1377,28 @@ private fun App(
                         saveSettings(
                             app,
                             current.copy(
-                                qosOverrides = current.qosOverrides + (subject to qos),
+                                // **Written only where it differs from `qos.yaml`.** This used to be
+                                // an unconditional `+ (subject to qos)`, so saving a *rate* — the
+                                // control most people come to this screen for — stored a QoS override
+                                // identical to policy and left the page reading "Overridden for this
+                                // phone" about something nobody touched. Undoing it took a deliberate
+                                // "Reset to qos.yaml policy", i.e. a second action to cancel one that
+                                // was never asked for.
+                                //
+                                // Removing on equality is the same statement from the other side: an
+                                // override dialled back to the policy values by hand *is* a reset, and
+                                // keeping the entry would have the screen go on claiming an override
+                                // over values identical to upstream's. It also keeps the policy path
+                                // the one that actually runs, which is what the note on overrides in
+                                // CLAUDE.md asks for — an escape hatch, not the norm.
+                                //
+                                // The two rate fields below already had this shape; this is that rule
+                                // applied to the field that was missing it.
+                                qosOverrides = if (qos == policyQosForSubject(subject).toSubjectQos()) {
+                                    current.qosOverrides - subject
+                                } else {
+                                    current.qosOverrides + (subject to qos)
+                                },
                                 // An event-driven subject has no rate — its screen shows no rate
                                 // control — so storing one would persist a preference nothing reads
                                 // and that the UI could never show back.

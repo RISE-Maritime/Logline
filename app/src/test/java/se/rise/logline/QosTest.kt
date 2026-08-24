@@ -13,6 +13,7 @@ import se.rise.logline.keelson.policyQosForSubject
 import se.rise.logline.keelson.qosForSubject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -202,5 +203,63 @@ class QosTest {
         assertEquals(priority, profile.priority)
         assertEquals(reliability, profile.reliability)
         assertEquals(express, profile.express)
+    }
+
+    // ---- the override, and when one should not be written ----------------------------------------
+
+    /**
+     * **An untouched subject's QoS must compare equal to its policy**, because that equality is the
+     * whole of what stops a save writing a pointless override.
+     *
+     * `SubjectQosScreen` is handed `qosForSubject(subject, overrides)` and hands back whatever the
+     * controls hold; `MainActivity` stores it only where it differs from `policyQosForSubject`. Saving
+     * used to store it unconditionally, so changing only a *rate* — the control most people open that
+     * screen for — left the subject reading "Overridden for this phone" over values identical to
+     * `qos.yaml`, and undoing it took a deliberate "Reset to qos.yaml policy".
+     *
+     * Over every subject rather than one, because the four profiles convert separately and a subject
+     * whose conversion did not round-trip would silently start writing overrides again.
+     */
+    @Test
+    fun `an unmodified subject's qos equals its policy, so a save writes nothing`() {
+        PublishedSubject.entries.forEach { entry ->
+            val handedToTheScreen = qosForSubject(entry.subject)
+            assertEquals(
+                "${entry.subject} would write an override it was never asked for",
+                policyQosForSubject(entry.subject).toSubjectQos(),
+                handedToTheScreen,
+            )
+        }
+    }
+
+    /**
+     * And the other side of the same rule: a genuinely edited QoS still differs, so it is still stored.
+     * A fix that made every save a no-op would pass the test above and break the feature.
+     */
+    @Test
+    fun `an edited qos still differs from policy`() {
+        val subject = Subjects.LOCATION_FIX
+        val edited = qosForSubject(subject).copy(express = !qosForSubject(subject).express)
+        assertNotEquals(policyQosForSubject(subject).toSubjectQos(), edited)
+    }
+
+    /**
+     * An override dialled back to the policy values by hand is a reset, and must be removed rather than
+     * kept — otherwise the screen goes on claiming an override over values identical to upstream's.
+     * This pins the comparison that decides it, which is by value: `SubjectQos` is a data class, and a
+     * reference comparison here would keep every such entry forever.
+     */
+    @Test
+    fun `an override restored to the policy values compares equal to it`() {
+        val subject = Subjects.AIR_PRESSURE_PA
+        val policy = policyQosForSubject(subject).toSubjectQos()
+        val overrideHoldingTheSameValues = SubjectQos(
+            policy.priority,
+            policy.congestionControl,
+            policy.reliability,
+            policy.express,
+        )
+        assertEquals(policy, overrideHoldingTheSameValues)
+        assertNotSame(policy, overrideHoldingTheSameValues)
     }
 }
