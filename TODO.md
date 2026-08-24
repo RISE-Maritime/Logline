@@ -69,30 +69,6 @@ Left over from the platform library, and each is a finding rather than a fix. Al
 
 
 
-
-
-- [x] **The Files list only shows recordings written by the current install.** MediaStore ties a file
-      to the package that created it, so 101 of the 216 recordings in `Downloads/Logline` on the dev
-      phone are invisible to the app — every one written before a reinstall. The empty state already
-      says this in words, but the *list* gives no hint that half the folder is missing, and it is why
-      the largest file the detail view could be tested against was 479 MB rather than 537 MB.
-      **Verified rather than inferred** — the old note in `savedRecordings` admitted it had not been. A
-      file planted in the folder under another package was absent from a listing that returned all
-      fifteen of this install's own: 15 shown, 16 there.
-      The app could not even *count* them, so "3 are missing" was never available; a persisted tree
-      grant is the only way to reach them, allowed here because `Download/Logline` is a subdirectory —
-      the Download root is refused outright. The listing has two halves now, MediaStore first and the
-      granted folder for names it did not return.
-      Three things would each have failed quietly and are handled: `ContentUris.parseId` **throws** on a
-      document Uri and both track-cache call sites used it; `ContentResolver.delete` is not what a tree
-      provider implements, so a delete would have reported success and left the file; and the stored Uri
-      is not the permission, so a grant revoked in Android's settings would leave the string behind and
-      hide the offer to fix the very problem it exists to fix.
-      The offer is a quiet line above the list, not a prompt — nothing is broken until somebody is
-      looking for a recording that is not there. The picker is pointed at the folder, since with no hint
-      it opens on the root of internal storage and Android refuses that, so the button would look
-      broken. Done in 8c9f6d0.
-
 - [ ] **A revoked folder grant is noticed but never re-offered on the detail screen.** `folderGranted`
       is read once per composition of the Files list, so a grant taken back while the app is open shows
       the offer again on the next visit rather than at once, and a recording opened from a stale row
