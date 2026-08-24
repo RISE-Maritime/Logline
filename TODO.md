@@ -12,41 +12,6 @@ the section they belong to.
 
 Left over from the platform library, and each is a finding rather than a fix. All five are Fre this repo can act on.
 
-- [x] **Crowsnest probes an obsolete `get_config` key shape.**
-      `{realm}/@v0/{entity}/@rpc/get_config/connector_platform` predates the `{interface}/{version}`
-      chunks, so nothing a current keelson connector serves answers it — `src/apps/os_config/index.jsx`
-      builds it and every entry of `src/DB/platform_registry.json` declares it. The phone serves both
-      shapes; `legacyPlatformConfigKey()` exists to be deleted once crowsnest moves. While in there:
-      its declared `get_data_streams` and `get_queryables` queryables do not exist in keelson at all.
-      **Half moved, and not the half that matters.** keelson#191's comment says Logline can retire the
-      legacy shape; checked against `crowsnest-dev` at `origin/main` (`59c6a3f`), that is not yet true.
-      The registry did migrate — twelve `configurable/v1` keys — and `get_data_streams` /
-      `get_queryables` are genuinely gone. But `src/apps/os_config/index.jsx:167` is still
-      `` `${platform.realm}/@v0/${key}/@rpc/get_config/connector_platform` ``, hardcoded inline, and it
-      is the *only* site that builds a `get_config` key. So **keep `legacyPlatformConfigKey()`** —
-      deleting it now would stop crowsnest reading any config off a phone.
-      Worth passing upstream: the guard added to stop this recurring, `scripts/checks/rpcKeys.mjs`,
-      reads `src/DB/platform_registry.json` and nothing else, so it cannot see the one key still in the
-      wrong shape. A check that covers the JSON but not the code is why this looked done.
-      **Crowsnest's half is written — and is sitting uncommitted in `../crowsnest-dev`.** Do not read
-      this as shipped. Two files: `src/apps/os_config/index.jsx` now builds the key through the repo's
-      own `rpcKeyFor("configurable/v1")` and filters on the *procedure* via `parse_rpc_key` rather than
-      on the substring `get_config/connector_platform`, which had survived the migration only by luck;
-      and `scripts/checks/rpcKeys.mjs` gained a scan of `src/` for pre-interface `@rpc` keys, which was
-      run against the unfixed code first and failed on exactly that one line.
-      **The source chunk is a wildcard**, because no fixed value is knowable: keelson's own connector is
-      run with `--source-id platform`, the registry declares `connector_platform`, and this app answers
-      on `calibration`. Measured against zenoh's own `KeyExpr.intersects` — the Rust matcher the router
-      runs — `…/get_config/*` reaches all three and reaches neither `…/set_config/…` nor another
-      entity, so the widening is exactly one chunk.
-      **The gate for deleting `legacyPlatformConfigKey()` is now deployment, not code.** Crowsnest must
-      be committed, released and actually running at the stations before the phone stops answering the
-      old key; a merged PR is not the signal. When that day comes it is `legacyPlatformConfigKey()`,
-      its two call sites in `platform/PlatformSync.kt`, and the legacy assertion in `KeysTest`.
-      Done — crowsnest's fix is `a3c4853` in `../crowsnest-dev` and the key is gone from this app.
-      **The deployment gate above was waived deliberately, not met**, so between now and crowsnest
-      actually running at the stations, a station on the old build cannot read a config off a phone.
-      `WhepSignalling.legacyKey` is a *different* pre-interface shape, for the WHEP proxy, and stays.
 - [ ] **The crowsnest probe fix has never been exercised against a phone.** Everything about it is
       offline: `npm run check` green, eslint and `vite build` clean, the key matching measured against
       zenoh's matcher, and the new filter shown to select the same six registry platforms as the old
@@ -59,9 +24,11 @@ Left over from the platform library, and each is a finding rather than a fix. Al
       served: if the wildcard probe turned out not to work in practice, crowsnest fell back to a shape
       that did. That net is gone, so this is now the only path from a station to a phone's config, and
       it is unproven on a bus. Do it before anyone relies on it in the field.
+- 
 - [ ] **Crowsnest does not publish its platform overlay**, so the shared library is one-way today —
       the phone shares and nothing answers. The change is small and belongs in that repo; the pattern
       to copy is its own `dataflowConfigSync.js`.
+- 
 - [ ] **Per-platform failure attribution.** `PublisherStatus` is keyed on the registry entry, so three platforms
       publishing `frame_transform` share one row: platform B's failure can be cleared by platform A's next tick.
       Acceptable for a 0.1 Hz loop, and worth revisiting only if a platform ever fails alone in the field.
@@ -120,49 +87,9 @@ rewritten from the ground up. These are the consequences.
 The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
 satellite, inline and full-screen. Findings:
 
-- [x] **A `locationSource` of `gnss` or `network` collides with the fixed ids.** That setting is free
-      text, so a phone configured that way would declare two publishers on one key and interleave two
-      different solutions indistinguishably. Two test fixtures used `gnss` as their stand-in location
-      source and had to be renamed, which is how this surfaced — the trap is easy to fall into. The fix
-      is to refuse the reserved ids in the settings field. put the Keelson Source as .../gnss/<type>
-      Done the second way, which is better than the first: the two solutions now **nest** under the
-      configured id — `location_fix/{locationSource}/gnss` and `/network` — so no value of a free-text
-      field can collide, rather than a list of reserved words somebody has to keep policing. The
-      specification allows the level ("`source_id` may contain any number of additional levels … ei.
-      camera/rbg/0") and upstream's own parser returns `phone/gnss` as one `source_id`.
-      `PublishedSubject.sourceSuffix` does it, not `fixedSourceId` — a fixed id *replaces* the
-      configured one, which is what caused the collision.
-      **It also found two latent bugs of the same kind.** `McapTrack.isFixTopic` and
-      `RecordingDetailScreen.subjectOf` both read a topic by counting from the end, so a nested source
-      made them answer `gnss` for the *subject*: the Files tab would have stopped recognising its own
-      fix channel and the detail screen printed the wrong pair. Both now use one
-      `pubsubSubjectAndSource()` anchored on the verbatim `pubsub` chunk, pinned against the
-      specification's three-level example.
-      Not seen on the phone — the keys and the parser are covered by tests, but no run has published on
-      the new shape.
 
-- [x] **Add ad ligth and drak team switch into the setttings** 
-      Done, as **three options rather than a switch** — Follow phone / Light / Dark — under a new
-      *Appearance* heading in General. A two-way switch cannot express "follow the phone", which is the
-      default and a real answer; the same reason the sampling-rate control is a `Configured | Maximum`
-      pair rather than a toggle.
-      **It applies at once, and is the first control on that screen that does.** Everything else there
-      goes through `saveSettings()`, which stops and restarts the service to redeclare publishers —
-      restarting a run to change a colour would close the recording somebody is watching. So it takes
-      `update()` and its own callback, bypassing `edited`, which also means it never makes Save dirty.
-      The same rule the tags and the per-subject switches follow, and the screen says "Applies at once"
-      because a control behaving differently from its neighbours has to say so.
-      **It does not travel in a settings profile.** A theme is a personal display preference, the way
-      `batteryExemptionAsked` is a device fact — importing a colleague's profile must not repaint your
-      phone. It survives an import because `applyProfile` is a `copy` naming only what travels;
-      `SettingsProfileTest` now asserts that rather than leaving it to luck, since that test is
-      hand-written and would not otherwise notice a new field.
-      **Not seen on a screen.** The phone stayed locked, so neither scheme has been looked at in this
-      build. Worth checking three things next time it is in hand: that Light renders at all (this app is
-      normally used dark), that the traffic-light readouts still read correctly on a light ground — amber
-      especially — and that the chips show the stored choice after a restart.
+- [ ] **Add ad ligth and drak team switch into the setttings** 
 
------
 
 - [ ] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
       line attached under it, the pair take a fixed 400dp plus about 40 — a little over half a Pixel 6's
@@ -174,6 +101,9 @@ satellite, inline and full-screen. Findings:
       only on the abnormal now. Flagged because it is the one change in this pass that removes a signal
       rather than quietening it: if a glance at a good run comes to feel like the row is dead, the fix
       is one quiet green dot on the row as a whole, not one per chip.
+
+
+
 
 ## Per-subject publish rates (2026-08-20)
 
@@ -204,13 +134,6 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
 
 ## Chart sources and zoom (2026-08-21)
 
-- [ ] **Esri's imagery over the Swedish coast runs out well before its declared zoom 19.** Verified by
-      forcing the chart to 19 at Onsala: every tile came back as Esri's grey "Map data not yet
-      available" placeholder. The 19 in its `OnlineTileSourceBase` is a global maximum, not a promise
-      about a location, and the app has no way to know where coverage actually ends. This is the
-      limitation a MapTiler key lifts, so it may not be worth solving — but a keyless phone zooming in
-      hits a grey field with no explanation, and a line saying "no imagery at this zoom" would be
-      kinder than the silence it gets.
 
 - [ ] **`SettingsProfileTest` does not catch a new `Settings` field on its own.** CLAUDE.md says a
       field added later "fails the test until somebody decides which side it belongs on", and that is
@@ -218,27 +141,10 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
       reflective one. `mapTilerKey` was added to both by hand. A reflective check over
       `Settings::class.memberProperties` would make the claim true.
 
-
 - [ ] **The layer menu says a layer needs a key, but not that a key has stopped working.** An expired
       or over-quota MapTiler key fails per tile, so the chart simply goes blank with the layer still
       ticked — the gear only appears when the field is *empty*. A tile-fetch failure is not currently
       surfaced anywhere.
-
-## Recording details (2026-08-21)
-
-- [x] **The track scan is unmeasured on a large recording.** The plan said to time it on the biggest
-      file on the phone and put the figure in the commit; the phone locked behind its fingerprint
-      before that could be done. What *is* measured: a 2.3 MB / 96 054-message recording had its track
-      drawn within a second of the tap, navigation and layout included. The worst case on this phone is
-      a **537 MB** file — three of them are sitting in Downloads — and that is a full zstd decompress of
-      the data section. If it turns out to take long enough that a spinner is the wrong affordance, the
-      fix is a progress fraction from the bytes consumed, which the reader already knows.
-      Done in 689b637.
-
-- [x] **A partially-read track is indistinguishable from a complete one.** `McapTrack.read` catches a
-      mid-file failure and returns what it has, which is the right call — the points it got are real —
-      but the screen then says "N positions" as though that were the whole run. It should say when the
-      read stopped early. Done in 689b637.
 
 - [ ] **The Files list only shows recordings written by the current install.** MediaStore ties a file
       to the package that created it, so 101 of the 216 recordings in `Downloads/Logline` on the dev
@@ -248,66 +154,7 @@ Derived subjects gained a publish rate of their own, capped at the one they ride
 
 - [ ] **The `OVERSAMPLE` cap silently truncates a very long track.** Past 20 000 fixes — about five
       hours at 1 Hz — the reader stops and downsamples what it has, so a twelve-hour passage shows its
-      first five hours and says nothing about the rest. Bounded work is right; saying so is missing.
-
-## Bulk delete removed more than it showed (2026-08-21)
-
-- [ ] **`e95ed93`'s delete-all removed 53 files where its dialog said 50, and the three extras are not
-      accounted for.** The dialog read "Delete 50 incomplete recordings?" and the code deletes exactly
-      the `shown` list, which the Incomplete filter had narrowed to 50. What actually went was those 50
-      *plus* the three newest files on the phone: `logline-settings-2026-08-21T142616.json` (the profile
-      exported minutes earlier, and verified on screen as excluded — the list read "50 of 120", not 51),
-      `logline-2026-08-21T104536.mcap` and `logline-2026-08-21T102926.mcap`, both **complete**
-      recordings with summaries and message counts. Every older complete recording survived, including
-      the 502 MB one, so it is not "deleted everything newer than X" either.
-      Nothing was recoverable: MediaStore did not trash them, and the logcat buffer had rotated by the
-      time it was checked.
-      Worth knowing when reproducing: the deletion runs on a coroutine and takes longer than it looks —
-      a file count taken ~2 s after confirming still showed all 221 files, and the sweep completed
-      minutes later. Any check that a delete did nothing has to wait for the coroutine, not the dialog.
-      Until this is explained the button should be treated as untrustworthy.
-
-      **Investigated 2026-08-21. The button is not the cause.** Four things were established on the
-      device, none of them by reading the code:
-
-      * *The delete-all submits exactly the shown set.* A build that logged instead of deleting was
-        given a corpus of two throwaway incomplete recordings, one freshly exported settings profile
-        and sixty-seven complete recordings. It logged `asked for 2 files` and named exactly those two,
-        with the right kind and completeness. The export and the complete recordings were never
-        submitted.
-      * *The tap in the incident hit Keep, not Delete.* Tapping the identical coordinate (x=580) on the
-        same dialog dismissed it and logged nothing at all. The confirm sits at x≈797.
-      * *A real delete is visible in 0.25 s.* Measured by polling `ls` on the device across a confirm:
-        171 files → 169 within a quarter of a second. So the file count taken ~2 s after the incident
-        tap, which showed all 221 files present, is real evidence that no bulk delete had run — not a
-        race, as was first assumed.
-      * *Nothing deletes spontaneously.* Four minutes idle on the same screen, with logcat capturing:
-        no change.
-
-      So the app's only MediaStore delete path — `deleteSavedRecording`, reached from the row button or
-      the sweep — did not run, and there is no other. What removed those 53 files in the window between
-      the count of 221 and the next query is still unknown, and the logcat from that window had rotated
-      before any of this was looked at. Worth noting the phone was left unlocked with the
-      `Delete all 50 · 542 MB` button on screen for several minutes.
-
-- [x] **Verify the bulk delete end-to-end.** Never done for `e95ed93`, which stopped at the confirm
-      dialog rather than destroy 542 MB of the user's recordings. Done on throwaway data: two
-      deliberately-interrupted runs were created, the sweep removed exactly those two, and the settings
-      profile and the newest complete recording both survived. Done in the commit that follows this
-      note.
-
-- [x] **The recordings list is read once and never refreshed while you are looking at it.**
-      `produceState(null, recordingsRevision)` re-runs when the screen is composed or after a delete,
-      and nothing else. Leaving the tab and coming back does re-read, because the route's composable is
-      disposed and recreated — but a run that finishes while the Files tab is on screen does not appear
-      until something else happens. Worth bumping the revision when a run stops, or on resume.
-      Found while answering "why do I not see the latest recording?", where the actual cause turned out
-      to be different (an interrupted run only reaches Downloads at the *next* app start, through
-      `publishOrphans`), but the gap is real and would produce the same complaint.
-      Done in the commit that follows this note: the revision is bumped when `recording.recording` goes
-      false. Note the gap was narrower than feared — leaving the tab and returning *does* re-read,
-      verified by deleting a file behind the app's back and watching the count go 7 to 6 — so only a run
-      ended from the notification while the tab is on screen was ever affected.
+      first five hours and says nothing about the rest. Bounded work is right; saying so is missing.( WE  should never run any kindo of down sample as raw recoridngs of valueas must be in its orgnial the processign of information is done in other SW, check so we o not so it )
 
 ## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
 
