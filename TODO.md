@@ -35,6 +35,8 @@ the section they belong to.
       (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos — `ChecklistEvidence.proto`
       is not vendored at all — and reworking `ChecklistSync`/`ChecklistStore` around runs. A product
       decision, not a bug fix, and the checklist feature is off by default meanwhile.
+      **Moot until the JNI crash is fixed**: tested on the live bus, turning checklists on crashes the
+      app on the bootstrap query's reply before any of this matters — see the `EntityGlobalId` item.
 
 
 ## Future long therm 
@@ -110,11 +112,21 @@ completes, and that is not something app code can fix.
       `Zenoh.scout`** — the binding builds a class in native code with `FindClass`, on one of Zenoh's
       own threads, where JNI resolves against the system class loader and cannot see app classes — and
       `keelson/Scout.kt` exists because of it. Reproduced twice, zenoh-kotlin 1.10.0.
-      Opening the Platforms screen (`livelinessGet`) does *not* crash, so it is the reply path specifically;
-      whether `KeelsonSession.query()` is also affected when a storage actually answers is **untested**
-      and matters, because the checklist bootstrap uses it.
+      Opening the Platforms screen (`livelinessGet`) does *not* crash, so it is the reply path specifically.
+      **`KeelsonSession.query()` is affected too — tested on 2026-08-24, and it takes the whole checklist
+      feature with it.** Turning "Share checklists" on and opening the screen against the live
+      `router.example.com` bus crashes the app within seconds, every time, three for three: the session
+      opens, the presence heartbeat goes out, the bootstrap `get` on `checklist_procedure/*` /
+      `checklist_state/*` is answered by the router storage, and the reply callback aborts the process
+      on the same `EntityGlobalId` `ClassNotFoundException`.
+      **The wire shape is not the problem.** The one message that does escape is well-formed: captured
+      off the bus and decoded with keelson's *own* Python bindings, the presence lands on
+      `crowsnest/@v0/checklist/pubsub/checklist_presence/pixel_6/{operator_uuid}` carrying `username`,
+      `roc_site` and a timestamp. So a crowsnest station sees this phone announce itself and vanish
+      seconds later, over and over, and never sees an event or a snapshot.
       No workaround from this side. Either the binding is fixed upstream, or the handshake goes over
-      something other than a Zenoh query.
+      something other than a Zenoh query — which now blocks checklists as well as WHEP, and is the
+      reason the checklist feature cannot be recommended on even though it is written and shipped.
 
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
       Two independent faults, both found by running it:
