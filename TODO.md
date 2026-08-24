@@ -125,8 +125,12 @@ completes, and that is not something app code can fix.
       `roc_site` and a timestamp. So a crowsnest station sees this phone announce itself and vanish
       seconds later, over and over, and never sees an event or a snapshot.
       No workaround from this side. Either the binding is fixed upstream, or the handshake goes over
-      something other than a Zenoh query — which now blocks checklists as well as WHEP, and is the
-      reason the checklist feature cannot be recommended on even though it is written and shipped.
+      something other than a Zenoh query — which now blocks checklists as well as WHEP.
+      **Checklists are gated off meanwhile**, in `checklist/ChecklistAvailability.kt`. The constant is
+      checked in `Routes.shouldSyncChecklists` rather than only on the Settings switch, because that is
+      the single place a session opens and there are four ways the flag gets set. Re-enabling once the
+      binding is fixed is that one boolean; `NavigationRoutesTest` has the positive routing assertions
+      guarded rather than inverted, so they start pinning again the moment it flips. Done in 9de8f83.
 
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
       Two independent faults, both found by running it:
