@@ -1355,7 +1355,7 @@ private fun App(
                 publishCeiling = current.publishCeiling(subject),
                 rateIsOverridden = current.sensorRates.containsKey(subject),
                 recordRate = current.recordRate(subject),
-                ratesCanDiffer = current.ratesCanDiffer(subject),
+                hasSeparateRecordRate = current.hasSeparateRecordRate(subject),
                 capabilities = remember(subject) { sensorCapabilities(context, subject) },
                 // From the same map the subject rows read, so the two cannot state different maxima
                 // for one source.

@@ -494,8 +494,22 @@ data class Settings(
     }
 
     /**
-     * Whether the file and the wire can run at different rates for this subject — which is the same
-     * question as whether "as fast as the hardware will give" means anything for it.
+     * Whether this subject is offered a **record rate of its own**, separate from its publish rate —
+     * which is the same question as whether "as fast as the hardware will give" means anything for it.
+     *
+     * **It was called `ratesCanDiffer`, and that name was not merely vague — it was backwards.** When
+     * this is false the editor forces the record rate to equal the publish rate (`!hasSeparateRecordRate
+     * -> editedRate` in `SubjectQosScreen`), so "the rates cannot differ" described a consequence of the
+     * answer rather than a fact about the subject. They could perfectly well differ: a derived subject
+     * riding a poll takes the owner's rate for the file and keeps its own for the wire, which is two
+     * different numbers. What is actually being decided is whether there is a second rate worth putting
+     * a control under, and the name now says so.
+     *
+     * **It resolves through [PublishedSubject.rateOwner], and that is not about reading the owner's
+     * rate.** Every other function that hops to the owner does so to take a *value* from it. This one
+     * hops to ask what kind of thing is doing the sampling: a derived subject has no listener, so
+     * whether anything is running on its own clock is a fact about the owner and never about the
+     * subject itself.
      *
      * Only a continuously sampling `SensorManager` sensor, and the fused location provider, produce
      * events on their own clock — for those, [SensorRate.Max] is a real request and the honest default
@@ -509,7 +523,7 @@ data class Settings(
      * *on-change* — held on a ticker by `heldAt`, so Max there would repeat one unchanged reading ten
      * times a second and call it data.
      */
-    fun ratesCanDiffer(subject: String): Boolean {
+    fun hasSeparateRecordRate(subject: String): Boolean {
         val owner = PublishedSubject.forSubject(subject)?.rateOwner ?: subject
         return recordsContinuously(owner)
     }

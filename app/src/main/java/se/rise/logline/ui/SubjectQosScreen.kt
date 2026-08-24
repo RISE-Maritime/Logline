@@ -96,16 +96,17 @@ fun SubjectQosScreen(
      * state the screen offers as a choice rather than leaving as a hidden fallback.
      */
     rateIsOverridden: Boolean = false,
-    /** What the *file* is asked for. Equal to [rate] on subjects where the two cannot differ. */
+    /** What the *file* is asked for. Forced equal to [rate] where [hasSeparateRecordRate] is false. */
     recordRate: SensorRate,
     /**
-     * Whether this subject can record and publish at different rates at all.
+     * Whether this subject gets a record rate of its own, separate from the publish rate.
      *
      * False for a polled subject, a chunk length, a capture interval and an on-change sensor — see
-     * `Settings.ratesCanDiffer`. Those get one control, because two would imply a choice that does not
-     * exist.
+     * `Settings.hasSeparateRecordRate`. Those get one control, because two would imply a choice that
+     * does not exist, and this screen then holds the record rate equal to the publish rate rather than
+     * letting the two drift apart unseen.
      */
-    ratesCanDiffer: Boolean,
+    hasSeparateRecordRate: Boolean,
     capabilities: SensorCapabilities,
     /** The fastest this source can go and where that number came from. See `rateCeilings()`. */
     ceiling: RateCeiling?,
@@ -158,7 +159,7 @@ fun SubjectQosScreen(
     val editedRate: SensorRate =
         if (useMaxRate) SensorRate.Max else parsedRate?.let { SensorRate.Hz(it) } ?: rate
     val editedRecord: SensorRate = when {
-        !ratesCanDiffer -> editedRate
+        !hasSeparateRecordRate -> editedRate
         useMaxRecord -> SensorRate.Max
         else -> parsedRecord?.let { SensorRate.Hz(it) } ?: recordRate
     }
@@ -284,7 +285,7 @@ fun SubjectQosScreen(
                 hint = when {
                     !useMaxRate && parsedRate == null ->
                         "The publish rate is not a number — saving keeps its current value."
-                    ratesCanDiffer && !useMaxRecord && parsedRecord == null ->
+                    hasSeparateRecordRate && !useMaxRecord && parsedRecord == null ->
                         "The record rate is not a number — saving keeps its current value."
                     dirty -> "Saving restarts the run, which starts a new recording file."
                     else -> null
@@ -394,7 +395,7 @@ fun SubjectQosScreen(
                             // the one thing the pair of figures does not make obvious on its own.
                             note = when {
                                 rateOwnerLabel == null ->
-                                    if (ratesCanDiffer && editedRecord != editedRate) {
+                                    if (hasSeparateRecordRate && editedRecord != editedRate) {
                                         "Thinned from the recording"
                                     } else {
                                         null
@@ -465,7 +466,7 @@ fun SubjectQosScreen(
                     }
                 } else {
                     // The file first, because it decides what exists to publish at all.
-                    if (ratesCanDiffer) {
+                    if (hasSeparateRecordRate) {
                         RateControl(
                             title = "Record at maximum",
                             detail = "Everything the hardware gives, into the file.",
@@ -478,13 +479,13 @@ fun SubjectQosScreen(
                         )
                     }
                     RateControl(
-                        title = if (ratesCanDiffer) "Publish at maximum" else "Maximum",
-                        detail = if (ratesCanDiffer) {
+                        title = if (hasSeparateRecordRate) "Publish at maximum" else "Maximum",
+                        detail = if (hasSeparateRecordRate) {
                             "Every recorded sample, unthinned, onto the bus."
                         } else {
                             "Everything the hardware gives."
                         },
-                        fieldLabel = if (ratesCanDiffer) "Publish rate (Hz)" else "Requested rate (Hz)",
+                        fieldLabel = if (hasSeparateRecordRate) "Publish rate (Hz)" else "Requested rate (Hz)",
                         useMax = useMaxRate,
                         onUseMaxChange = { useMaxRate = it },
                         text = rateText,
@@ -504,7 +505,7 @@ fun SubjectQosScreen(
                         )
                     }
                     // Said where the choice is made rather than left to be discovered from the plots.
-                    if (ratesCanDiffer && !useMaxRate && parsedRate != null) {
+                    if (hasSeparateRecordRate && !useMaxRate && parsedRate != null) {
                         val recordHz = if (useMaxRecord) capabilities.maxRateHz else parsedRecord
                         if (recordHz != null && parsedRate > recordHz) {
                             StatusLine(

@@ -503,7 +503,7 @@ class SubjectRegistryTest {
         PublishedSubject.entries.filter { it.neverThinned }.forEach {
             assertFalse(
                 "${it.subject} is exempt from thinning, so it must not offer two rates",
-                settings.ratesCanDiffer(it.subject),
+                settings.hasSeparateRecordRate(it.subject),
             )
         }
     }
