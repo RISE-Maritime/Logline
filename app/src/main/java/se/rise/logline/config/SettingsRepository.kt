@@ -60,6 +60,7 @@ internal object Keys {
     val RECORDING_ENABLED = stringPreferencesKey("recording_enabled")
     val BACKFILL_ENABLED = stringPreferencesKey("backfill_enabled")
     val BATTERY_EXEMPTION_ASKED = stringPreferencesKey("battery_exemption_asked")
+    val RECORDINGS_FOLDER_URI = stringPreferencesKey("recordings_folder_uri")
     val START_ON_BOOT = stringPreferencesKey("start_on_boot")
     val OFFLINE_TILES_ONLY = stringPreferencesKey("offline_tiles_only")
     val THEME = stringPreferencesKey("theme")
@@ -264,6 +265,7 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
         recordingEnabled = prefs[Keys.RECORDING_ENABLED]?.toBooleanStrictOrNull() ?: true,
         backfillEnabled = prefs[Keys.BACKFILL_ENABLED]?.toBooleanStrictOrNull() ?: true,
         batteryExemptionAsked = prefs[Keys.BATTERY_EXEMPTION_ASKED]?.toBooleanStrictOrNull() ?: false,
+        recordingsFolderUri = prefs[Keys.RECORDINGS_FOLDER_URI].orEmpty(),
         startOnBoot = prefs[Keys.START_ON_BOOT]?.toBooleanStrictOrNull() ?: false,
     offlineTilesOnly = prefs[Keys.OFFLINE_TILES_ONLY]?.toBooleanStrictOrNull() ?: false,
         // An unrecognised value follows the phone rather than throwing — the same stance
@@ -345,6 +347,7 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.RECORDING_ENABLED] = settings.recordingEnabled.toString()
     prefs[Keys.BACKFILL_ENABLED] = settings.backfillEnabled.toString()
     prefs[Keys.BATTERY_EXEMPTION_ASKED] = settings.batteryExemptionAsked.toString()
+    prefs[Keys.RECORDINGS_FOLDER_URI] = settings.recordingsFolderUri
     prefs[Keys.START_ON_BOOT] = settings.startOnBoot.toString()
     prefs[Keys.OFFLINE_TILES_ONLY] = settings.offlineTilesOnly.toString()
     prefs[Keys.THEME] = settings.theme.name

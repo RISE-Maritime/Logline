@@ -130,6 +130,21 @@ data class Settings(
      * dismiss prompts without reading them.
      */
     val batteryExemptionAsked: Boolean = false,
+
+    /**
+     * A persisted grant on `Downloads/Logline`, or blank.
+     *
+     * **What it buys**: MediaStore attributes a file to the install that wrote it, so after a reinstall
+     * this app's own recordings sit in that folder untouched and invisible — measured, a file written
+     * under another package was absent from a listing that returned all fifteen of this install's. With
+     * the grant the Files list is built from both sources and shows everything there.
+     *
+     * A device fact and an install fact, like [batteryExemptionAsked]: the grant belongs to *this*
+     * installation on *this* phone and is dropped when it goes. So it is deliberately **not** in
+     * `SettingsProfile` — a profile shared round a fleet carrying one phone's storage grant would be
+     * carrying something the receiving phone cannot use and did not ask for.
+     */
+    val recordingsFolderUri: String = "",
     /**
      * Start a run again after the phone restarts. Off by default, and deliberately.
      *

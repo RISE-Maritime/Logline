@@ -83,6 +83,17 @@ fun RecordingsScreen(
     filter: RecordingFilter,
     onFilterChange: (RecordingFilter) -> Unit,
     /**
+     * Whether the folder has been granted, so recordings written by an earlier install are listed too.
+     *
+     * MediaStore ties a file to the install that wrote it, so without this the list silently holds only
+     * part of the folder — measured, a file written under another package was absent from a listing
+     * that returned all fifteen of this install's own. The offer is a *line*, not a prompt: a folder
+     * grant asked for unbidden at launch is one people dismiss without reading, and nothing here is
+     * broken until somebody is looking for a recording that is not in the list.
+     */
+    folderGranted: Boolean = false,
+    onGrantFolder: () -> Unit = {},
+    /**
      * Delete every recording in the list, answering how many actually went.
      *
      * A count rather than a boolean because MediaStore refuses a delete from a package that did not
@@ -195,6 +206,9 @@ fun RecordingsScreen(
                             "ties them to the install that wrote them. They are still in " +
                             "Downloads/Logline and any file manager can see them.",
                     )
+                    if (!folderGranted) {
+                        OutlinedButton(onClick = onGrantFolder) { Text("Show the whole folder…") }
+                    }
                 } else {
                     Text("Looking…", style = MaterialTheme.typography.bodyLarge)
                 }
@@ -216,6 +230,26 @@ fun RecordingsScreen(
                 shown = shown.size,
                 total = files.size,
             )
+
+            // **The list's own admission that it may be partial.** This is the whole complaint the
+            // folder grant answers: the empty state said it in words, but a list with fifteen rows in
+            // it and three more sitting unlisted in the folder gave no hint at all, so the missing ones
+            // looked like data loss. One quiet line rather than a banner — nothing is broken, and it
+            // disappears for good the moment the folder is granted.
+            if (!folderGranted) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 16.dp, end = 8.dp),
+                ) {
+                    Text(
+                        "Recordings from an earlier install are not listed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onGrantFolder) { Text("Show all") }
+                }
+            }
 
             // **Offered only under the Incomplete filter**, so the set it deletes is exactly the one
             // named on the button and it can never become a one-tap way to destroy good recordings.

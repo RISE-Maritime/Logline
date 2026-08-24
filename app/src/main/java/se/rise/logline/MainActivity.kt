@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.content.res.Resources
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.DocumentsContract
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -119,7 +121,9 @@ import se.rise.logline.publish.isBatteryOptimised
 import se.rise.logline.publish.requestBatteryExemption
 import se.rise.logline.record.McapDetails
 import se.rise.logline.record.McapTrack
+import se.rise.logline.record.DOWNLOADS_FOLDER
 import se.rise.logline.record.SavedRecording
+import se.rise.logline.record.recordingsFolderGranted
 import se.rise.logline.record.TrackCache
 import se.rise.logline.record.deleteSavedRecording
 import se.rise.logline.record.deleteSavedRecordings
@@ -193,6 +197,22 @@ import se.rise.logline.whep.hasCamera
  * is far beyond what DataStore takes for a 7 kB file and still well inside the ANR window.
  */
 private const val THEME_READ_TIMEOUT_MILLIS = 500L
+
+/**
+ * Where the folder picker should open, so the one folder that works is the one already on screen.
+ *
+ * Launched with no hint it opens on the root of internal storage, which Android **refuses** — the
+ * picker shows "Can't use this folder" and somebody has to know to walk into `Download` and then
+ * `Logline` before the button does anything. Verified on a Pixel 6, which is how this came to be here.
+ *
+ * The document id is the external-storage provider's own spelling: `primary:` for the built-in volume,
+ * then the path. `Download/Logline` is a *subdirectory*, which is what makes it grantable at all —
+ * Android 11 forbids the Download root outright.
+ */
+private val RECORDINGS_FOLDER_HINT: android.net.Uri = DocumentsContract.buildDocumentUri(
+    "com.android.externalstorage.documents",
+    "primary:${Environment.DIRECTORY_DOWNLOADS}/$DOWNLOADS_FOLDER",
+)
 
 /**
  * Whether to draw the dark scheme, with `System` deferring to the phone.
@@ -582,6 +602,37 @@ private fun App(
             key.isNotBlank() &&
             probeMapTilerKey(key) == MapTilerKeyStatus.Rejected
     }
+
+    // **The way back to recordings this install did not write.** MediaStore attributes a file to the
+    // install that wrote it, so after a reinstall the app's own recordings sit in `Downloads/Logline`
+    // untouched and invisible — measured, a file written under another package was absent from a
+    // listing that returned all fifteen of this install's own. A persisted tree grant is the only way
+    // to reach them, and Android 11 allows it here precisely because `Download/Logline` is a
+    // *subdirectory*: the Download root itself is refused.
+    //
+    // Stored through `update()`, never `saveSettings()` — the same rule the per-subject switches and
+    // the theme follow. Restarting the Zenoh session and closing the open MCAP file to record a folder
+    // permission would end the run being recorded into that very folder.
+    val recordingsFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val kept = runCatching {
+                // Without this the grant dies with the Activity, and the list would be complete once
+                // and empty again on the next launch.
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }.isSuccess
+            if (kept) {
+                app.settingsRepository.update(current.copy(recordingsFolderUri = uri.toString()))
+            }
+        }
+    }
+
 
     // ── the checklist session ───────────────────────────────────────────────────────────────────
     //
@@ -1085,8 +1136,16 @@ private fun App(
             // Re-read whenever a delete bumps the revision, the same shape `tlsRevision` uses. On IO
             // because it is a MediaStore query plus a seek per file — cheap each, but not on main.
             var recordingsRevision by remember { mutableIntStateOf(0) }
-            val recordings by produceState<List<SavedRecording>?>(null, recordingsRevision) {
-                value = withContext(Dispatchers.IO) { savedRecordings(context) }
+            val recordings by produceState<List<SavedRecording>?>(
+                null,
+                recordingsRevision,
+                // Re-read when a grant arrives, or the newly-visible files stay invisible
+                // until something else happens to bump the revision.
+                current.recordingsFolderUri,
+            ) {
+                value = withContext(Dispatchers.IO) {
+                    savedRecordings(context, current.recordingsFolderUri)
+                }
             }
             // **At most two scans at a time.** A track is a full decompress of a recording's data
             // section, so a fast scroll through sixty rows would otherwise start sixty of them; the
@@ -1097,7 +1156,7 @@ private fun App(
                 // A deleted recording should not leave its cache entry behind.
                 recordings?.let { listed ->
                     withContext(Dispatchers.IO) {
-                        TrackCache.prune(trackDirectory, listed.map { ContentUris.parseId(it.uri) }.toSet())
+                        TrackCache.prune(trackDirectory, listed.map { it.cacheId }.toSet())
                     }
                 }
             }
@@ -1112,7 +1171,7 @@ private fun App(
             RecordingsScreen(
                 files = recordings.orEmpty(),
                 onLoadTrack = { file ->
-                    val id = ContentUris.parseId(file.uri)
+                    val id = file.cacheId
                     val stamp = TrackCache.Stamp(file.sizeBytes, file.savedAtMillis)
                     withContext(Dispatchers.IO) {
                         TrackCache.get(trackDirectory, id, stamp)
@@ -1138,6 +1197,10 @@ private fun App(
                     }
                 },
                 loaded = recordings != null,
+                folderGranted = remember(current.recordingsFolderUri) {
+                    recordingsFolderGranted(context, current.recordingsFolderUri)
+                },
+                onGrantFolder = { recordingsFolderPicker.launch(RECORDINGS_FOLDER_HINT) },
                 onShare = { context.startActivity(shareIntent(listOf(it))) },
                 onOpen = { file ->
                     nav.navigate(Routes.recordingDetail(Uri.encode(file.uri.toString())))

@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.provider.DocumentsContract
+import androidx.core.net.toUri
 import android.provider.MediaStore
 import android.util.Log
 import java.io.FileInputStream
@@ -95,6 +97,15 @@ fun recordingKindOf(name: String): RecordingKind {
 
 data class SavedRecording(
     val uri: Uri,
+    /**
+     * A stable key for the track cache, which needs a number and cannot use the [uri].
+     *
+     * MediaStore rows use their own id. A row that came from the granted folder instead has no numeric
+     * id at all — a document id is a string — so it takes a hash of that, made **negative** so it can
+     * never collide with a MediaStore id, which is always positive. `ContentUris.parseId(uri)` was what
+     * this replaced, and it throws outright on a document Uri.
+     */
+    val cacheId: Long,
     override val name: String,
     override val sizeBytes: Long,
     override val savedAtMillis: Long,
@@ -132,7 +143,21 @@ data class SavedRecording(
  * here**: an install carrying files from an earlier one still listed them, so the boundary is
  * uninstall rather than update, and exactly where it falls has not been tested.
  */
-fun savedRecordings(context: Context): List<SavedRecording> {
+fun savedRecordings(context: Context, folderUri: String = ""): List<SavedRecording> {
+    val owned = ownedRecordings(context)
+    // Nothing granted, or nothing the grant adds: the MediaStore listing is the whole answer.
+    val fromFolder = recordingsInGrantedFolder(
+        context,
+        folderUri,
+        skip = owned.mapTo(mutableSetOf()) { recording -> recording.name },
+    )
+    // Newest first, the order the query already asked MediaStore for and the one every
+    // ordering in `RecordingsQuery` breaks ties by.
+    return (owned + fromFolder).sortedByDescending { it.savedAtMillis }
+}
+
+/** The MediaStore half: everything this install wrote. */
+private fun ownedRecordings(context: Context): List<SavedRecording> {
     val columns = arrayOf(
         MediaStore.Downloads._ID,
         MediaStore.Downloads.DISPLAY_NAME,
@@ -170,6 +195,7 @@ fun savedRecordings(context: Context): List<SavedRecording> {
                     add(
                         SavedRecording(
                             uri = uri,
+                            cacheId = cursor.getLong(id),
                             name = displayName,
                             sizeBytes = cursor.getLong(size),
                             // MediaStore keeps this one in seconds, unlike every other time in the app.
@@ -235,6 +261,7 @@ fun recordingEntry(context: Context, uri: Uri): SavedRecording? = try {
         if (!cursor.moveToFirst()) return@use null
         SavedRecording(
             uri = uri,
+            cacheId = ContentUris.parseId(uri),
             name = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)),
             sizeBytes = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)),
             // Seconds here, unlike every other time in the app.
@@ -309,7 +336,14 @@ fun shareIntent(files: List<SavedRecording>): Intent {
  * screen can say "use a file manager" and a crash cannot.
  */
 fun deleteSavedRecording(context: Context, file: SavedRecording): Boolean = try {
-    context.contentResolver.delete(file.uri, null, null) > 0
+    // **Two kinds of row, two ways to delete.** A MediaStore entry goes through `delete`; a document
+    // from the granted folder does not — `ContentResolver.delete` on a tree document Uri is not what
+    // that provider implements, and the file would survive while the call reported nothing wrong.
+    if (DocumentsContract.isDocumentUri(context, file.uri)) {
+        DocumentsContract.deleteDocument(context.contentResolver, file.uri)
+    } else {
+        context.contentResolver.delete(file.uri, null, null) > 0
+    }
 } catch (t: Throwable) {
     Log.w(TAG, "could not delete ${file.name}", t)
     false
@@ -324,3 +358,114 @@ fun deleteSavedRecording(context: Context, file: SavedRecording): Boolean = try 
  */
 fun deleteSavedRecordings(context: Context, files: List<SavedRecording>): Int =
     files.count { deleteSavedRecording(context, it) }
+
+/**
+ * The other half: everything else in the folder, once the user has granted access to it.
+ *
+ * **MediaStore attributes a file to the install that wrote it**, and an app loses its claim on those
+ * entries when it is uninstalled — so after a reinstall the recordings sit untouched in
+ * `Downloads/Logline`, visible to every file manager and invisible here. Measured rather than inferred:
+ * a file planted in that folder under another package was absent from a listing that returned all
+ * fifteen of this install's own.
+ *
+ * A persisted tree grant is the only way back to them. Android 11 forbids
+ * `ACTION_OPEN_DOCUMENT_TREE` on the Download *root*, which is why the grant is for `Download/Logline`
+ * — a subdirectory, and allowed.
+ *
+ * **Names already listed are skipped, and MediaStore wins.** The two sources overlap almost entirely,
+ * and a MediaStore row is the more capable of the two: it deletes with a plain `delete` and it carries
+ * the numeric id the track cache is keyed on. A document row is the fallback for files nothing else can
+ * reach.
+ */
+private fun recordingsInGrantedFolder(
+    context: Context,
+    folderUri: String,
+    skip: Set<String>,
+): List<SavedRecording> {
+    if (folderUri.isBlank()) return emptyList()
+    return try {
+        val tree = folderUri.toUri()
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree,
+            DocumentsContract.getTreeDocumentId(tree),
+        )
+        context.contentResolver.query(
+            children,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_SIZE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val documentId = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val name = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val size = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+            val modified = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val mime = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            buildList {
+                while (cursor.moveToNext()) {
+                    val displayName = cursor.getString(name) ?: continue
+                    // `config` is a directory, and the exports inside it are deliberately not
+                    // recordings — the same exclusion the MediaStore query gets for free by matching
+                    // the folder exactly rather than as a prefix.
+                    if (cursor.getString(mime) == DocumentsContract.Document.MIME_TYPE_DIR) continue
+                    if (displayName in skip) continue
+                    val id = cursor.getString(documentId) ?: continue
+                    val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+                    val details = if (recordingKindOf(displayName) == RecordingKind.Recording) {
+                        detailsOf(context, uri)
+                    } else {
+                        null
+                    }
+                    add(
+                        SavedRecording(
+                            uri = uri,
+                            cacheId = documentCacheId(id),
+                            name = displayName,
+                            sizeBytes = cursor.getLong(size),
+                            // Already millis here, unlike MediaStore's DATE_ADDED.
+                            savedAtMillis = cursor.getLong(modified),
+                            summary = details?.summary,
+                            fixChannelId = details?.topics?.let(McapTrack::fixChannel)?.channelId,
+                            tags = details?.tags.orEmpty(),
+                        )
+                    )
+                }
+            }
+        }.orEmpty()
+    } catch (t: Throwable) {
+        // A grant can be revoked in system settings, or the folder deleted, and neither is worth
+        // failing the whole listing over — this half simply contributes nothing.
+        Log.w(TAG, "could not list the granted folder", t)
+        emptyList()
+    }
+}
+
+/**
+ * A track-cache key for a document id, which is a string where the cache wants a number.
+ *
+ * **Always negative**, so it can never collide with a MediaStore id — those are always positive, and
+ * the two kinds of row share one cache directory.
+ */
+internal fun documentCacheId(documentId: String): Long = -(documentId.hashCode().toLong() and 0xFFFFFFFFL) - 1
+
+/**
+ * Whether the stored folder grant is one the system still honours.
+ *
+ * **The stored string is not the permission.** A grant can be taken back in Android's settings at any
+ * time, and the preference knows nothing about it — so trusting the string would leave the Files list
+ * quietly short of half the folder with the offer to fix it hidden, which is the exact failure the
+ * grant exists to end. `persistedUriPermissions` is the system's own answer and the only one worth
+ * asking.
+ */
+fun recordingsFolderGranted(context: Context, folderUri: String): Boolean {
+    if (folderUri.isBlank()) return false
+    return context.contentResolver.persistedUriPermissions.any {
+        it.isReadPermission && it.uri.toString() == folderUri
+    }
+}
