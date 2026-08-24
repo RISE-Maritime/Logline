@@ -85,6 +85,7 @@ import se.rise.logline.checklist.ChecklistReminder
 import se.rise.logline.checklist.ChecklistReminders
 import se.rise.logline.checklist.Operator
 import se.rise.logline.config.NOTE_CATEGORY
+import se.rise.logline.checklist.CHECKLISTS_AVAILABLE
 import se.rise.logline.config.Settings
 import se.rise.logline.config.SettingsProfile
 import se.rise.logline.config.TlsCredential
@@ -1145,7 +1146,9 @@ private fun App(
         composable(Routes.SETUP) {
             SetupScreen(
                 platformSummary = platformSummaryOf(current),
-                checklistsEnabled = current.checklistEnabled,
+                // And the flag, so a phone that already had it stored true does not show a row into
+                // a screen that can never sync. See `CHECKLISTS_AVAILABLE`.
+                checklistsEnabled = current.checklistEnabled && CHECKLISTS_AVAILABLE,
                 identity = "${current.realm}/${current.entityId}",
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenPlatforms = { nav.navigate(Routes.PLATFORMS) },

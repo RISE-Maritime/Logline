@@ -31,6 +31,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import se.rise.logline.checklist.CHECKLISTS_AVAILABLE
+import se.rise.logline.checklist.CHECKLISTS_UNAVAILABLE_REASON
 import se.rise.logline.config.Settings
 import se.rise.logline.config.ThemeChoice
 import se.rise.logline.map.OfflineMap
@@ -725,13 +727,21 @@ fun SettingsScreen(
                 )
                 SettingSwitch(
                     title = "Share checklists",
-                    description = "Work a shared procedure alongside the ROC stations. Opens a second " +
-                        "Zenoh session while a checklist screen is open, and publishes your name and site " +
-                        "with every item you tick.",
-                    checked = checklistEnabled,
+                    // The reason comes first while it cannot be used: somebody reading a greyed row
+                    // wants to know why before they want to know what it would have done.
+                    description = if (CHECKLISTS_AVAILABLE) {
+                        "Work a shared procedure alongside the ROC stations. Opens a second " +
+                            "Zenoh session while a checklist screen is open, and publishes your name " +
+                            "and site with every item you tick."
+                    } else {
+                        "$CHECKLISTS_UNAVAILABLE_REASON Work a shared procedure alongside the ROC " +
+                            "stations, publishing your name and site with every item you tick."
+                    },
+                    checked = checklistEnabled && CHECKLISTS_AVAILABLE,
                     onCheckedChange = { checklistEnabled = it },
+                    enabled = CHECKLISTS_AVAILABLE,
                 )
-                if (checklistEnabled) {
+                if (checklistEnabled && CHECKLISTS_AVAILABLE) {
                     OutlinedTextField(
                         value = operatorName,
                         onValueChange = { operatorName = it },

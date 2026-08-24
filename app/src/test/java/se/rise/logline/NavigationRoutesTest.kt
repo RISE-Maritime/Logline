@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.rise.logline.config.Settings
+import se.rise.logline.checklist.CHECKLISTS_AVAILABLE
 import se.rise.logline.ui.Routes
 import se.rise.logline.ui.components.TopLevel
 
@@ -130,8 +131,14 @@ class NavigationRoutesTest {
     fun `the checklist session needs a route, the feature, and an identity`() {
         val ready = settings(enabled = true, operatorId = "op-1", operatorName = "Ted")
 
-        assertTrue(Routes.shouldSyncChecklists(Routes.CHECKLISTS, ready))
-        assertTrue(Routes.shouldSyncChecklists(Routes.CHECKLIST, ready))
+        // **Guarded, because the feature is gated off** — see `CHECKLISTS_AVAILABLE`. While it is
+        // false every answer here is false and the positive case cannot say anything, so it is skipped
+        // rather than inverted: inverting it would pin the *gate*, which the test below does properly,
+        // and would quietly stop pinning the routing the day the feature comes back.
+        if (CHECKLISTS_AVAILABLE) {
+            assertTrue(Routes.shouldSyncChecklists(Routes.CHECKLISTS, ready))
+            assertTrue(Routes.shouldSyncChecklists(Routes.CHECKLIST, ready))
+        }
 
         // Right settings, wrong screen.
         assertTrue(!Routes.shouldSyncChecklists(Routes.MAIN, ready))
@@ -151,6 +158,34 @@ class NavigationRoutesTest {
             "no operator name",
             !Routes.shouldSyncChecklists(Routes.CHECKLISTS, ready.copy(operatorName = "")),
         )
+    }
+
+    /**
+     * **The feature gate refuses a phone that is otherwise entirely ready**, which is the whole of what
+     * it is for.
+     *
+     * These are the exact settings that used to open the session — right screen, feature on, identity
+     * present — and opening it crashed the app: the bootstrap query's reply aborts the process on
+     * `ClassNotFoundException: io.zenoh.jni.pubsub.EntityGlobalId`, measured three times out of three
+     * against a live bus. The gate lives in `shouldSyncChecklists` rather than on the Settings switch
+     * because the switch is only one of four ways the flag gets set — a value stored before the gate
+     * existed, an imported profile, and the identity dialog are the others.
+     *
+     * When the binding is fixed this test is what has to change, and it should change by *deleting*
+     * rather than by being weakened: flipping `CHECKLISTS_AVAILABLE` re-enables the feature and makes
+     * the guarded assertions above run again.
+     */
+    @Test
+    fun `the feature gate refuses a fully ready phone while checklists are unavailable`() {
+        val ready = settings(enabled = true, operatorId = "op-1", operatorName = "Ted")
+
+        if (!CHECKLISTS_AVAILABLE) {
+            assertTrue(
+                "a reachable switch must not be able to open a session that crashes the app",
+                !Routes.shouldSyncChecklists(Routes.CHECKLISTS, ready),
+            )
+            assertTrue(!Routes.shouldSyncChecklists(Routes.CHECKLIST, ready))
+        }
     }
 
     /**

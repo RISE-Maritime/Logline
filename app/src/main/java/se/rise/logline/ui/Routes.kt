@@ -1,5 +1,6 @@
 package se.rise.logline.ui
 
+import se.rise.logline.checklist.CHECKLISTS_AVAILABLE
 import se.rise.logline.config.Settings
 
 /**
@@ -130,9 +131,20 @@ object Routes {
      *
      * [Settings.hasChecklistIdentity] is the second gate, and it is why watching this screen on a
      * phone with checklists switched off proves nothing either way about the routing.
+     *
+     * **[CHECKLISTS_AVAILABLE] is checked here rather than only on the Settings switch**, and that is
+     * the whole point of putting it in this function: this is the one place that decides whether a
+     * session opens, so it closes *every* route to the crash rather than the one route a switch takes.
+     * Three others exist — a phone with `checklistEnabled` already stored true from before the feature
+     * was gated, an imported settings profile (`SettingsProfile` carries `checklist_enabled`), and the
+     * identity dialog, which sets the flag itself because entering a name is the act of opting in.
+     * Gating only the switch would leave all three live.
      */
     fun shouldSyncChecklists(route: String?, settings: Settings): Boolean =
-        inChecklists(route) && settings.checklistEnabled && settings.hasChecklistIdentity()
+        CHECKLISTS_AVAILABLE &&
+            inChecklists(route) &&
+            settings.checklistEnabled &&
+            settings.hasChecklistIdentity()
 
     /** Whether the platform session should be open. The route is the whole of it. */
     fun shouldSyncPlatforms(route: String?): Boolean = inPlatformScreens(route)
