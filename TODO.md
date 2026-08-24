@@ -86,12 +86,23 @@ rewritten from the ground up. These are the consequences.
 
 Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
 
-- [ ] **Saving a subject's page always writes a QoS override, even when nothing about the QoS was
+- [x] **Saving a subject's page always writes a QoS override, even when nothing about the QoS was
       touched.** `onSave` does `qosOverrides + (subject to qos)` unconditionally, so changing only a
       rate leaves the subject reading "Overridden for this phone" against values identical to
       `qos.yaml`. Noticed while testing the rate control — it took a deliberate "Reset to qos.yaml
       policy" to undo something the user never asked for. Pre-existing; the fix is to write the entry
       only when `qos != policyQosForSubject(subject)`.
+      Done as prescribed, plus the other side of it: an override dialled back to the policy values by
+      hand is *removed*, since keeping it would have the page go on claiming an override over values
+      identical to upstream's. `QosTest` pins the invariant the fix rests on — what the screen is handed
+      for an untouched subject must compare equal to policy, checked over every subject in the registry,
+      since the four profiles convert separately — and the converse, so a change making every save a
+      no-op cannot pass.
+      **This phone was carrying two of the leftovers**, `linear_acceleration_mpss` and
+      `heading_accuracy_deg`. The fix clears them a page at a time: opening the first, which read
+      "Overridden for this phone" above "Policy is default", and pressing Save without touching anything
+      took its four stored keys to zero and the banner back to "Following keelson qos.yaml".
+      `heading_accuracy_deg` still holds one until somebody opens it. Done in c8be8ac.
 
 - [ ] **The row's `max` and the page's cap are two different ceilings and the row shows only one.**
       A derived subject's row still reads its owner's *hardware* maximum, while the page may be
