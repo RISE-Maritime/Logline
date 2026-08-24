@@ -455,17 +455,20 @@ private fun recordingsInGrantedFolder(
 internal fun documentCacheId(documentId: String): Long = -(documentId.hashCode().toLong() and 0xFFFFFFFFL) - 1
 
 /**
- * Whether the stored folder grant is one the system still honours.
+ * Every folder this app still holds a readable grant on.
  *
  * **The stored string is not the permission.** A grant can be taken back in Android's settings at any
- * time, and the preference knows nothing about it — so trusting the string would leave the Files list
+ * time and the preference knows nothing about it — so trusting the string would leave the Files list
  * quietly short of half the folder with the offer to fix it hidden, which is the exact failure the
  * grant exists to end. `persistedUriPermissions` is the system's own answer and the only one worth
  * asking.
+ *
+ * Returned as a set rather than answered per Uri, because the caller is `MainActivity.onResume` — this
+ * is a fact only Android can answer and that changes while the app is in the background, which is the
+ * same shape as the location permission and the battery exemption beside it, and they are re-read in
+ * exactly that place for exactly that reason.
  */
-fun recordingsFolderGranted(context: Context, folderUri: String): Boolean {
-    if (folderUri.isBlank()) return false
-    return context.contentResolver.persistedUriPermissions.any {
-        it.isReadPermission && it.uri.toString() == folderUri
-    }
-}
+fun persistedFolderGrants(context: Context): Set<String> =
+    context.contentResolver.persistedUriPermissions
+        .filter { it.isReadPermission }
+        .mapTo(mutableSetOf()) { it.uri.toString() }

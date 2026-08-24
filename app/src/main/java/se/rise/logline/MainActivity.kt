@@ -123,7 +123,7 @@ import se.rise.logline.record.McapDetails
 import se.rise.logline.record.McapTrack
 import se.rise.logline.record.DOWNLOADS_FOLDER
 import se.rise.logline.record.SavedRecording
-import se.rise.logline.record.recordingsFolderGranted
+import se.rise.logline.record.persistedFolderGrants
 import se.rise.logline.record.TrackCache
 import se.rise.logline.record.deleteSavedRecording
 import se.rise.logline.record.deleteSavedRecordings
@@ -241,6 +241,16 @@ class MainActivity : ComponentActivity() {
     private var batteryOptimised by mutableStateOf(false)
 
     /**
+     * Which folders this app still holds a grant on — a third fact only Android can answer.
+     *
+     * Same shape and same reason as the two above: a folder grant is taken back in Android's settings,
+     * which tells the app nothing, and coming back from there arrives here. Held as the whole set
+     * rather than one boolean so the Activity does not need to know which folder is stored, which is a
+     * settings question and not one `onResume` should be reading DataStore for.
+     */
+    private var grantedFolders by mutableStateOf(emptySet<String>())
+
+    /**
      * The procedure a reminder notification asked for, or null.
      *
      * Held here rather than read from `intent` inside Compose: a tapped notification can arrive while
@@ -295,6 +305,7 @@ class MainActivity : ComponentActivity() {
                 App(
                     locationGranted = locationGranted,
                     batteryOptimised = batteryOptimised,
+                    grantedFolders = grantedFolders,
                     reminderProcedureId = reminderProcedureId,
                     onReminderHandled = { reminderProcedureId = null },
                     modifier = Modifier.fillMaxSize(),
@@ -342,6 +353,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         locationGranted = hasLocationPermission(this)
         batteryOptimised = isBatteryOptimised(this)
+        grantedFolders = persistedFolderGrants(this)
     }
 }
 
@@ -349,6 +361,8 @@ class MainActivity : ComponentActivity() {
 private fun App(
     locationGranted: Boolean,
     batteryOptimised: Boolean,
+    /** Folders Android still honours a grant on, re-read on every resume. See `persistedFolderGrants`. */
+    grantedFolders: Set<String>,
     reminderProcedureId: String?,
     onReminderHandled: () -> Unit,
     modifier: Modifier = Modifier,
@@ -613,6 +627,12 @@ private fun App(
     // Stored through `update()`, never `saveSettings()` — the same rule the per-subject switches and
     // the theme follow. Restarting the Zenoh session and closing the open MCAP file to record a folder
     // permission would end the run being recorded into that very folder.
+    // The stored grant, checked against what Android still honours rather than taken on trust — and
+    // re-derived on every resume, because `grantedFolders` is. Revoking it in Android's settings and
+    // coming straight back now shows the offer at once instead of on the next visit to the tab.
+    val folderGranted = current.recordingsFolderUri.isNotBlank() &&
+        current.recordingsFolderUri in grantedFolders
+
     val recordingsFolderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
@@ -1140,8 +1160,10 @@ private fun App(
                 null,
                 recordingsRevision,
                 // Re-read when a grant arrives, or the newly-visible files stay invisible
-                // until something else happens to bump the revision.
+                // until something else happens to bump the revision — and when one is taken away,
+                // or the rows it contributed stay in the list as ghosts that cannot be opened.
                 current.recordingsFolderUri,
+                folderGranted,
             ) {
                 value = withContext(Dispatchers.IO) {
                     savedRecordings(context, current.recordingsFolderUri)
@@ -1197,9 +1219,7 @@ private fun App(
                     }
                 },
                 loaded = recordings != null,
-                folderGranted = remember(current.recordingsFolderUri) {
-                    recordingsFolderGranted(context, current.recordingsFolderUri)
-                },
+                folderGranted = folderGranted,
                 onGrantFolder = { recordingsFolderPicker.launch(RECORDINGS_FOLDER_HINT) },
                 onShare = { context.startActivity(shareIntent(listOf(it))) },
                 onOpen = { file ->
