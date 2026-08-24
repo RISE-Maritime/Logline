@@ -86,11 +86,28 @@ rewritten from the ground up. These are the consequences.
 
 Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
 
-- [ ] **The row's `max` and the page's cap are two different ceilings and the row shows only one.**
+- [x] **The row's `max` and the page's cap are two different ceilings and the row shows only one.**
       A derived subject's row still reads its owner's *hardware* maximum, while the page may be
       capping it far lower. The row is honest about what goes out (`set` is the clamped value) and the
       three-number rule says not to add a fourth, so this was left alone deliberately — but somebody
       reading `max 442` on a heading subject capped at 1 Hz has to open the page to find that out.
+      Note the label had already been renamed `sensor 442`, so the slot was no longer *claiming* to be
+      the subject's own limit — but it still printed a figure unreachable from that subject's page.
+      **The ceiling is now replaced rather than joined**, which keeps it to three numbers:
+      `pub 1.0 · capped by Orientation`. In that state the sensor's limit is the least useful of the
+      three — it decides nothing, and beside a rate it cannot explain it invites raising a figure that
+      will not move.
+      The work was deciding *which* subjects to flag, so the predicate is named and tested rather than
+      inline: `Settings.publishRateIsCapped()`. Three cases are deliberately not flagged, each a false
+      alarm — a derived subject merely **following** (no stored rate, so requested equals the ceiling by
+      construction and no request is denied; flagging it would put "capped by" on most of the registry
+      permanently), a **head** subject clamped to its own record rate (`publishCeiling` falls back to
+      `recordRate`, so there is no owner to name and `rec` is already on the row), and **Maximum mode**
+      (`publishRate` returns the ceiling whatever was asked, so the same comparison would flag a subject
+      the mode had *raised*). `RateSplitTest` pins all four.
+      Verified on a Pixel 6 with the owner at 1 Hz, three rows side by side: the owner and a merely
+      following subject both read `sensor 200`, the one that asked for 50 reads `capped by Orientation`.
+      Settings restored after. Done in f085bac.
 
 - [ ] **`ratesCanDiffer` still resolves through the owner**, which is now the only rate function that
       does so for a reason unrelated to recording. It decides whether the *record* control appears, so
