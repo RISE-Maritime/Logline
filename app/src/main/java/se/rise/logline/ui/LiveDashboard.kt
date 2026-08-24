@@ -246,6 +246,18 @@ fun FixLine(fix: TrackPoint?, nowMillis: Long, stale: Boolean, modifier: Modifie
  * the abnormal one. A group needing attention is the only thing here that is ever coloured, so it is
  * the only thing the eye is drawn to; the word is beside the dot, as everywhere else in this app.
  *
+ * **The caption is what stops that going too far.** With every group behaving, five identical outlined
+ * pills are the same vocabulary as the window lengths directly beneath them and the `Configured |
+ * Maximum` pair on the Session screen — so the row read as another filter strip, and nothing on the
+ * page said it was also the answer to "is this run going well". The health was carried entirely by
+ * absence, which is invisible until the day something turns red. A line naming the control is the
+ * cheapest fix and the one that spends no colour: the rule here is that explanation moves behind ⓘ and
+ * a label identifying a control stays. Deliberately *not* a green dot for the row — that would put
+ * colour back on the normal case, which is the thing this design gave up on purpose.
+ *
+ * It matches [Vital]'s captions rather than a section header, because it sits immediately under that
+ * row and the two should read as one block of small print rather than as a new section beginning.
+ *
  * Horizontally scrollable because six groups do not fit across a phone once they are tap targets with
  * padding rather than bare text.
  */
@@ -257,73 +269,83 @@ fun HealthChips(
     selected: String? = null,
     onSelect: ((String?) -> Unit)? = null,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        chips.forEach { chip ->
-            val isSelected = selected == chip.name
-            val alert = MaterialTheme.colorScheme.error
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.secondaryContainer
-                } else {
-                    Color.Transparent
-                },
-                // The outline is what makes these read as controls rather than as labels. Selected, the
-                // fill carries it and a border on top would double the edge.
-                border = if (isSelected) {
-                    null
-                } else {
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                },
-                modifier = Modifier.then(
-                    if (onSelect != null) {
-                        Modifier.clickable { onSelect(if (isSelected) null else chip.name) }
+    Column(modifier.fillMaxWidth()) {
+        Text(
+            "GROUP HEALTH",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Tracked out for the same reason [Vital]'s are, and to the same amount.
+            letterSpacing = 0.8.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            chips.forEach { chip ->
+                val isSelected = selected == chip.name
+                val alert = MaterialTheme.colorScheme.error
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.secondaryContainer
                     } else {
-                        Modifier
-                    }
-                ),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                        .readAsOneItem(
-                            buildString {
-                                append(chip.name)
-                                append(if (chip.healthy) " healthy" else " needs attention")
-                                if (onSelect != null) {
-                                    append(
-                                        if (isSelected) {
-                                            ", showing only this"
-                                        } else {
-                                            ", tap to show only this"
-                                        }
-                                    )
-                                }
-                            }
-                        ),
-                ) {
-                    if (!chip.healthy) {
-                        Surface(
-                            color = alert,
-                            shape = CircleShape,
-                            modifier = Modifier.size(7.dp).padding(end = 0.dp),
-                        ) {}
-                    }
-                    Text(
-                        chip.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (chip.healthy) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                        Color.Transparent
+                    },
+                    // The outline is what makes these read as controls rather than as labels. Selected, the
+                    // fill carries it and a border on top would double the edge.
+                    border = if (isSelected) {
+                        null
+                    } else {
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    },
+                    modifier = Modifier.then(
+                        if (onSelect != null) {
+                            Modifier.clickable { onSelect(if (isSelected) null else chip.name) }
                         } else {
-                            alert
-                        },
-                        modifier = Modifier.padding(start = if (chip.healthy) 0.dp else 5.dp),
-                    )
+                            Modifier
+                        }
+                    ),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .readAsOneItem(
+                                buildString {
+                                    append(chip.name)
+                                    append(if (chip.healthy) " healthy" else " needs attention")
+                                    if (onSelect != null) {
+                                        append(
+                                            if (isSelected) {
+                                                ", showing only this"
+                                            } else {
+                                                ", tap to show only this"
+                                            }
+                                        )
+                                    }
+                                }
+                            ),
+                    ) {
+                        if (!chip.healthy) {
+                            Surface(
+                                color = alert,
+                                shape = CircleShape,
+                                modifier = Modifier.size(7.dp).padding(end = 0.dp),
+                            ) {}
+                        }
+                        Text(
+                            chip.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (chip.healthy) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                alert
+                            },
+                            modifier = Modifier.padding(start = if (chip.healthy) 0.dp else 5.dp),
+                        )
+                    }
                 }
             }
         }
