@@ -67,45 +67,8 @@ Left over from the platform library, and each is a finding rather than a fix. Al
 -
 
 
-## Per-subject publish rates (2026-08-20)
-
-Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
 
 
-- [x] **Nothing tests the publish path end to end at differing rates within one group.** The
-      decimator, the interval map and the resolution are each covered, and the combination was checked
-      by hand on a Pixel 6 (`course_over_ground_deg` at 0.2 Hz against the fix at 1.0). An instrumented
-      test would need a running publisher and a real sensor, which is why it was not written.
-      **Neither was actually needed.** What blocked it was that the one place the rates, the registry
-      and the decimator meet — `publishIntervals` — was a *private member* of `SensorPublisher`, which
-      cannot be built without Android and Zenoh. The function is pure, so it moved to the top level
-      beside the decimator it feeds and the whole resolution is now drivable from the JVM.
-      `GroupPublishRatesTest` ticks one synthetic callback and offers that instant to every subject
-      riding it, each with its own decimator — the shape of the real thing — and covers the case
-      measured by hand: the fix at 1 Hz with course at 0.2 gives 60 positions and 12 courses.
-      Two findings rather than confirmations. **A stream arriving faster than the request thins to 58 a
-      minute, not 60**: 12.5 Hz is quantised at 80 ms, so a 1 Hz request goes out every 13th sample,
-      i.e. every 1.04 s. It rounds *down* to the nearest achievable rate, which is worth knowing before
-      reading `0.96 Hz · pub 1.0` on a row as a bug. And **the `neverThinned` assertion was false
-      comfort as first written** — with only `sensorRates` set, `recordRate` falls back to `sensorRates`
-      for subjects that do not record continuously, so the earlier `publish == record` guard returned
-      before the exemption was reached and it passed against a build with the exemption deleted.
-      Sensitivity checked by mutation rather than assumed: resolving the map through `recordRate` fails
-      3 of the 5, deleting the `neverThinned` guard fails the 1 written for it. Done in 8361988.
-
-- [ ] **`SubjectSink.emit` is still only checked on a device.** `GroupPublishRatesTest` reaches the rate
-      resolution and the thinning but not the sink itself — that `wrap()` runs first and always, so the
-      file keeps every sample whatever the wire does, and that a decimated sample returns
-      `Result.success` rather than null (callers use null to mean *the subject is off* and skip work a
-      recorded sample still needs). It is an inner class needing a session, a recorder and a status
-      store. Making it reachable would mean interfaces for those three, which is a bigger change than
-      the one that freed `publishIntervals`.
-
-- [ ] **`SettingsProfileTest` does not catch a new `Settings` field on its own.** CLAUDE.md says a
-      field added later "fails the test until somebody decides which side it belongs on", and that is
-      only true if the fixture is updated as well — the assertions are a hand-written list, not a
-      reflective one. `mapTilerKey` was added to both by hand. A reflective check over
-      `Settings::class.memberProperties` would make the claim true.
 
 - [ ] **The layer menu says a layer needs a key, but not that a key has stopped working.** An expired
       or over-quota MapTiler key fails per tile, so the chart simply goes blank with the layer still
