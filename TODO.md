@@ -17,6 +17,21 @@ the section they belong to.
   `0.6.0-pre.3`. What the app can actually do for fleet health is the subject-level liveliness filed at
   the end of this section, which is what lets `entity_health` tell "source up but doesn't advertise
   this" from "advertised but silent".)*
+  *(2026-08-24, re-checked at `0.6.0-pre.12` — nine tags on: **still forbidden, and now argued rather
+  than asserted.** `connectors/CLAUDE.md` gives two reasons a connector must not compute and publish
+  this itself: it bakes health *policy* — what counts as nominal against critical — into the connector,
+  and two emitters writing one `entity_health` key race and flip-flop. The prescribed alternative is
+  named there too — publish the raw subjects and let a dedicated aggregator watch `(source, subject)`
+  freshness, with liveliness tokens carrying connector-alive — and that is exactly what this app
+  already does, three tiers included. So this is not blocked work waiting on upstream; it is work
+  upstream has decided belongs elsewhere, and the app's side of it is finished. Worth leaving open only
+  as the record of that decision.)*
+
+- [ ] **`checklist_evidence` is a fifth checklist subject and this app does not know it exists.** New
+      upstream since `0.6.0-pre.3`; present at `0.6.0-pre.12` alongside the four in `Subjects`. Nothing
+      is broken — the app neither publishes nor subscribes to it — but crowsnest may, and a checklist
+      that carries evidence this phone silently drops is worse than one that never offers it. Needs a
+      look at the payload and at whether crowsnest uses it before deciding anything.
 
 
 ## Future long therm 
