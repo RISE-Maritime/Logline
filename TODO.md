@@ -89,51 +89,18 @@ satellite, inline and full-screen. Findings:
 
 
 
-- [x] **`MAP_HEIGHT` is still a hand-tuned 400dp.** Now that the chart sits in a surface with the fix
-      line attached under it, the pair take a fixed 400dp plus about 40 — a little over half a Pixel 6's
-      content height, and proportionally more on a small phone. Worth deriving from the available height
-      rather than pinning, the same argument that removed the second hand-tuned constant from the
-      full-screen branch.
-      Now a fraction of the scaffold's own `padding` — the same measurement the full-screen branch
-      fills, so the two cannot disagree about how much room there is. 0.57 because that is what 400dp
-      already *was*: the Pixel 6's scroll viewport measures 1831 px, i.e. 698dp, and the readouts below
-      the chart moved 6 px after the change. Two bounds on it, both design limits rather than tuned
-      numbers, and the ceiling was only found by turning the phone sideways — in landscape the viewport
-      is 215dp, where the 240dp floor alone made the chart 112% of it and put the fix line attached
-      underneath out of reach. `chartHeight()` is pure and `ChartHeightTest` pins all three cases; four
-      of its five assertions fail against the old constant, and the fifth is the one asserting the
-      reference phone's layout survives. Done in 37d5cef.
-      Verified by simulating a small phone with `wm size 720x1280` / `wm density 320`, i.e. 360x640dp:
-      chart 250dp against a 438dp viewport, with the fix line, the three navigation values *and* the
-      health chips all in the first screenful — where a pinned 400dp would have been 91% of it.
-
-- [x] **The system splash still follows the phone's night mode, not the app's theme choice.**
-      **The premise was wrong and the truth was worse.** `Theme.Logline` was
-      `android:Theme.Material.Light.NoActionBar` with *no* night variant, so the splash did not follow
-      the phone at all — it was white on every launch, including a dark phone on Follow phone, which is
-      how this app is normally used. Measured before assuming: ~200 of 255 brightness ahead of a
-      near-black first frame.
-      Fixed in two halves, because the splash is painted from the manifest theme before any of this
-      app's code runs. `values-night` covers Follow phone — the default and the common case — and API 30
-      with it, where there is no splash screen and only the starting window's `windowBackground`.
-      `SplashScreen.setSplashScreenTheme` covers a forced scheme that disagrees with the phone; it can
-      only name the *next* cold start's theme, so it is set from a `LaunchedEffect` keyed on the choice
-      rather than once at startup, which makes it converge after one launch instead of two. Without that
-      second half the night variant would have introduced a new mismatch — a dark splash under a forced
-      Light app. The colours are the Compose scheme's own surfaces, not a plain white and black, since
-      the splash hands straight to the first composed frame. Verified on the device by screen recording
-      at 10 fps in all three configurations. Done in 161244c.
-      **`setTheme()` before `super.onCreate` — what this item proposed — would not have worked.** The
-      splash window is created by the system before the activity, so the theme is already resolved by
-      then; `setSplashScreenTheme` exists precisely because that is not reachable.
-
-
-- [ ] **The health chips no longer say anything when a run is healthy**, by design — colour is spent
+- [x] **The health chips no longer say anything when a run is healthy**, by design — colour is spent
       only on the abnormal now. Flagged because it is the one change in this pass that removes a signal
       rather than quietening it: if a glance at a good run comes to feel like the row is dead, the fix
       is one quiet green dot on the row as a whole, not one per chip.
-
-
+      **Looked at with a run going, and the diagnosis was identity rather than deadness.** Healthy, the
+      row is five identical outlined pills — the same vocabulary as the window lengths directly beneath
+      and the `Configured | Maximum` pair on Session — so it read as a second *filter strip*, with
+      nothing saying it was also the run's health. The abnormal case pops perfectly well, so the trade
+      the design makes is sound; what was missing was a name.
+      So it took a caption, `GROUP HEALTH`, styled as `Vital`'s captions down to the letter spacing so
+      the two rows read as one block of small print. **Not the green dot**, which would put colour back
+      on the normal case — the one thing this design gave up on purpose. Done in d47754c.
 
 
 ## Per-subject publish rates (2026-08-20)
