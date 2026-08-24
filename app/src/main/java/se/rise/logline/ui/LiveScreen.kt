@@ -186,6 +186,8 @@ fun LiveScreen(
     onOpenSubject: (PublishedSubject) -> Unit = {},
     /** Whether the chart layers that need a MapTiler key can draw. */
     hasMapTilerKey: Boolean = false,
+    /** Whether the key that is set has stopped being accepted — see `probeMapTilerKey`. */
+    mapTilerKeyRejected: Boolean = false,
     /** Where the layer menu sends somebody whose chosen layer needs configuring. */
     onOpenSettings: () -> Unit = {},
     /** The recorder's backlog, pulled on the caller's ticker. See `SensorPublisher.recordingLoad`. */
@@ -297,6 +299,7 @@ fun LiveScreen(
                     expanded = mapExpanded,
                     onExpandedChange = { mapExpanded = it },
                     hasMapTilerKey = hasMapTilerKey,
+                    mapTilerKeyRejected = mapTilerKeyRejected,
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 )
@@ -354,11 +357,25 @@ fun LiveScreen(
                     expanded = mapExpanded,
                     onExpandedChange = { mapExpanded = it },
                     hasMapTilerKey = hasMapTilerKey,
+                    mapTilerKeyRejected = mapTilerKeyRejected,
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
                 )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                // **The blank chart's own explanation, where the blankness is.** The layer menu says
+                // this too, but only to somebody who thought to open it — and a chart that has gone
+                // empty reads as a broken app, not as a prompt to go looking through a menu. Amber
+                // rather than red: nothing is lost, the tiles are cosmetic and every reading on this
+                // screen is unaffected.
+                if (mapTilerKeyRejected) {
+                    Text(
+                        "Map tiles are not loading — the MapTiler key was not accepted",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp),
+                    )
+                }
                 FixLine(
                     fix = fix,
                     nowMillis = nowMillis,
@@ -528,6 +545,8 @@ private fun MapToolbar(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     hasMapTilerKey: Boolean,
+    /** Whether the key that is set has stopped being accepted — see `probeMapTilerKey`. */
+    mapTilerKeyRejected: Boolean = false,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -552,6 +571,7 @@ private fun MapToolbar(
                 marks = marks,
                 onMarksChange = onMarksChange,
                 hasMapTilerKey = hasMapTilerKey,
+                mapTilerKeyRejected = mapTilerKeyRejected,
                 onOpenSettings = onOpenSettings,
             )
             MapIconButton(
@@ -577,6 +597,13 @@ private fun LayerControl(
     onMarksChange: (ChartMarks) -> Unit,
     /** Whether the layers that need a MapTiler key can actually draw. See [MapLayer.needsKey]. */
     hasMapTilerKey: Boolean,
+    /**
+     * Whether the key that *is* set has stopped being accepted — see `probeMapTilerKey`.
+     *
+     * A separate fact from [hasMapTilerKey] and it has to be: a key that is present and refused leaves
+     * the chart as blank as no key at all, and this was the state with nothing on screen about it.
+     */
+    mapTilerKeyRejected: Boolean = false,
     /** Where a layer that needs configuring sends you. */
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -597,7 +624,11 @@ private fun LayerControl(
                 // would leave the chart blank with nothing on screen saying why — the same failure as
                 // opening on an uncovered satellite grid. So it keeps its place in the list, says what
                 // it wants, and goes to the setting instead of pretending to be selectable.
-                val locked = option.needsKey && !hasMapTilerKey
+                // A key that is refused is as much a dead end as no key, so it gets the same
+                // treatment — greyed, gear, and a tap that goes to the field rather than selecting a
+                // layer that cannot draw. Only for the layers that actually fetch from MapTiler.
+                val refused = mapTilerKeyRejected && usesMapTiler(option, hasMapTilerKey)
+                val locked = (option.needsKey && !hasMapTilerKey) || refused
                 DropdownMenuItem(
                     text = {
                         Column {
@@ -611,9 +642,16 @@ private fun LayerControl(
                             )
                             if (locked) {
                                 Text(
-                                    "Needs a MapTiler key",
+                                    // The two are different problems with different fixes — one wants
+                                    // a key, the other wants a *new* key — so they must not share a
+                                    // sentence.
+                                    if (refused) "Key not accepted" else "Needs a MapTiler key",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (refused) {
+                                        MaterialTheme.colorScheme.tertiary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                 )
                             }
                         }

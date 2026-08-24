@@ -179,6 +179,9 @@ import se.rise.logline.ui.platformSummaryOf
 import se.rise.logline.ui.rateCeilings
 import androidx.compose.foundation.isSystemInDarkTheme
 import se.rise.logline.config.ThemeChoice
+import se.rise.logline.ui.MapTilerKeyStatus
+import se.rise.logline.ui.probeMapTilerKey
+import se.rise.logline.ui.usesMapTiler
 import se.rise.logline.ui.theme.LoglineTheme
 import se.rise.logline.whep.CameraLink
 import se.rise.logline.whep.hasCamera
@@ -469,6 +472,17 @@ private fun App(
     // consequence for a first run with no signal — a fresh install now opens on an empty grid rather
     // than a cached street map, and the layer menu is the way out of that.
     var liveLayer by rememberSaveable { mutableStateOf(MapLayer.Satellite) }
+    // Whether MapTiler refused the key, read by the layer menu and by the line under the chart.
+    //
+    // Asked of the service rather than inferred from the map, because inferring it does not work: with
+    // a deliberately invalid key the tile handler reported 4974 successes and no failures, osmdroid's
+    // approximater having supplied a scaled tile for every miss. See `probeMapTilerKey`.
+    //
+    // A plain `remember`, not `rememberSaveable`: it is the answer to a question asked over the
+    // network, and restoring "the key is bad" through a process death would state it without having
+    // asked. Re-asked whenever the key changes or the layer becomes one that fetches from MapTiler —
+    // one HEAD of one tile, which also means a key that comes back after a quota reset is noticed.
+    var mapTilerKeyRejected by remember { mutableStateOf(false) }
     // How the Files tab is being looked through, hoisted for the reason the live view's preferences
     // are: the tab is popped whenever a recording is opened, so a `remember` inside it would clear a
     // search on the way back from the thing the search found. Enums carry through `rememberSaveable`
@@ -560,6 +574,13 @@ private fun App(
             }
         }
         return
+    }
+
+    LaunchedEffect(current.mapTilerKey, liveLayer) {
+        val key = current.mapTilerKey
+        mapTilerKeyRejected = usesMapTiler(liveLayer, key.isNotBlank()) &&
+            key.isNotBlank() &&
+            probeMapTilerKey(key) == MapTilerKeyStatus.Rejected
     }
 
     // ── the checklist session ───────────────────────────────────────────────────────────────────
@@ -1211,6 +1232,7 @@ private fun App(
                 onBasicOnlyChange = { liveBasicOnly = it },
                 onOpenSubject = { nav.navigate(Routes.subjectDetail(it.name)) },
                 hasMapTilerKey = current.mapTilerKey.isNotBlank(),
+                mapTilerKeyRejected = mapTilerKeyRejected,
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 load = liveLoad,
                 bottomBar = navBar,
