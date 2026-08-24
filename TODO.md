@@ -32,7 +32,7 @@ the section they belong to.
       photo evidence; know a run was planned, abandoned or had a timestamp corrected
       (`EVENT_TYPE_RUN_PLANNED`/`RUN_ABANDONED`/`EVIDENCE_ATTACHED`/`TIME_SET`); render sub-items
       (`ChecklistProcedure.Item.parent_item_id`); or say which runs it has open
-      (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos — `ChecklistEvidence.proto`
+      (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos —/pl `ChecklistEvidence.proto`
       is not vendored at all — and reworking `ChecklistSync`/`ChecklistStore` around runs. A product
       decision, not a bug fix, and the checklist feature is off by default meanwhile.
       **Moot until the JNI crash is fixed**: tested on the live bus, turning checklists on crashes the
@@ -126,11 +126,42 @@ completes, and that is not something app code can fix.
       seconds later, over and over, and never sees an event or a snapshot.
       No workaround from this side. Either the binding is fixed upstream, or the handshake goes over
       something other than a Zenoh query — which now blocks checklists as well as WHEP.
+      **It is worse than a query bug.** With the bootstrap `get` removed and run snapshots taken by
+      subscription instead, the app still died — different class, different path:
+      `ClassNotFoundException: io.zenoh.jni.time.Timestamp`, raised in a **subscriber callback** by
+      `JNI NewStringUTF`. The trigger is any sample carrying a Zenoh timestamp, and on this bus every
+      checklist key carries one: measured with a Python subscriber, `checklist_state` and
+      `checklist_presence` both arrive `timestamped=True`, because the router timestamps what its
+      storages keep. `checklist_presence` was already subscribed before any of that work, so the feature
+      could never have survived a second station being present — the query crashed it first, so the
+      subscription half was never reached. One bug hiding behind another.
+      So the blocker is not "queries": **nothing that subscribes to a timestamped key works on this
+      binding.** That also raises a question nobody has asked yet — whether platform discovery, which
+      subscribes to `configuration_json`, survives on a bus whose router timestamps that key. It has only
+      ever been exercised on `rise`, where apparently nothing does.
       **Checklists are gated off meanwhile**, in `checklist/ChecklistAvailability.kt`. The constant is
       checked in `Routes.shouldSyncChecklists` rather than only on the Settings switch, because that is
       the single place a session opens and there are four ways the flag gets set. Re-enabling once the
       binding is fixed is that one boolean; `NavigationRoutesTest` has the positive routing assertions
       guarded rather than inverted, so they start pinning again the moment it flips. Done in 9de8f83.
+      The sync is now query-free and there is a simplified `ChecklistRunsScreen` behind the gate, with
+      the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
+      turn the feature on. Done in db09694.
+
+- [ ] **The two older checklist screens are out of the nav graph but still in the tree.**
+      `ui/ChecklistsScreen.kt` and `ui/ChecklistScreen.kt` — 697 lines of procedure editing, notes and
+      reminders — are unreachable since `Routes.CHECKLISTS` began routing to `ChecklistRunsScreen`.
+      Left deliberately: deleting a working feature should not be a side effect of adding a simpler one,
+      and if the binding is fixed they may be what somebody wants back. Keep or delete is a decision,
+      not a cleanup.
+
+- [ ] **Checklist progress is keyed on the procedure, not the run.** Two runs of one procedure live at
+      the same time collapse into a single row, and the live bus had five concurrent runs during this
+      investigation. The snapshot's `run_id` is read and shown, but re-keying the map touches 22 call
+      sites across the reducer, both older screens, the reminder receiver and persistence — and
+      `ChecklistEvent` would have to be re-vendored and re-keyed with it, or snapshots and events would
+      write to different keys in one map, which is worse than either choice. Only worth doing if the
+      feature is ever enabled.
 
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
       Two independent faults, both found by running it:
