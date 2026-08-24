@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -256,7 +257,14 @@ class MainActivity : ComponentActivity() {
             // flow, whose value DataStore caches, so this is one more subscription rather than one
             // more file read.
             val settings by app.settingsRepository.settings.collectAsState(initial = null)
-            LoglineTheme(darkTheme = (settings?.theme ?: storedTheme).isDark()) {
+            val theme = settings?.theme ?: storedTheme
+
+            // Keyed on the choice rather than run once: the splash can only ever be told about the
+            // *next* launch, so setting it the moment it changes is what makes it converge after one
+            // launch instead of two.
+            LaunchedEffect(theme) { applySplashTheme(theme) }
+
+            LoglineTheme(darkTheme = theme.isDark()) {
                 // No Scaffold here: every screen brings its own, and nesting them applied the status
                 // bar inset twice — a band of dead space above each title.
                 App(
@@ -268,6 +276,35 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * Name the theme the *next* cold start's splash will be drawn from.
+     *
+     * **The splash is the system's window, painted from the manifest theme before a line of this app
+     * runs**, so a choice stored in DataStore cannot reach the launch that reads it. `values-night`
+     * already handles Follow phone, which is the default and the common case; this is only for a
+     * forced scheme that disagrees with the phone, and `setSplashScreenTheme` is the platform's own
+     * answer to exactly that — it applies from the next launch.
+     *
+     * One launch late is the best available and costs nothing in practice: a person sets this once and
+     * then opens the app hundreds of times. `ID_NULL` is the documented reset, and it is what Follow
+     * phone wants — with nothing overriding it the manifest theme resolves normally and the night
+     * qualifier decides.
+     *
+     * API 31 is where the splash screen and this call both arrive; `minSdk` is 30, and on 30 there is
+     * no splash to theme — the starting window is the manifest theme's `windowBackground`, which the
+     * night qualifier already fixes.
+     */
+    private fun applySplashTheme(choice: ThemeChoice?) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        splashScreen.setSplashScreenTheme(
+            when (choice) {
+                ThemeChoice.Light -> R.style.Theme_LoglineForcedLight
+                ThemeChoice.Dark -> R.style.Theme_LoglineForcedDark
+                ThemeChoice.System, null -> Resources.ID_NULL
+            }
+        )
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

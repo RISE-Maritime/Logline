@@ -1,5 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<!--
+  The platform theme, which is what paints the window and the system splash **before** any of this
+  app's code runs — so it is the one piece of the app's appearance Compose cannot decide.
 
-    <style name="Theme.Logline" parent="android:Theme.Material.Light.NoActionBar" />
+  It used to be `android:Theme.Material.Light.NoActionBar` with no night variant, which meant every
+  launch flashed white: measured on a Pixel 6 in night mode with the app on Follow phone, i.e. the
+  configuration this app is normally used in, the splash was still ~200 of 255 brightness before a
+  near-black first frame.
+
+  `Theme.Logline` follows the phone through `values-night`. The two forced variants are for a choice
+  that disagrees with the phone, handed to `SplashScreen.setSplashScreenTheme()` in `MainActivity` —
+  they are deliberately *not* night-qualified, since the whole point is to ignore what the phone says.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.Logline" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/surface_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/surface_light</item>
+    </style>
+
+    <style name="Theme.LoglineForcedLight" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/surface_light</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/surface_light</item>
+    </style>
+
+    <style name="Theme.LoglineForcedDark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/surface_dark</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/surface_dark</item>
+    </style>
 </resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The two window backgrounds, and they are the Compose scheme's own surfaces rather than a plain
+  white and black — `SurfaceLight` and `SurfaceDarkColor` in `ui/theme/Color.kt`. The splash hands
+  straight over to the first composed frame, so a different colour here is a visible step at the
+  moment the app appears.
+
+  Duplicated from Kotlin because the platform resolves this one before any Kotlin runs. If the scheme's
+  surfaces ever change, these change with them.
+-->
+<resources>
+    <color name="surface_light">#FFFBFCFF</color>
+    <color name="surface_dark">#FF101418</color>
+</resources>
