@@ -72,10 +72,25 @@ Left over from the platform library, and each is a finding rather than a fix. Al
 Derived subjects gained a publish rate of their own, capped at the one they ride. Findings:
 
 
-- [ ] **`ratesCanDiffer` still resolves through the owner**, which is now the only rate function that
+- [x] **`ratesCanDiffer` still resolves through the owner**, which is now the only rate function that
       does so for a reason unrelated to recording. It decides whether the *record* control appears, so
       it is correct — but the name reads as a statement about the pair of rates, which for a derived
       subject is no longer what it answers.
+      **The name was worse than vague — it was backwards.** Where it answers false the editor *forces*
+      the record rate equal to the publish rate (`!hasSeparateRecordRate -> editedRate` in
+      `SubjectQosScreen`), so "the rates cannot differ" stated a consequence of the answer rather than a
+      fact about the subject: a derived subject riding a poll takes the owner's rate for the file and
+      keeps its own for the wire, which is two different numbers on one row. Renamed to
+      `hasSeparateRecordRate`, which is what it decides — whether there is a second rate worth putting a
+      control under — along with the `SubjectQosScreen` parameter and the two KDocs that repeated the
+      old framing.
+      The KDoc now also records the owner hop the note asked about: every other function that resolves
+      `rateOwner` takes a *value* from it, while this one hops to ask what kind of thing is sampling,
+      because a derived subject has no listener and "runs on its own clock" is a fact about the owner
+      and never about the subject.
+      Behaviour-preserving, and checked on a Pixel 6 rather than assumed, since this is the flag that
+      decides one control or two: the sensor subject still draws four labels and the polled one still
+      draws two. Done in 31057e1.
 
 - [ ] **Nothing tests the publish path end to end at differing rates within one group.** The
       decimator, the interval map and the resolution are each covered, and the combination was checked
