@@ -107,13 +107,25 @@ satellite, inline and full-screen. Findings:
       chart 250dp against a 438dp viewport, with the fix line, the three navigation values *and* the
       health chips all in the first screenful — where a pinned 400dp would have been 91% of it.
 
-- [ ] **The system splash still follows the phone's night mode, not the app's theme choice.** About
-      0.6 s of icon on a light ground when a dark phone is forced to Light, or the reverse: it is drawn
-      from the launcher theme before any of this app's code runs, so the choice cannot be known by then
-      without `setTheme()` ahead of `super.onCreate` off a blocking read. Filed rather than done because
-      every app on a light phone shows a light splash, so this is a nicety rather than the unreadable
-      status bar that came with it. Re-filed on its own after being pruned along with the ticked theme
-      item it was written inside — an open finding does not belong in a done item, which is the lesson.
+- [x] **The system splash still follows the phone's night mode, not the app's theme choice.**
+      **The premise was wrong and the truth was worse.** `Theme.Logline` was
+      `android:Theme.Material.Light.NoActionBar` with *no* night variant, so the splash did not follow
+      the phone at all — it was white on every launch, including a dark phone on Follow phone, which is
+      how this app is normally used. Measured before assuming: ~200 of 255 brightness ahead of a
+      near-black first frame.
+      Fixed in two halves, because the splash is painted from the manifest theme before any of this
+      app's code runs. `values-night` covers Follow phone — the default and the common case — and API 30
+      with it, where there is no splash screen and only the starting window's `windowBackground`.
+      `SplashScreen.setSplashScreenTheme` covers a forced scheme that disagrees with the phone; it can
+      only name the *next* cold start's theme, so it is set from a `LaunchedEffect` keyed on the choice
+      rather than once at startup, which makes it converge after one launch instead of two. Without that
+      second half the night variant would have introduced a new mismatch — a dark splash under a forced
+      Light app. The colours are the Compose scheme's own surfaces, not a plain white and black, since
+      the splash hands straight to the first composed frame. Verified on the device by screen recording
+      at 10 fps in all three configurations. Done in 161244c.
+      **`setTheme()` before `super.onCreate` — what this item proposed — would not have worked.** The
+      splash window is created by the system before the activity, so the theme is already resolved by
+      then; `setSplashScreenTheme` exists precisely because that is not reachable.
 
 
 - [ ] **The health chips no longer say anything when a run is healthy**, by design — colour is spent
