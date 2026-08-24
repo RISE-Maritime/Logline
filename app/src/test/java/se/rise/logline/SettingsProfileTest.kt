@@ -6,6 +6,7 @@ import io.zenoh.qos.Reliability
 import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.config.Settings
+import se.rise.logline.config.ThemeChoice
 import se.rise.logline.config.applyProfile
 import se.rise.logline.config.encode
 import se.rise.logline.config.parseSettingsProfile
@@ -217,6 +218,7 @@ class SettingsProfileTest {
             platformRegistryOrigin = "cccc-this-install-only",
             platformRegistryVersion = 7L,
             batteryExemptionAsked = true,
+            theme = ThemeChoice.Dark,
         )
         val fromElsewhere = requireNotNull(parseSettingsProfile(configured().toProfile().encode()))
 
@@ -227,6 +229,11 @@ class SettingsProfileTest {
         assertEquals("cccc-this-install-only", out.platformRegistryOrigin)
         assertEquals(7L, out.platformRegistryVersion)
         assertEquals(true, out.batteryExemptionAsked)
+        // **The theme is not fleet configuration.** It is a personal display preference like
+        // `batteryExemptionAsked` is a device fact, so importing somebody else's profile must not
+        // repaint this phone. It survives because `applyProfile` is a `copy` naming only what travels —
+        // which is exactly why a new field has to be thought about rather than assumed either way.
+        assertEquals(ThemeChoice.Dark, out.theme)
         // …while the shareable half did arrive.
         assertEquals(listOf("tls/router.example.com:443", "tcp/192.168.0.10:7447"), out.routerEndpoints)
     }

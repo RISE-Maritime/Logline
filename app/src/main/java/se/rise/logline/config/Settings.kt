@@ -9,6 +9,19 @@ import se.rise.logline.keelson.pubsubKey
 import se.rise.logline.sensors.SensorRate
 import se.rise.logline.sensors.slowerOf
 
+/**
+ * A colour scheme, or deference to the phone's own.
+ *
+ * Deliberately not a `Boolean`: `System` is the default and is a different thing from either fixed
+ * choice, and a phone that switches at dusk should keep doing so unless somebody says otherwise.
+ * `label` is what the chips read.
+ */
+enum class ThemeChoice(val label: String) {
+    System("Follow phone"),
+    Light("Light"),
+    Dark("Dark"),
+}
+
 data class Settings(
     val realm: String,
     val entityId: String,
@@ -134,6 +147,20 @@ data class Settings(
      * coverage is most of them, and is the difference between a map that draws and one that grinds.
      */
     val offlineTilesOnly: Boolean = false,
+    /**
+     * Which colour scheme to draw, or to follow the phone.
+     *
+     * **Applied the moment it is chosen, never on Save.** Every other field on the settings screen
+     * goes through `saveSettings()`, which stops and restarts the service so publishers are redeclared
+     * — and tearing down the Zenoh session and the open MCAP file to change a colour would end the run
+     * somebody is watching. The same rule the tags and the per-subject switches follow, and the reason
+     * this one is written with `update()`.
+     *
+     * Three states rather than a switch, for the reason the sampling-rate selector is a pair rather
+     * than a toggle: the thing being chosen is *which* scheme, and "follow the phone" is a real answer
+     * that a two-way switch cannot express.
+     */
+    val theme: ThemeChoice = ThemeChoice.System,
     /**
      * A MapTiler key, which upgrades the satellite layer to their imagery.
      *

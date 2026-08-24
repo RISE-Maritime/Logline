@@ -141,7 +141,26 @@ satellite, inline and full-screen. Findings:
       Not seen on the phone — the keys and the parser are covered by tests, but no run has published on
       the new shape.
 
-- [ ] **Add ad ligth and drak team switch into the setttings** 
+- [x] **Add ad ligth and drak team switch into the setttings** 
+      Done, as **three options rather than a switch** — Follow phone / Light / Dark — under a new
+      *Appearance* heading in General. A two-way switch cannot express "follow the phone", which is the
+      default and a real answer; the same reason the sampling-rate control is a `Configured | Maximum`
+      pair rather than a toggle.
+      **It applies at once, and is the first control on that screen that does.** Everything else there
+      goes through `saveSettings()`, which stops and restarts the service to redeclare publishers —
+      restarting a run to change a colour would close the recording somebody is watching. So it takes
+      `update()` and its own callback, bypassing `edited`, which also means it never makes Save dirty.
+      The same rule the tags and the per-subject switches follow, and the screen says "Applies at once"
+      because a control behaving differently from its neighbours has to say so.
+      **It does not travel in a settings profile.** A theme is a personal display preference, the way
+      `batteryExemptionAsked` is a device fact — importing a colleague's profile must not repaint your
+      phone. It survives an import because `applyProfile` is a `copy` naming only what travels;
+      `SettingsProfileTest` now asserts that rather than leaving it to luck, since that test is
+      hand-written and would not otherwise notice a new field.
+      **Not seen on a screen.** The phone stayed locked, so neither scheme has been looked at in this
+      build. Worth checking three things next time it is in hand: that Light renders at all (this app is
+      normally used dark), that the traffic-light readouts still read correctly on a light ground — amber
+      especially — and that the chips show the stored choice after a restart.
 
 -----
 

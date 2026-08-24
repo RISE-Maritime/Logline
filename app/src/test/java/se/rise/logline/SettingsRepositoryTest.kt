@@ -24,6 +24,7 @@ import se.rise.logline.config.AnnotationButton
 import se.rise.logline.config.AnnotationSeverity
 import se.rise.logline.config.Keys
 import se.rise.logline.config.Settings
+import se.rise.logline.config.ThemeChoice
 import se.rise.logline.config.parseDisabledSubjects
 import se.rise.logline.config.parseEndpoints
 import se.rise.logline.config.readSettings
@@ -646,6 +647,26 @@ class SettingsRepositoryTest {
 
         val read = readSettings(prefs, defaultEntityId = "pixel_6").platforms.single()
         assertEquals(EulerDeg(yaw = -90.0, pitch = 0.0, roll = 180.0), read.sensors.single().rotation)
+    }
+
+    /**
+     * The colour scheme round-trips, and an unreadable one follows the phone.
+     *
+     * `System` rather than a fixed scheme for the fallback: a stale or misspelled preference should
+     * leave the phone doing what it was doing, not force a scheme somebody did not choose. The same
+     * stance `readQosOverrides` takes for a Zenoh enum renamed between versions.
+     */
+    @Test
+    fun `the theme round-trips and an unknown value follows the phone`() {
+        val prefs = mutablePreferencesOf()
+
+        assertEquals("absent means follow the phone", ThemeChoice.System, readSettings(prefs, "pixel_6").theme)
+
+        writeSettings(prefs, settingsWith().copy(theme = ThemeChoice.Dark))
+        assertEquals(ThemeChoice.Dark, readSettings(prefs, "pixel_6").theme)
+
+        prefs[Keys.THEME] = "Sepia"
+        assertEquals(ThemeChoice.System, readSettings(prefs, "pixel_6").theme)
     }
 
     // ---- migration from the single-platform keys ----

@@ -170,9 +170,24 @@ import se.rise.logline.ui.components.TopLevel
 import se.rise.logline.ui.labelOf
 import se.rise.logline.ui.platformSummaryOf
 import se.rise.logline.ui.rateCeilings
+import androidx.compose.foundation.isSystemInDarkTheme
+import se.rise.logline.config.ThemeChoice
 import se.rise.logline.ui.theme.LoglineTheme
 import se.rise.logline.whep.CameraLink
 import se.rise.logline.whep.hasCamera
+
+/**
+ * Whether to draw the dark scheme, with `System` deferring to the phone.
+ *
+ * A null choice — settings not read yet — also defers, so the first frame matches the system rather
+ * than flashing the light scheme on a phone set to dark.
+ */
+@Composable
+private fun ThemeChoice?.isDark(): Boolean = when (this) {
+    ThemeChoice.Light -> false
+    ThemeChoice.Dark -> true
+    ThemeChoice.System, null -> isSystemInDarkTheme()
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -202,7 +217,13 @@ class MainActivity : ComponentActivity() {
         reminderProcedureId = intent?.getStringExtra(ChecklistReminders.EXTRA_PROCEDURE_ID)
         enableEdgeToEdge()
         setContent {
-            LoglineTheme {
+            // Collected here rather than inside `App()` because the theme *wraps* it — the scheme has
+            // to be known before the content is composed. A second collector on the same DataStore
+            // flow, which is shared and cached, so this is one more subscription rather than one more
+            // file read.
+            val app = applicationContext as LoglineApp
+            val settings by app.settingsRepository.settings.collectAsState(initial = null)
+            LoglineTheme(darkTheme = settings?.theme.isDark()) {
                 // No Scaffold here: every screen brings its own, and nesting them applied the status
                 // bar inset twice — a band of dead space above each title.
                 App(
@@ -1966,6 +1987,12 @@ private fun App(
             }
             SettingsScreen(
                 initial = current,
+                // `update()`, never `saveSettings()`: the latter restarts the service to redeclare
+                // publishers, which would drop the Zenoh session and close the open recording to
+                // change a colour. Same rule the tags and the per-subject switches follow.
+                onThemeChange = { choice ->
+                    scope.launch { app.settingsRepository.update(current.copy(theme = choice)) }
+                },
                 scanning = scanning,
                 scanResults = scanResults,
                 scanMessage = scanMessage,

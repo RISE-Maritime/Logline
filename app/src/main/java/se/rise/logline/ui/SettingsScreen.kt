@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.rise.logline.config.Settings
+import se.rise.logline.config.ThemeChoice
 import se.rise.logline.map.OfflineMap
 import se.rise.logline.config.TlsCredential
 import se.rise.logline.config.TlsCredentialState
@@ -55,6 +56,16 @@ fun SettingsScreen(
     tlsCredentials: List<TlsCredentialState>,
     onImportCredential: (TlsCredential) -> Unit,
     onClearCredential: (TlsCredential) -> Unit,
+    /**
+     * The colour scheme, applied at once rather than on Save.
+     *
+     * Its own callback because it must **not** go through `edited`: every other field on this screen is
+     * written by `saveSettings()`, which stops and restarts the service, and restarting a run to change
+     * a colour would close the recording somebody is watching. The tags and the per-subject switches
+     * take the same route for the same reason. It also means the theme never makes Save dirty — there
+     * is nothing left to save.
+     */
+    onThemeChange: (ThemeChoice) -> Unit,
     /** Capture rates this device's microphone actually offers — asked, not assumed. */
     scanning: Boolean,
     scanResults: List<DiscoveredRouter>,
@@ -260,6 +271,33 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                SectionHeader(
+                    "Appearance",
+                    onInfo = {
+                        info = "Appearance" to
+                            "Follow phone tracks the system setting, including a schedule if the phone " +
+                            "has one set. Light and Dark override it.\n\n" +
+                            "The colours mean the same thing in both: green fine, amber warning, red " +
+                            "error, blue information, grey off."
+                    },
+                )
+                // Consequence, and the reason this control behaves differently from every other one on
+                // the screen: it takes effect immediately instead of waiting for Save.
+                Text(
+                    "Applies at once. It does not restart a run.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeChoice.entries.forEach { choice ->
+                        FilterChip(
+                            selected = initial.theme == choice,
+                            onClick = { onThemeChange(choice) },
+                            label = { Text(choice.label) },
+                        )
+                    }
+                }
 
                 SectionHeader("Background running")
                 SettingSwitch(

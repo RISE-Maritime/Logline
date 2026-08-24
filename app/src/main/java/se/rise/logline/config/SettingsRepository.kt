@@ -62,6 +62,7 @@ internal object Keys {
     val BATTERY_EXEMPTION_ASKED = stringPreferencesKey("battery_exemption_asked")
     val START_ON_BOOT = stringPreferencesKey("start_on_boot")
     val OFFLINE_TILES_ONLY = stringPreferencesKey("offline_tiles_only")
+    val THEME = stringPreferencesKey("theme")
     val MAPTILER_KEY = stringPreferencesKey("maptiler_key")
     val PUBLISH_ENABLED = stringPreferencesKey("publish_enabled")
     val SCOUT_ADDRESS = stringPreferencesKey("scout_address")
@@ -265,6 +266,9 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
         batteryExemptionAsked = prefs[Keys.BATTERY_EXEMPTION_ASKED]?.toBooleanStrictOrNull() ?: false,
         startOnBoot = prefs[Keys.START_ON_BOOT]?.toBooleanStrictOrNull() ?: false,
     offlineTilesOnly = prefs[Keys.OFFLINE_TILES_ONLY]?.toBooleanStrictOrNull() ?: false,
+        // An unrecognised value follows the phone rather than throwing — the same stance
+        // `readQosOverrides` takes, since a stale preference should not cost every other setting.
+        theme = ThemeChoice.entries.byName(prefs[Keys.THEME]) ?: ThemeChoice.System,
     mapTilerKey = prefs[Keys.MAPTILER_KEY].orEmpty(),
     publishEnabled = prefs[Keys.PUBLISH_ENABLED]?.toBooleanStrictOrNull() ?: true,
         scoutAddress = prefs[Keys.SCOUT_ADDRESS]?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_SCOUT_ADDRESS,
@@ -343,6 +347,7 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.BATTERY_EXEMPTION_ASKED] = settings.batteryExemptionAsked.toString()
     prefs[Keys.START_ON_BOOT] = settings.startOnBoot.toString()
     prefs[Keys.OFFLINE_TILES_ONLY] = settings.offlineTilesOnly.toString()
+    prefs[Keys.THEME] = settings.theme.name
     prefs[Keys.MAPTILER_KEY] = settings.mapTilerKey
     prefs[Keys.PUBLISH_ENABLED] = settings.publishEnabled.toString()
     prefs[Keys.SCOUT_ADDRESS] = settings.scoutAddress
