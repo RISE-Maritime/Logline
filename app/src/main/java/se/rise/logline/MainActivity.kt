@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -51,10 +52,13 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import se.rise.logline.calibrate.AveragedFix
 import se.rise.logline.calibrate.CalibrationCapture
 import se.rise.logline.calibrate.CaptureMethod
@@ -177,6 +181,14 @@ import se.rise.logline.whep.CameraLink
 import se.rise.logline.whep.hasCamera
 
 /**
+ * How long the launch will wait for the stored theme before falling back to the phone's own scheme.
+ *
+ * This is a blocking read on the main thread, so it needs a ceiling rather than trust. Half a second
+ * is far beyond what DataStore takes for a 7 kB file and still well inside the ANR window.
+ */
+private const val THEME_READ_TIMEOUT_MILLIS = 500L
+
+/**
  * Whether to draw the dark scheme, with `System` deferring to the phone.
  *
  * A null choice — settings not read yet — also defers, so the first frame matches the system rather
@@ -216,14 +228,35 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         reminderProcedureId = intent?.getStringExtra(ChecklistReminders.EXTRA_PROCEDURE_ID)
         enableEdgeToEdge()
+
+        val app = applicationContext as LoglineApp
+
+        // **The stored scheme has to be known before the first frame, and a flow does not know it
+        // yet.** `settings` starts null while DataStore reads the file, and deferring to the phone for
+        // that window is only right when the two agree. Measured on a Pixel 6 with the phone in light
+        // mode and the app set to Dark: the launch showed **0.9 s** of the light scheme — the system
+        // splash, then the app's own "Loading settings…" — before the dark one arrived. So the theme,
+        // and only the theme, is read blocking here, which is the same trade `BootReceiver` makes and
+        // for the same reason: the alternative is a screen that visibly changes its mind.
+        //
+        // Bounded, because this is the main thread at launch: a read that does not answer inside
+        // [THEME_READ_TIMEOUT_MILLIS] falls back to null, i.e. to exactly the deferring behaviour this
+        // replaces. A warm start pays nothing at all — DataStore holds the value in memory, so
+        // `first()` returns without touching the disk. It fixes the app's half of that 0.9 s; the
+        // splash ahead of it belongs to the system theme and still follows the phone.
+        val storedTheme = runBlocking {
+            withTimeoutOrNull(THEME_READ_TIMEOUT_MILLIS) {
+                runCatching { app.settingsRepository.settings.first().theme }.getOrNull()
+            }
+        }
+
         setContent {
             // Collected here rather than inside `App()` because the theme *wraps* it — the scheme has
             // to be known before the content is composed. A second collector on the same DataStore
-            // flow, which is shared and cached, so this is one more subscription rather than one more
-            // file read.
-            val app = applicationContext as LoglineApp
+            // flow, whose value DataStore caches, so this is one more subscription rather than one
+            // more file read.
             val settings by app.settingsRepository.settings.collectAsState(initial = null)
-            LoglineTheme(darkTheme = settings?.theme.isDark()) {
+            LoglineTheme(darkTheme = (settings?.theme ?: storedTheme).isDark()) {
                 // No Scaffold here: every screen brings its own, and nesting them applied the status
                 // bar inset twice — a band of dead space above each title.
                 App(
@@ -469,13 +502,23 @@ private fun App(
     val current = settings ?: run {
         // One frame or two while DataStore is read. Centred and labelled, so it reads as loading
         // rather than as a screen that failed to draw.
-        Column(
-            modifier = modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            CircularProgressIndicator()
-            Text("Loading settings…", modifier = Modifier.padding(top = 12.dp))
+        //
+        // **The `Surface` is not decoration.** Every other screen brings its own `Scaffold`, which
+        // paints the scheme's background; this branch is the one place that does not, so a bare
+        // `Column` fell through to the *window* background from the XML theme — which follows the
+        // phone's night mode — while its text took the app's chosen scheme. On a light phone with the
+        // app set to Dark that drew light grey text on white and the label was all but unreadable,
+        // measured on a Pixel 6. It is the same class of bug as the status bar icons in `LoglineTheme`:
+        // anything drawn before or outside the scheme has to be told which one won.
+        Surface(modifier = modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator()
+                Text("Loading settings…", modifier = Modifier.padding(top = 12.dp))
+            }
         }
         return
     }

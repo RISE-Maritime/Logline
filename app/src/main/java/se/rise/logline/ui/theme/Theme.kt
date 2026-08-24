@@ -2,6 +2,10 @@ package se.rise.logline.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import android.app.Activity
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -104,6 +108,23 @@ fun LoglineTheme(
 
         darkTheme -> DarkColors
         else -> LightColors
+    }
+
+    // **The system bars have to be told, or a forced scheme makes them invisible.**
+    // `enableEdgeToEdge()` runs in `onCreate`, before any of this is known, and its default derives
+    // the icon colour from the *phone's* night mode. So a phone set to dark with the app forced to
+    // Light drew a white clock and white signal icons on a white ground — measured on a Pixel 6,
+    // `07:38` was there and could not be read. Set here rather than at the call site because this is
+    // the one place that knows which scheme won.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as Activity).window
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
+            }
+        }
     }
 
     MaterialTheme(
