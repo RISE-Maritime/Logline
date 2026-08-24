@@ -116,11 +116,16 @@ object RadioSources {
 }
 
 /**
- * The fixed source ids for the position solutions published beside the fused fix.
+ * The level *beneath* `locationSource` that each unfused position solution publishes on.
  *
- * Same reasoning as [RadioSources]: these name **what the measurement is** rather than which device
- * made it, so they are not the configurable `locationSource`. The fused fix keeps that one, because
- * "the phone's position" genuinely is a property of the phone.
+ * `.../location_fix/{locationSource}` is the fused fix; `.../location_fix/{locationSource}/gnss` and
+ * `.../location_fix/{locationSource}/network` are the solutions it is made from. The specification
+ * allows the extra level — "`source_id` may contain any number of additional levels (i.e. forward
+ * slashes), ei. camera/rbg/0" — and upstream's own parser returns `phone/gnss` as one `source_id`.
+ *
+ * Unlike [RadioSources] these are **not** replacements for the configured id. A fixed `gnss` would
+ * collide with a phone whose `locationSource` was itself set to `gnss`, publishing two different
+ * solutions on one key; nesting makes that impossible whatever is typed into a free-text field.
  *
  * There is no `wifi` and no `cell` here, and there cannot be: Android exposes `gps`, `network`,
  * `fused` and `passive`, and `network` is wifi *and* cell together with nothing saying which
@@ -220,6 +225,27 @@ fun rpcInterfaceLivelinessKey(
  * protocol, not formatting, and a discovery path that guessed it would report entity ids that are
  * really subjects. `@v0` is verbatim, so a key not carrying it is not a keelson key at all.
  */
+/**
+ * A pubsub key's subject and source, or null when it is not one.
+ *
+ * **The source is everything after the subject, not the last chunk.** A `source_id` may carry further
+ * levels — the specification's own example is `camera/rbg/0`, and this app publishes
+ * `location_fix/{locationSource}/gnss` — so anything reading the source as `chunks.last()` and the
+ * subject as the one before it silently answers `gnss` for the subject the moment a source is nested.
+ * That is how two screens came to disagree about what a topic was called.
+ *
+ * Anchored on the verbatim `pubsub` chunk rather than counted from either end, which is the only
+ * position that cannot move.
+ */
+fun pubsubSubjectAndSource(key: String): Pair<String, String>? {
+    val chunks = key.split('/')
+    // realm / @v0 / entity / pubsub / subject / source…
+    if (chunks.size < 6 || chunks[1] != "@v0" || chunks[3] != "pubsub") return null
+    val subject = chunks[4].takeIf { it.isNotBlank() } ?: return null
+    val source = chunks.drop(5).joinToString("/").takeIf { it.isNotBlank() } ?: return null
+    return subject to source
+}
+
 fun entityIdFromKey(key: String): String? {
     val chunks = key.split('/')
     if (chunks.size < 3 || chunks[1] != "@v0") return null

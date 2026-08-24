@@ -724,11 +724,17 @@ data class Settings(
     /** True once there is a person behind the checklist actions. Nothing publishes before that. */
     fun hasChecklistIdentity(): Boolean = operatorId.isNotBlank() && operatorName.isNotBlank()
 
-    fun sourceFor(entry: PublishedSubject): String = entry.fixedSourceId ?: when (entry.source) {
-        SourceKind.LOCATION -> locationSource
-        SourceKind.IMU -> imuSource
-        SourceKind.DEVICE, SourceKind.RADIO -> deviceSource
-        SourceKind.CALIBRATION -> calibrationSource
+    fun sourceFor(entry: PublishedSubject): String {
+        val base = entry.fixedSourceId ?: when (entry.source) {
+            SourceKind.LOCATION -> locationSource
+            SourceKind.IMU -> imuSource
+            SourceKind.DEVICE, SourceKind.RADIO -> deviceSource
+            SourceKind.CALIBRATION -> calibrationSource
+        }
+        // A further level beneath the configured id, which the specification allows and the unfused
+        // position solutions use. Nesting rather than replacing is what stops a `locationSource` of
+        // `gnss` colliding with the GNSS-only stream.
+        return entry.sourceSuffix?.let { "$base/$it" } ?: base
     }
 
     /**

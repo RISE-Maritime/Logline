@@ -120,27 +120,26 @@ rewritten from the ground up. These are the consequences.
 The design review's eight points on the Live screen, implemented and walked on a Pixel 6 on map and
 satellite, inline and full-screen. Findings:
 
-
-- [x] **The unfused position rows show no reading.** They publish and their rate reads correctly, but
-      the value column says "no reading": `readingOf` takes a position from the live track, and only the
-      fused collector records into it. Not dishonest — the row claims nothing — but a row reading
-      `0.1 Hz` beside a blank is odd. Fixing it means a per-entry fix in `LiveSampleStore`, which is a
-      store deliberately built around one ring per subject rather than per entry.
-      **"A per-entry ring" was wrong** — a row needs the *latest* position, not history, so this is a
-      slot per entry, the shape `FrameSlot` already uses for the newest camera frame. `FixSlots` beside
-      it, `LiveLatest.fixes` keyed on the entry, and `fix` kept as a getter for the fused one.
-      **The track stays fused-only**, which is the part that would have been quietly wrong: it draws the
-      map's polyline and answers `lastFix`, and three solutions in one route would make the map jump and
-      the readout flicker. `LiveSampleStoreTest` asserts the negative as well as the positive, plus that
-      a silent source shows nothing rather than borrowing the fused position.
-      **Not seen on the phone.** The unit tests cover the store; the three rows side by side, and the
-      indoor case where GNSS stays blank while the other two agree, have not been looked at — the phone
-      locked itself before the run. Worth a glance next time it is in hand.
-- [ ] **A `locationSource` of `gnss` or `network` collides with the fixed ids.** That setting is free
+- [x] **A `locationSource` of `gnss` or `network` collides with the fixed ids.** That setting is free
       text, so a phone configured that way would declare two publishers on one key and interleave two
       different solutions indistinguishably. Two test fixtures used `gnss` as their stand-in location
       source and had to be renamed, which is how this surfaced — the trap is easy to fall into. The fix
-      is to refuse the reserved ids in the settings field.
+      is to refuse the reserved ids in the settings field. put the Keelson Source as .../gnss/<type>
+      Done the second way, which is better than the first: the two solutions now **nest** under the
+      configured id — `location_fix/{locationSource}/gnss` and `/network` — so no value of a free-text
+      field can collide, rather than a list of reserved words somebody has to keep policing. The
+      specification allows the level ("`source_id` may contain any number of additional levels … ei.
+      camera/rbg/0") and upstream's own parser returns `phone/gnss` as one `source_id`.
+      `PublishedSubject.sourceSuffix` does it, not `fixedSourceId` — a fixed id *replaces* the
+      configured one, which is what caused the collision.
+      **It also found two latent bugs of the same kind.** `McapTrack.isFixTopic` and
+      `RecordingDetailScreen.subjectOf` both read a topic by counting from the end, so a nested source
+      made them answer `gnss` for the *subject*: the Files tab would have stopped recognising its own
+      fix channel and the detail screen printed the wrong pair. Both now use one
+      `pubsubSubjectAndSource()` anchored on the verbatim `pubsub` chunk, pinned against the
+      specification's three-level example.
+      Not seen on the phone — the keys and the parser are covered by tests, but no run has published on
+      the new shape.
 
 - [ ] **Add ad ligth and drak team switch into the setttings** 
 

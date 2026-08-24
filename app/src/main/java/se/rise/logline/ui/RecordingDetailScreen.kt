@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import se.rise.logline.publish.formatElapsed
+import se.rise.logline.keelson.pubsubSubjectAndSource
 import se.rise.logline.record.McapDetails
 import se.rise.logline.record.TrackFix
 import se.rise.logline.record.normaliseTag
@@ -323,10 +324,11 @@ private fun Fact(label: String, value: String) {
  * differences off the edge.
  */
 internal fun subjectOf(topic: String): String {
-    val parts = topic.split('/')
-    // Anything that is not a pubsub key is printed whole rather than guessed at.
-    if (parts.size < 2) return topic
-    return "${parts[parts.size - 2]} · ${parts.last()}"
+    // Anything that is not a pubsub key is printed whole rather than guessed at. Parsed rather than
+    // counted from the end, so a nested source like `phone/gnss` reads as one source under its subject
+    // instead of turning `phone` into the subject.
+    val (subject, source) = pubsubSubjectAndSource(topic) ?: return topic
+    return "$subject · $source"
 }
 
 /**

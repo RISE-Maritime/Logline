@@ -28,9 +28,8 @@ class LivelinessTest {
         realm = "rise",
         entityId = "pixel_6",
         routerEndpoints = listOf("tcp/127.0.0.1:7447"),
-        // Not "gnss": that is now a *fixed* source id, used by the unfused GNSS-only fix, and a
-        // configured location source that collides with it would publish two streams on one key —
-        // which is a real trap worth not modelling here as if it were normal.
+        // The unfused solutions nest beneath whatever this is, so no value of it can collide with
+        // them — that nesting is the point, and "fix" keeps the fixture readable.
         locationSource = "fix",
         imuSource = "imu",
         deviceSource = "box",
@@ -50,7 +49,11 @@ class LivelinessTest {
 
         assertEquals(keys.size, claimed.size)
         assertEquals(keys.values.toSet(), claimed)
-        assertTrue("rise/@v0/pixel_6/pubsub/location_fix/gnss" in claimed)
+        // Nested beneath the configured source, not instead of it — three distinct keys for the one
+        // subject, which is what makes the solutions separable on the bus.
+        assertTrue("rise/@v0/pixel_6/pubsub/location_fix/fix" in claimed)
+        assertTrue("rise/@v0/pixel_6/pubsub/location_fix/fix/gnss" in claimed)
+        assertTrue("rise/@v0/pixel_6/pubsub/location_fix/fix/network" in claimed)
     }
 
     /**
@@ -130,11 +133,11 @@ class LivelinessTest {
             .map { settings.entityFor(it) to settings.sourceFor(it) }
             .toSet()
 
-        // The three configurable ids, plus the four fixed ones — all under the phone's entity. The
-        // fixed ones name what a measurement *is* rather than which device made it: two radio links,
-        // and the two unfused position solutions published beside the fused fix.
+        // The three configurable ids, the two radio links whose ids are fixed by the hardware, and the
+        // two position solutions nested one level *under* the configured location source — all beneath
+        // the phone's entity.
         assertEquals(
-            setOf("fix", "imu", "box", "gnss", "network", "cellular", "wifi"),
+            setOf("fix", "fix/gnss", "fix/network", "imu", "box", "cellular", "wifi"),
             pairs.map { it.second }.toSet(),
         )
         assertEquals(setOf("pixel_6"), pairs.map { it.first }.toSet())
@@ -146,7 +149,13 @@ class LivelinessTest {
             )
         }
         assertEquals("no duplicates across the two shapes", tokens.size, tokens.toSet().size)
-        assertTrue("rise/@v0/pixel_6/*/gnss" in tokens)
-        assertTrue("rise/@v0/pixel_6/pubsub/*/gnss" in tokens)
+        // The `*` stays in the category slot whatever the source carries: §5.5 classifies a token by
+        // the chunk after the entity, so a nested source is still a source-tier token and not mistaken
+        // for something else.
+        assertTrue("rise/@v0/pixel_6/*/fix/gnss" in tokens)
+        assertTrue("rise/@v0/pixel_6/*/fix" in tokens)
+        // And the legacy coarse shape carries the nested source too, `*` sitting in the subject slot
+        // where it always did.
+        assertTrue("rise/@v0/pixel_6/pubsub/*/fix/gnss" in tokens)
     }
 }

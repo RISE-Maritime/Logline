@@ -123,8 +123,9 @@ class McapTrackTest {
     fun `the unfused solutions are not mistaken for the track`() {
         val file = File.createTempFile("track", ".mcap")
         try {
-            val gnssOnly = "rise/@v0/pixel_6/pubsub/location_fix/gnss"
-            val network = "rise/@v0/pixel_6/pubsub/location_fix/network"
+            // Nested under the configured source, which is the shape they actually publish on.
+            val gnssOnly = "rise/@v0/pixel_6/pubsub/location_fix/phone/gnss"
+            val network = "rise/@v0/pixel_6/pubsub/location_fix/phone/network"
             recording(
                 file,
                 listOf(

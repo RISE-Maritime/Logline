@@ -1,6 +1,7 @@
 package se.rise.logline.record
 
 import se.rise.logline.keelson.FixSources
+import se.rise.logline.keelson.pubsubSubjectAndSource
 
 import android.util.Log
 import com.github.luben.zstd.Zstd
@@ -78,11 +79,18 @@ object McapTrack {
      * three fixed ids that are not it.
      */
     internal fun isFixTopic(topic: String): Boolean {
-        val parts = topic.split('/')
-        return parts.size >= 2 &&
-            parts[parts.size - 2] == "location_fix" &&
-            parts.last() !in NOT_THE_TRACK
+        val (subject, source) = pubsubSubjectAndSource(topic) ?: return false
+        return subject == "location_fix" && source !in NOT_THE_TRACK && !source.isUnfusedSolution()
     }
+
+    /**
+     * A solution published *beneath* the configured source — `{locationSource}/gnss` or `/network`.
+     *
+     * Matched on the suffix rather than the whole source, because the level above it is whatever the
+     * phone was configured with and the reader cannot know it.
+     */
+    private fun String.isUnfusedSolution(): Boolean =
+        endsWith("/${FixSources.GNSS}") || endsWith("/${FixSources.NETWORK}")
 
     /**
      * Read the track, or an empty list when the recording holds no fixes.
@@ -285,7 +293,7 @@ private const val CALIBRATION_SOURCE = "calibration"
  * Fixed ids, all three: the platform's surveyed zero, and the two unfused solutions. Everything else
  * on that subject is the fused fix under whatever `locationSource` is set to.
  */
-private val NOT_THE_TRACK = setOf(CALIBRATION_SOURCE, FixSources.GNSS, FixSources.NETWORK)
+private val NOT_THE_TRACK = setOf(CALIBRATION_SOURCE)
 
 /**
  * Reads exactly [count] bytes.

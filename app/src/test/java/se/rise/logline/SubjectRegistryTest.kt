@@ -287,9 +287,10 @@ class SubjectRegistryTest {
         )
         assertEquals("fix", settings.sourceFor(PublishedSubject.LOCATION_FIX))
         assertEquals("fix", settings.sourceFor(PublishedSubject.SPEED_OVER_GROUND))
-        // The unfused solutions ignore the configured id: theirs name what the measurement is.
-        assertEquals("gnss", settings.sourceFor(PublishedSubject.LOCATION_FIX_GNSS))
-        assertEquals("network", settings.sourceFor(PublishedSubject.LOCATION_FIX_NETWORK))
+        // The unfused solutions sit *beneath* the configured id rather than replacing it, which is
+        // what stops a locationSource of "gnss" colliding with the GNSS-only stream.
+        assertEquals("fix/gnss", settings.sourceFor(PublishedSubject.LOCATION_FIX_GNSS))
+        assertEquals("fix/network", settings.sourceFor(PublishedSubject.LOCATION_FIX_NETWORK))
         assertEquals("imu", settings.sourceFor(PublishedSubject.MAGNETIC_FIELD))
         assertEquals("device", settings.sourceFor(PublishedSubject.AIR_PRESSURE))
         assertEquals("device", settings.sourceFor(PublishedSubject.BATTERY_VOLTAGE))
@@ -305,11 +306,17 @@ class SubjectRegistryTest {
         assertTrue(
             "the configurable sources all default to phone",
             PublishedSubject.entries
-                .filter { it.fixedSourceId == null && it.source != SourceKind.CALIBRATION }
+                // Suffixed entries are excluded too: they *are* on the configured source, one level
+                // down, so `phone/gnss` is the right answer rather than a counter-example.
+                .filter {
+                    it.fixedSourceId == null &&
+                        it.sourceSuffix == null &&
+                        it.source != SourceKind.CALIBRATION
+                }
                 .all { defaults.sourceFor(it) == "phone" },
         )
         assertEquals(
-            setOf("phone", "gnss", "network", "cellular", "wifi", "calibration"),
+            setOf("phone", "phone/gnss", "phone/network", "cellular", "wifi", "calibration"),
             PublishedSubject.entries.map { defaults.sourceFor(it) }.toSet(),
         )
     }

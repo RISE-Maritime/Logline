@@ -5,6 +5,7 @@ import se.rise.logline.keelson.entityIdFromKey
 import se.rise.logline.keelson.legacyLivelinessKey
 import se.rise.logline.keelson.sourceLivelinessKey
 import se.rise.logline.keelson.pubsubKey
+import se.rise.logline.keelson.pubsubSubjectAndSource
 import se.rise.logline.keelson.rpcInterfaceLivelinessKey
 import se.rise.logline.keelson.rpcKey
 import org.junit.Assert.assertEquals
@@ -158,5 +159,44 @@ class KeysTest {
             "rise/@v0/platform_a/@rpc/configurable/v1/*/gnss/0",
             rpcInterfaceLivelinessKey("rise", "platform_a", "configurable", "v1", "gnss/0"),
         )
+    }
+
+    /**
+     * **A source may carry further levels, so the source is not "the last chunk".**
+     *
+     * The specification allows it — "`source_id` may contain any number of additional levels (i.e.
+     * forward slashes), ei. camera/rbg/0" — and this app publishes `location_fix/{source}/gnss`. Two
+     * places read a topic by counting from the end, and both answered `gnss` for the *subject* the
+     * moment a source was nested: the Files tab stopped recognising its own fix channel, and the
+     * recording detail screen printed the wrong pair. Anchoring on the verbatim `pubsub` chunk is the
+     * only position that cannot move.
+     */
+    @Test
+    fun `a nested source is one source, not a subject and a chunk`() {
+        assertEquals(
+            "location_fix" to "phone",
+            pubsubSubjectAndSource("rise/@v0/pixel_6/pubsub/location_fix/phone"),
+        )
+        assertEquals(
+            "location_fix" to "phone/gnss",
+            pubsubSubjectAndSource("rise/@v0/pixel_6/pubsub/location_fix/phone/gnss"),
+        )
+        // The specification's own example, three levels deep.
+        assertEquals(
+            "image_compressed" to "camera/rbg/0",
+            pubsubSubjectAndSource("rise/@v0/pixel_6/pubsub/image_compressed/camera/rbg/0"),
+        )
+    }
+
+    /** Anything that is not a pubsub key answers null rather than a guess. */
+    @Test
+    fun `a key that is not pubsub is not parsed`() {
+        // An RPC key: the category chunk is `@rpc`, so this is not a subject and a source.
+        assertNull(pubsubSubjectAndSource("rise/@v0/ssrs18/@rpc/configurable/v1/get_config/calibration"))
+        // A liveliness token, whose category slot is a wildcard.
+        assertNull(pubsubSubjectAndSource("rise/@v0/pixel_6/*/phone"))
+        assertNull(pubsubSubjectAndSource("not a key"))
+        // No source at all.
+        assertNull(pubsubSubjectAndSource("rise/@v0/pixel_6/pubsub/location_fix"))
     }
 }

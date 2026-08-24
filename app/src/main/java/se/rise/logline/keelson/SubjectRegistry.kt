@@ -70,6 +70,20 @@ enum class PublishedSubject(
      */
     val fixedSourceId: String? = null,
     /**
+     * A level *beneath* the configured source id, rather than instead of it.
+     *
+     * The specification allows a `source_id` to carry further levels — "may contain any number of
+     * additional levels (i.e. forward slashes), ei. camera/rbg/0" — and that is what the unfused
+     * position solutions use: the fused fix keeps whatever `locationSource` is set to, and the two
+     * others sit one level under it.
+     *
+     * A suffix rather than a [fixedSourceId] because a fixed id would *replace* the configured one, and
+     * then a phone whose `locationSource` happened to be `gnss` would publish two different solutions
+     * on one key and interleave them indistinguishably. Nesting removes that by construction, whatever
+     * somebody types in a free-text field.
+     */
+    val sourceSuffix: String? = null,
+    /**
      * Whether recent samples are held for replay when a dropped router link comes back.
      *
      * True for everything small. False for the camera, and that is a size argument rather than a
@@ -269,7 +283,7 @@ enum class PublishedSubject(
         subject = Subjects.LOCATION_FIX,
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
-        fixedSourceId = FixSources.GNSS,
+        sourceSuffix = FixSources.GNSS,
     ),
 
     /** Wifi and cell together, which is as far apart as Android will take them. See [LOCATION_FIX_GNSS]. */
@@ -277,7 +291,7 @@ enum class PublishedSubject(
         subject = Subjects.LOCATION_FIX,
         defaultRate = SensorRate.Hz(1.0),
         source = SourceKind.LOCATION,
-        fixedSourceId = FixSources.NETWORK,
+        sourceSuffix = FixSources.NETWORK,
     ),
     LINEAR_ACCEL(
         subject = Subjects.LINEAR_ACCELERATION_MPSS,

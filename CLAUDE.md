@@ -1954,6 +1954,20 @@ simply never finds anything on the bus.
   `NETWORK_PROVIDER`. Same subject, different source, which is keelson's own model — the source chunk
   names *which* producer, exactly as `cellular` and `wifi` do for the radio subjects, and `FixSources`
   sits beside `RadioSources` for the same reason.
+  **The two unfused sources nest one level *under* the configured `locationSource`**, so the keys are
+  `location_fix/{locationSource}`, `.../{locationSource}/gnss` and `.../{locationSource}/network`. The
+  specification allows the extra level — "`source_id` may contain any number of additional levels (i.e.
+  forward slashes), ei. camera/rbg/0" — and upstream's `parse_pubsub_key` returns `phone/gnss` as one
+  `source_id`. `PublishedSubject.sourceSuffix` is what does it, *not* `fixedSourceId`: a fixed id
+  replaces the configured one, so a phone whose `locationSource` was itself `gnss` would have published
+  two different solutions on one key and interleaved them indistinguishably. Nesting removes that
+  whatever anybody types in a free-text field, which is better than a list of reserved words to police.
+  **A nested source is why `pubsubSubjectAndSource()` exists.** Two places read a topic by counting
+  from the end — `McapTrack.isFixTopic` and `RecordingDetailScreen.subjectOf` — and both answered
+  `gnss` for the *subject* the moment a source gained a level: the Files tab stopped recognising its own
+  fix channel and the detail screen printed the wrong pair. That helper anchors on the verbatim `pubsub`
+  chunk, which is the one position that cannot move, and `KeysTest` pins it against the specification's
+  own three-level example. Never read a source as `chunks.last()`.
   **There is no wifi-only or cell-only fix and there cannot be.** Android exposes `gps`, `network`,
   `fused` and `passive`; `network` is wifi *and* cell with nothing saying which contributed. Verified
   against a Pixel 6's `dumpsys location`. Anyone asked for the three separately should be told two.
@@ -1961,7 +1975,8 @@ simply never finds anything on the bus.
   the derived subjects, the live map and a recording's track all read that answer. `SubjectRegistryTest`
   pins the order.
   **`McapTrack` must exclude the other three**, not match the fused one: that source is configurable, so
-  the reader cannot know it, but it knows the three fixed ids that are not it (`NOT_THE_TRACK`). This
+  the reader cannot know it — but it knows `calibration`, and it knows the two *suffixes* (`/gnss`,
+  `/network`) whatever level they hang from. This
   is not theoretical — measured on a real indoor run, `location_fix/network` carried **17** messages
   against the fused stream's 16, so the wrong channel was the busiest, and `readMcapDetails` returns
   topics busiest-first. A track interpolated from cell towers drawn as the boat's is the same failure
