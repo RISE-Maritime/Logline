@@ -7,6 +7,34 @@ gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where som
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
+## V1 (2026-08-25)
+
+Released as `1.0`. The guides and the release path landed with it; what is listed below is what V1
+knowingly ships without, not what was forgotten.
+
+- [x] **V1 has no operator guide, no deployment guide and no licence.** `README.md` is 1 483 lines of
+      Gradle, key expressions and protobuf — nothing written for the person handed the phone, and no
+      answer to "how do I get it onto a second one". Added `docs/user-guide.md` (six task-shaped
+      sections, quoting what the screens actually say), `docs/deploying.md` (build, sign, distribute,
+      provision), `CHANGELOG.md`, Apache-2.0 to match `keelson` and `crowsnest`, and
+      `.github/workflows/release.yml` so a `v*` tag builds a signed APK and attaches it to a Release —
+      no hosting, no files to chase. Done in 085393a.
+
+- [ ] **The release workflow has never run.** It parses, its tag trigger and permissions are right, and
+      one real bug was caught by reading the parsed YAML rather than by running it: the keystore step's
+      `if` referenced `env.` for a variable defined in its own `env:` block, which is evaluated too
+      late — every release would have come out quietly unsigned. That class of mistake is why the CI
+      history in CLAUDE.md records three red runs. **It cannot be proven from here**: it needs a push
+      and a tag. Until then the honest status is "written and reviewed", not "working".
+
+- [ ] **The signing keystore does not exist yet.** `docs/deploying.md` has the one `keytool` command,
+      and the four GitHub secrets the workflow reads. Deliberately not generated here — a signing key
+      outlives the app, and whoever holds it can ship builds that install over yours. Until it exists,
+      a release APK is unsigned and cannot install over a signed build.
+
+- [ ] **`main` is 40+ commits ahead of `origin/main`.** Nothing above reaches CI, and no tag can build,
+      until that is pushed. Pushing stays the owner's call.
+
 ## Future long therm 
 
 
@@ -31,6 +59,17 @@ the section they belong to.
       phone's library and this phone has none. Crowsnest → phone **cannot** be tested until
       eclipse-zenoh/zenoh-flat-jni#49 lands: receiving a library means subscribing, which aborts. The
       fixture test covers the shape; it cannot cover the wire.
+
+## Blocked on the Zenoh Android binding
+
+Everything under here waits on the same fault: `zenoh-flat-jni` builds callback arguments with
+`FindClass` on one of Zenoh's own threads, where JNI cannot see app classes. Four classes have been
+seen to trigger it — `ZenohId` (scout), `EntityGlobalId` (a query reply), `Timestamp` and `SourceInfo`
+(any subscribed sample) — and a router timestamps every sample it forwards, so **no subscription works
+at all**. Filed as
+[eclipse-zenoh/zenoh-flat-jni#49](https://github.com/eclipse-zenoh/zenoh-flat-jni/issues/49);
+`keelson/ZenohBinding.kt` owns the diagnosis and `SUBSCRIPTIONS_SAFE` is the one boolean that lifts it.
+1.10.0 is the newest release, so no version bump escapes it.
 
 ## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
 
