@@ -262,6 +262,14 @@ shipped with the build plus a per-browser localStorage overlay, not shared betwe
 has no wire-level list of platforms at all** — no subject, no interface, no well-known key. The only
 bus-derived enumeration is Zenoh liveliness, which yields entity ids and presence and no metadata.
 
+*(2026-08-25: the first half of that has moved. Crowsnest now has a platform **library sync** —
+`services/platformLibrarySync.js` and a hook mounted in `BasePage.jsx` — which publishes its overlay to
+the same `platform_registry/library/latest` key this app uses, with a byte-compatible encoder;
+`PlatformLibraryInteropTest` pins that the two really meet. It is written but **untracked** in that
+repo, so it is not shipped. The rest below still holds: keelson still has no wire-level platform list,
+and this app cannot currently receive one anyway, since subscribing aborts the process — see
+`ZenohBinding.SUBSCRIPTIONS_SAFE`.)*
+
 So there is nothing to subscribe to for "the platforms". Four things bridge the gap instead, and each
 is a separate control on the platform list:
 

@@ -7,6 +7,15 @@ wrapped in a Keelson `Envelope`.
 Written in Kotlin with Jetpack Compose. Single module (`:app`), no backend of its own — it is a
 publisher on someone else's bus.
 
+**This file is the developer's reference.** Two shorter documents cover the other jobs:
+
+| | |
+| --- | --- |
+| [docs/user-guide.md](docs/user-guide.md) | using the app — for whoever is handed the phone |
+| [docs/deploying.md](docs/deploying.md) | building, signing and getting it onto other phones |
+
+[CHANGELOG.md](CHANGELOG.md) says what is in a given build.
+
 ## What it publishes
 
 Every sample is serialised as its payload type, wrapped in `core.Envelope` (which stamps
@@ -1474,6 +1483,13 @@ deliberate omissions in the current state, not hidden bugs:
 - **`entity_health` is not published**, deliberately — upstream forbids a connector computing its own.
   The subject-level liveliness above is what lets an aggregator compute it instead.
 - **Emulators are not usable.** GNSS, IMU and the camera all need a physical device.
+- **No Zenoh subscription works on Android**, so **shared checklists** and **reading other platforms'
+  geometry** are gated off behind `ZenohBinding.SUBSCRIPTIONS_SAFE`. The binding builds callback
+  arguments with `FindClass` on one of Zenoh's own threads, where JNI cannot see app classes, and a
+  router timestamps every sample it forwards — so every subscribed sample trips it, on every realm.
+  Filed as [eclipse-zenoh/zenoh-flat-jni#49](https://github.com/eclipse-zenoh/zenoh-flat-jni/issues/49);
+  one boolean restores both features when it lands. Publishing, queryables and liveliness declaration
+  are unaffected, so nothing the phone *says* or records is limited by it.
 
 ## Related repositories
 

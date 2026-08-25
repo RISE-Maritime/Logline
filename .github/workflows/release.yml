@@ -1,0 +1,95 @@
+name: release
+
+# Tag a version, get an installable APK. That is the whole of the distribution story — see
+# `docs/deploying.md`. There is nothing to host: a GitHub Release is a permanent URL, unlike a build
+# artifact, which expires.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Actions are pinned to the same majors `build.yml` uses, and for the reasons documented there. Keeping
+# the two workflows in step matters more than either being newest: they compile the same project with
+# the same toolchain, and a version skew between them would show up as "it builds on push but not on
+# tag", which is a bad afternoon.
+permissions:
+  contents: write # required to create the Release and attach the APK
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      # `android-37.0`, not `android-37` — see the note in build.yml, which this had red on every run.
+      - name: Install API 37 platform
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # **The keystore never exists in the repository, and must not.** It arrives as a base64 secret,
+      # is written to the runner's temp directory, and dies with the runner. This is what lets the
+      # repository go public without the signing key going with it.
+      #
+      # Guarded rather than assumed: with no secret configured this step is skipped and the build below
+      # produces an *unsigned* APK instead of failing. That is the same behaviour a developer gets
+      # locally with no keystore, and it means a fork or a first tag before the secrets are set still
+      # gets a build rather than a red run with a confusing message.
+      #
+      # The condition reads `secrets` and **not** `env`, which is not a style choice: a step's `if` is
+      # evaluated *before* that step's own `env:` block is set up, so `env.LOGLINE_KEYSTORE_BASE64`
+      # would be empty on every run, the step would always skip, and every release would come out
+      # quietly unsigned. Caught by reading the parsed workflow rather than by running it.
+      - name: Decode the signing keystore
+        if: ${{ secrets.LOGLINE_KEYSTORE_BASE64 != '' }}
+        env:
+          LOGLINE_KEYSTORE_BASE64: ${{ secrets.LOGLINE_KEYSTORE_BASE64 }}
+        run: |
+          echo "$LOGLINE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/logline-release.jks"
+          echo "LOGLINE_KEYSTORE=$RUNNER_TEMP/logline-release.jks" >> "$GITHUB_ENV"
+
+      # The env vars take precedence over `local.properties`, which does not exist on a runner anyway.
+      # An absent keystore path leaves the release build unsigned, with a warning, by design.
+      - name: Build the release APK
+        env:
+          LOGLINE_KEYSTORE_PASSWORD: ${{ secrets.LOGLINE_KEYSTORE_PASSWORD }}
+          LOGLINE_KEY_ALIAS: ${{ secrets.LOGLINE_KEY_ALIAS }}
+          LOGLINE_KEY_PASSWORD: ${{ secrets.LOGLINE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease
+
+      # Signed and unsigned land on different filenames, so this globs rather than naming one — and
+      # says which it found, because "which APK is attached to this release" is exactly the question
+      # somebody will ask in three months.
+      - name: Name the artefact
+        id: apk
+        run: |
+          path="$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
+          if [ -z "$path" ]; then
+            echo "no APK was produced" >&2
+            exit 1
+          fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "Built $path"
+          case "$path" in
+            *unsigned*) echo "::warning::This APK is UNSIGNED — it cannot install over a signed build. Set the LOGLINE_KEYSTORE_* secrets." ;;
+          esac
+
+      - name: Attach it to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.path }}
+          body: |
+            Install by downloading the APK below. See `docs/deploying.md` for provisioning a
+            phone — the certificates, the settings profile and the entity id are what make a
+            fresh install a member of the fleet rather than just an installed app.

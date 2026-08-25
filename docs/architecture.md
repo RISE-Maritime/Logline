@@ -351,14 +351,21 @@ once per subject — at 55 Hz, a line per failed publish is a flood.
 
 ### `checklist/`
 
-The one part of the app that **subscribes**. Everything else is a publisher.
+**Gated off in this build** — `ZenohBinding.SUBSCRIPTIONS_SAFE` is false, so none of the below runs.
+See the note under `Scout.kt` above and `eclipse-zenoh/zenoh-flat-jni#49`.
 
 `ChecklistSync` owns a `KeelsonSession` of its own, opened while a checklist screen is up and closed
 when it is not — a checklist is worked through with logging stopped, so it cannot borrow
-`SensorPublisher`'s session, whose lifetime is a run. It publishes this operator's events, a presence
-heartbeat every 5 s and a state snapshot every 30 s, and it bootstraps by *querying* two storage-backed
-keys rather than subscribing to them: a subscriber hears only what is published from now on, and a
-procedure written months ago is nothing.
+`SensorPublisher`'s session, whose lifetime is a run. It publishes this operator's events and a
+presence heartbeat every 5 s, and takes everything else by subscription.
+
+**It issues no Zenoh query, and publishes no state snapshot**, both deliberately. The bootstrap `get`
+it used to run is what first exposed the binding fault; run snapshots arrive by subscription instead,
+which works because crowsnest republishes them periodically, and the item text comes from this phone's
+own store, which `ChecklistRepository` persists and `STARTER_PROCEDURES` seeds with crowsnest's own
+ids. The snapshot loop went because a snapshot is the *run owner's* statement and crowsnest owns the
+runs; the phone writing a procedure-keyed record onto a run-keyed storage key put a differently-shaped
+entry into a shared safety log.
 
 The layering is the point:
 
