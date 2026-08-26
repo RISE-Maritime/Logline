@@ -35,10 +35,10 @@ class PlatformRegistryExportTest {
 
     @Test
     fun `the registry is an object keyed by entity id`() {
-        val json = platformRegistryJson(listOf(platform("SSRS18", "Lidar"), platform("Stora Krabban", "Radar")), "rise")
+        val json = platformRegistryJson(listOf(platform("Sealog", "Lidar"), platform("Stora Krabban", "Radar")), "rise")
 
         assertTrue(json.trimStart().startsWith("{"))
-        assertTrue(json.contains("\"ssrs18\": {"))
+        assertTrue(json.contains("\"sealog\": {"))
         assertTrue(json.contains("\"stora-krabban\": {"))
         assertTrue("the realm is the field crowsnest needs and upstream has no room for",
             json.contains("\"realm\": \"rise\""))
@@ -53,21 +53,21 @@ class PlatformRegistryExportTest {
      */
     @Test
     fun `an entry carries no entity id of its own`() {
-        val json = platformRegistryJson(listOf(platform("SSRS18", "Lidar")), "rise")
+        val json = platformRegistryJson(listOf(platform("Sealog", "Lidar")), "rise")
         assertFalse(json.contains("entity_id"))
     }
 
     /** Provenance is ours, not crowsnest's — the registry entry is the strict document plus `realm`. */
     @Test
     fun `the registry entry carries no calibration provenance block`() {
-        val json = platformRegistryJson(listOf(platform("SSRS18", "Lidar")), "rise")
+        val json = platformRegistryJson(listOf(platform("Sealog", "Lidar")), "rise")
         assertFalse(json.contains("\"calibration\""))
     }
 
     /** The round trip that matters: what this writes, this reads. */
     @Test
     fun `an exported registry parses back to the same platforms`() {
-        val platforms = listOf(platform("SSRS18", "Lidar"), platform("Stora Krabban", "Radar"))
+        val platforms = listOf(platform("Sealog", "Lidar"), platform("Stora Krabban", "Radar"))
 
         val read = parsePlatformDocument(platformRegistryJson(platforms, "rise"))
 
@@ -92,8 +92,8 @@ class PlatformRegistryExportTest {
      */
     @Test
     fun `an import names which platforms it would replace`() {
-        val existing = listOf(platform("SSRS18", "Lidar"))
-        val incoming = listOf(platform("SSRS18", "Radar"), platform("Manatee", "Camera"))
+        val existing = listOf(platform("Sealog", "Lidar"))
+        val incoming = listOf(platform("Sealog", "Radar"), platform("Manatee", "Camera"))
 
         val candidates = importCandidates(incoming, existing)
 
@@ -106,7 +106,7 @@ class PlatformRegistryExportTest {
 
     @Test
     fun `a purely additive import has nothing to confirm`() {
-        val candidates = importCandidates(listOf(platform("Manatee", "Camera")), listOf(platform("SSRS18", "Lidar")))
+        val candidates = importCandidates(listOf(platform("Manatee", "Camera")), listOf(platform("Sealog", "Lidar")))
         assertTrue(candidates.none { it.disposition == ImportDisposition.REPLACES })
     }
 }

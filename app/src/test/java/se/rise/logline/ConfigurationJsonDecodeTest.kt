@@ -17,7 +17,7 @@ import se.rise.logline.platform.decodeConfigurationJson
  */
 class ConfigurationJsonDecodeTest {
 
-    private val document = """{ "name": "SSRS18", "frame_transforms": [] }"""
+    private val document = """{ "name": "Sealog", "frame_transforms": [] }"""
 
     @Test
     fun `an enveloped TimestampedString yields the document`() {

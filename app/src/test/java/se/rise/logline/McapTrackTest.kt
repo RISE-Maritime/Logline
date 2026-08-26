@@ -32,7 +32,7 @@ import java.nio.ByteOrder
 class McapTrackTest {
 
     private val phoneFix = "rise/@v0/pixel_6/pubsub/location_fix/phone"
-    private val platformZero = "rise/@v0/ssrs18/pubsub/location_fix/calibration"
+    private val platformZero = "rise/@v0/sealog/pubsub/location_fix/calibration"
     private val pressure = "rise/@v0/pixel_6/pubsub/air_pressure_pa/phone"
 
     private fun fix(lat: Double, lon: Double): ByteArray =

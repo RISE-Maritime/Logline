@@ -30,11 +30,11 @@ class PlatformPhotosTest {
     @Test
     fun `a written photo is found again under its entity id`() {
         val store = photos()
-        assertNull("nothing before anything is written", store.photo("ssrs18"))
+        assertNull("nothing before anything is written", store.photo("sealog"))
 
-        store.write("ssrs18", byteArrayOf(1, 2, 3))
+        store.write("sealog", byteArrayOf(1, 2, 3))
 
-        assertEquals(listOf<Byte>(1, 2, 3), store.photo("ssrs18")?.readBytes()?.toList())
+        assertEquals(listOf<Byte>(1, 2, 3), store.photo("sealog")?.readBytes()?.toList())
         assertNull("and only under its own id", store.photo("stora-krabban"))
     }
 
@@ -48,57 +48,57 @@ class PlatformPhotosTest {
     @Test
     fun `a rename carries the photo across`() {
         val store = photos()
-        store.write("ssrs18", byteArrayOf(7))
+        store.write("sealog", byteArrayOf(7))
 
-        store.move("ssrs18", "ssrs-18")
+        store.move("sealog", "sea-log")
 
-        assertNull(store.photo("ssrs18"))
-        assertEquals(listOf<Byte>(7), store.photo("ssrs-18")?.readBytes()?.toList())
+        assertNull(store.photo("sealog"))
+        assertEquals(listOf<Byte>(7), store.photo("sea-log")?.readBytes()?.toList())
     }
 
     /** The destination is overwritten: the id is the identity, so what was there is not this platform. */
     @Test
     fun `a rename onto an occupied id replaces what was there`() {
         val store = photos()
-        store.write("ssrs18", byteArrayOf(7))
+        store.write("sealog", byteArrayOf(7))
         store.write("stora-krabban", byteArrayOf(9))
 
-        store.move("ssrs18", "stora-krabban")
+        store.move("sealog", "stora-krabban")
 
         assertEquals(listOf<Byte>(7), store.photo("stora-krabban")?.readBytes()?.toList())
-        assertNull(store.photo("ssrs18"))
+        assertNull(store.photo("sealog"))
     }
 
     /** A rename that renames nothing, and a rename of a platform that has no photo, are both no-ops. */
     @Test
     fun `a rename with nothing to move is harmless`() {
         val store = photos()
-        store.write("ssrs18", byteArrayOf(7))
+        store.write("sealog", byteArrayOf(7))
 
-        store.move("ssrs18", "ssrs18")
-        assertEquals(listOf<Byte>(7), store.photo("ssrs18")?.readBytes()?.toList())
+        store.move("sealog", "sealog")
+        assertEquals(listOf<Byte>(7), store.photo("sealog")?.readBytes()?.toList())
 
-        store.move("stora-krabban", "ssrs18")
-        assertEquals("the absent source did not blank the target", listOf<Byte>(7), store.photo("ssrs18")?.readBytes()?.toList())
+        store.move("stora-krabban", "sealog")
+        assertEquals("the absent source did not blank the target", listOf<Byte>(7), store.photo("sealog")?.readBytes()?.toList())
     }
 
     /**
      * **Deleting a platform has to delete its photograph.**
      *
      * Otherwise the next platform given that entity id — which is an ordinary thing to do, the ids
-     * being short slugs like `ssrs18` — silently inherits a stranger's boat, and every screen showing
+     * being short slugs like `sealog` — silently inherits a stranger's boat, and every screen showing
      * it would be confidently wrong.
      */
     @Test
     fun `removing a platform removes its photo`() {
         val store = photos()
-        store.write("ssrs18", byteArrayOf(7))
+        store.write("sealog", byteArrayOf(7))
 
-        store.remove("ssrs18")
+        store.remove("sealog")
 
-        assertNull(store.photo("ssrs18"))
-        store.write("ssrs18", byteArrayOf(8))
-        assertEquals("a new platform on the same id gets its own", listOf<Byte>(8), store.photo("ssrs18")?.readBytes()?.toList())
+        assertNull(store.photo("sealog"))
+        store.write("sealog", byteArrayOf(8))
+        assertEquals("a new platform on the same id gets its own", listOf<Byte>(8), store.photo("sealog")?.readBytes()?.toList())
     }
 
     /** A blank entity id names no platform, and must not write `.jpg` — a hidden file nothing owns. */
@@ -121,7 +121,7 @@ class PlatformPhotosTest {
      */
     @Test
     fun `a file name is safe whatever the entity id contains`() {
-        assertEquals("ssrs18.jpg", photoFileName("ssrs18"))
+        assertEquals("sealog.jpg", photoFileName("sealog"))
         assertEquals("stora-krabban.jpg", photoFileName("stora-krabban"))
         assertEquals("a%2Fb.jpg", photoFileName("a/b"))
         assertEquals("..%2F..%2Fetc.jpg", photoFileName("../../etc"))
@@ -194,7 +194,7 @@ class PlatformPhotosTest {
         val store = photos()
         assertFalse(File(temp.root, "platforms").exists())
 
-        store.write("ssrs18", byteArrayOf(1))
+        store.write("sealog", byteArrayOf(1))
 
         assertTrue(File(temp.root, "platforms").isDirectory)
     }

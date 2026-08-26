@@ -207,11 +207,11 @@ class NavigationRoutesTest {
     @Test
     fun `paths are built from their patterns`() {
         assertEquals("qos/LOCATION_FIX", Routes.subjectQos("LOCATION_FIX"))
-        assertEquals("calibration/platform/ssrs18", Routes.platform("ssrs18"))
-        assertEquals("calibration/platform/ssrs18/sensor/2", Routes.sensorMount("ssrs18", 2))
+        assertEquals("calibration/platform/sealog", Routes.platform("sealog"))
+        assertEquals("calibration/platform/sealog/sensor/2", Routes.sensorMount("sealog", 2))
         // And a built path is still scoped to the session its pattern belongs to.
-        assertTrue(Routes.inPlatformScreens(Routes.platform("ssrs18")))
-        assertTrue(Routes.inPlatformScreens(Routes.sensorMount("ssrs18", 0)))
+        assertTrue(Routes.inPlatformScreens(Routes.platform("sealog")))
+        assertTrue(Routes.inPlatformScreens(Routes.sensorMount("sealog", 0)))
         // The detail route must miss both session prefixes, or opening a plot would tear down a
         // checklist or platform session — silently, since a broken prefix match still opens the screen.
         assertEquals("plot/AIR_PRESSURE", Routes.subjectDetail("AIR_PRESSURE"))

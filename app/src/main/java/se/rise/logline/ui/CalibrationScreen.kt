@@ -235,7 +235,7 @@ fun CalibrationScreen(
                             )
                         },
                         label = { Text("Platform name") },
-                        supportingText = { Text("What the platform is called, e.g. SSRS18.") },
+                        supportingText = { Text("What the platform is called, e.g. Sealog.") },
                         isError = calibration.name.isBlank(),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -306,7 +306,7 @@ fun CalibrationScreen(
 
                     // Last in the step because it is the only thing here that is not a measurement —
                     // and first in the list screen, because it is what tells two platforms apart at a
-                    // glance where `ssrs18` and `ssrs19` do not.
+                    // glance where `sealog-1` and `sealog-2` do not.
                     Text("Photo", style = MaterialTheme.typography.titleSmall)
                     PlatformPhoto(
                         photo,

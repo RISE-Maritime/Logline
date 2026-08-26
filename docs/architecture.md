@@ -151,7 +151,7 @@ The platform geometry, and the only part of the app that is *about something oth
 Android except for `CalibrationCapture`, which is the two sensor reads the rest of it is built from:
 
 - **`Calibration.kt`** — `PlatformCalibration`, `PlatformZero` and `SensorMount` as plain value types, plus the
-  slug helpers that turn `SSRS18` into `ssrs18` and `ssrs18-frame-ccrp`. The enums spell upstream's
+  slug helpers that turn `Sealog` into `sealog` and `sealog-frame-ccrp`. The enums spell upstream's
   `platform_type` and `sensor_type` vocabularies verbatim.
 - **`Geodesy.kt`** — WGS84 radii of curvature, a local tangent-plane offset between two fixes, the
   great-circle bearing the two-point baseline uses, and the ENU → platform-frame rotation. The Z sign flip
@@ -465,8 +465,8 @@ six full-width buttons under its status card — Settings, Live view, Mark event
 Checklists — which made the first screen a dashboard and a table of contents at once, and made `Start
 publishing` compete with five controls that do nothing during a run. Those four configuration
 destinations moved to a **Setup** hub (`ui/SetupScreen.kt`), whose rows carry as a subtitle the state
-their old button labels smuggled into themselves (`Platforms · SSRS18` became a row reading *Platforms* over
-*SSRS18*). What is left on Home is one filled button when stopped, and `Live view` / `Mark event` /
+their old button labels smuggled into themselves (`Platforms · Sealog` became a row reading *Platforms* over
+*Sealog*). What is left on Home is one filled button when stopped, and `Live view` / `Mark event` /
 `Stop` when running — observe, annotate, stop, in the order a run is worked in. The first two are tab
 switches duplicated out of the bar deliberately, because the moment being marked is passing while
 somebody hunts for the control.

@@ -21,7 +21,7 @@ class CalibrationTest {
 
     @Test
     fun `names become hyphenated slugs, the way keelson spells entity ids`() {
-        assertEquals("ssrs18", slugify("SSRS18"))
+        assertEquals("sealog", slugify("Sealog"))
         assertEquals("ouster-os-lidar", slugify("Ouster OS lidar"))
         assertEquals("r-v-svea", slugify("R/V Svea"))
         assertEquals("platform-2", slugify("  Platform #2!  "))
@@ -39,13 +39,13 @@ class CalibrationTest {
 
     @Test
     fun `frame ids read as platform then sensor`() {
-        assertEquals("ssrs18-frame-ccrp", defaultParentFrameId("SSRS18"))
-        assertEquals("ssrs18-frame-ouster-os-lidar", defaultFrameId("SSRS18", "Ouster OS lidar"))
+        assertEquals("sealog-frame-ccrp", defaultParentFrameId("Sealog"))
+        assertEquals("sealog-frame-ouster-os-lidar", defaultFrameId("Sealog", "Ouster OS lidar"))
     }
 
     @Test
     fun `a platform with no sensors has nothing to publish`() {
-        val empty = PlatformCalibration.forName("SSRS18")
+        val empty = PlatformCalibration.forName("Sealog")
         assertFalse(empty.isPublishable)
         assertTrue(empty.copy(sensors = listOf(mount(Vec3M(1.0, 0.0, 0.0)))).isPublishable)
     }

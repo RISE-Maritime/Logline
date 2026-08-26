@@ -39,7 +39,7 @@ class SubjectRegistryTest {
         // and a platform's surveyed zero under the platform's — and neither carries a fixed source id. What has
         // to stay true is that no two entries can ever land on one key and overwrite each other in
         // Zenoh's latest-value store.
-        val platform = PlatformCalibration.forName("SSRS18")
+        val platform = PlatformCalibration.forName("Sealog")
         val settings = settings().withPlatform(platform)
         val keys = settings.allKeys()
         assertEquals("two registry entries publish on the same key", keys.size, keys.toSet().size)
@@ -59,7 +59,7 @@ class SubjectRegistryTest {
     @Test
     fun `every publishing platform gets its own keys and none of them collide`() {
         val settings = settings().copy(
-            platforms = listOf("SSRS18", "Stora Krabban", "Manatee").map {
+            platforms = listOf("Sealog", "Stora Krabban", "Manatee").map {
                 PlatformCalibration.forName(it).copy(
                     sensors = listOf(
                         SensorMount(
@@ -71,7 +71,7 @@ class SubjectRegistryTest {
                     ),
                 )
             },
-            activePlatformEntityId = "ssrs18",
+            activePlatformEntityId = "sealog",
             publishingPlatformEntityIds = setOf("stora-krabban", "manatee"),
         )
 
@@ -116,7 +116,7 @@ class SubjectRegistryTest {
     /** The two `location_fix` entries are told apart by entity *and* source, not by the subject. */
     @Test
     fun `the platform's surveyed zero does not collide with the phone's live fix`() {
-        val settings = settings().withPlatform(PlatformCalibration.forName("SSRS18"))
+        val settings = settings().withPlatform(PlatformCalibration.forName("Sealog"))
 
         assertEquals(
             "rise/@v0/pixel_6/pubsub/location_fix/phone",
@@ -128,7 +128,7 @@ class SubjectRegistryTest {
             ),
         )
         assertEquals(
-            "rise/@v0/ssrs18/pubsub/location_fix/calibration",
+            "rise/@v0/sealog/pubsub/location_fix/calibration",
             settings.platformKeys(settings.platforms.single()).getValue(PublishedSubject.CALIBRATION_ZERO),
         )
     }
@@ -358,15 +358,15 @@ class SubjectRegistryTest {
      */
     @Test
     fun `the calibration publishes under the platform's entity, everything else under the phone's`() {
-        val settings = settings().withPlatform(PlatformCalibration.forName("SSRS18"))
+        val settings = settings().withPlatform(PlatformCalibration.forName("Sealog"))
         val platformKeys = settings.platformKeys(settings.platforms.single())
 
         assertEquals(
-            "rise/@v0/ssrs18/pubsub/frame_transform/calibration",
+            "rise/@v0/sealog/pubsub/frame_transform/calibration",
             platformKeys.getValue(PublishedSubject.FRAME_TRANSFORM),
         )
         assertEquals(
-            "rise/@v0/ssrs18/pubsub/configuration_json/calibration",
+            "rise/@v0/sealog/pubsub/configuration_json/calibration",
             platformKeys.getValue(PublishedSubject.CONFIGURATION_JSON),
         )
         assertEquals("pixel_6", settings.entityFor(PublishedSubject.LOCATION_FIX))
@@ -384,7 +384,7 @@ class SubjectRegistryTest {
      */
     @Test
     fun `the entity is the phone's for every registry entry`() {
-        val settings = settings().withPlatform(PlatformCalibration.forName("SSRS18"))
+        val settings = settings().withPlatform(PlatformCalibration.forName("Sealog"))
         assertTrue(
             "a registry entry resolved to something other than the phone",
             PublishedSubject.entries.all { settings.entityFor(it) == "pixel_6" },

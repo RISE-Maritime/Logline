@@ -87,7 +87,7 @@ import se.rise.logline.ui.components.readAsOneItem
 /**
  * What the Platforms button says: the active platform, and how many others are also on the bus.
  *
- * Named rather than counted when there is one thing to name — "Platforms · SSRS18" is what somebody is
+ * Named rather than counted when there is one thing to name — "Platforms · Sealog" is what somebody is
  * checking for. The `+2` matters because those two are publishing geometry under entity ids that are
  * nowhere else on this screen.
  */

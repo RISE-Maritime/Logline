@@ -26,10 +26,10 @@ import org.junit.Test
  */
 class PlatformGeometryJsonTest {
 
-    private val ssrs18 = PlatformCalibration(
-        name = "SSRS18",
-        entityId = "ssrs18",
-        parentFrameId = "ssrs18-frame-ccrp",
+    private val sealog = PlatformCalibration(
+        name = "Sealog",
+        entityId = "sealog",
+        parentFrameId = "sealog-frame-ccrp",
         platformType = PlatformType.VESSEL,
         description = "Small USV test platform",
         lengthOverAllM = 1.8,
@@ -37,13 +37,13 @@ class PlatformGeometryJsonTest {
         sensors = listOf(
             SensorMount(
                 label = "Rutx GNSS antenna",
-                frameId = "ssrs18-frame-gnss-rutx",
+                frameId = "sealog-frame-gnss-rutx",
                 sensorType = SensorType.GNSS,
                 translation = Vec3M(0.27, 0.0, 0.0),
             ),
             SensorMount(
                 label = "Starboard camera",
-                frameId = "ssrs18-frame-camera-2",
+                frameId = "sealog-frame-camera-2",
                 sensorType = SensorType.CAMERA,
                 translation = Vec3M(0.075, 0.405, -0.04),
                 rotation = EulerDeg(yaw = 90.0, pitch = 0.0, roll = 0.0),
@@ -73,22 +73,22 @@ class PlatformGeometryJsonTest {
             {
               "platform_type": "vessel",
               "description": "Small USV test platform",
-              "name": "SSRS18",
+              "name": "Sealog",
               "length_over_all_m": 1.8,
               "breadth_over_all_m": 0.45,
               "ccrp_m": { "x": 0, "y": 0, "z": 0 },
               "frame_transforms": [
                 {
-                  "parent_frame_id": "ssrs18-frame-ccrp",
-                  "child_frame_id": "ssrs18-frame-gnss-rutx",
+                  "parent_frame_id": "sealog-frame-ccrp",
+                  "child_frame_id": "sealog-frame-gnss-rutx",
                   "sensor_type": "gnss",
                   "sensor_description": "Rutx GNSS antenna",
                   "translation_m": { "x": 0.27, "y": 0, "z": 0 },
                   "rotation_deg": { "yaw": 0, "pitch": 0, "roll": 0 }
                 },
                 {
-                  "parent_frame_id": "ssrs18-frame-ccrp",
-                  "child_frame_id": "ssrs18-frame-camera-2",
+                  "parent_frame_id": "sealog-frame-ccrp",
+                  "child_frame_id": "sealog-frame-camera-2",
                   "sensor_type": "camera",
                   "sensor_description": "Starboard camera",
                   "translation_m": { "x": 0.075, "y": 0.405, "z": -0.04 },
@@ -97,14 +97,14 @@ class PlatformGeometryJsonTest {
               ]
             }
         """.trimIndent() + "\n"
-        assertEquals(expected, ssrs18.toPlatformGeometryJson())
+        assertEquals(expected, sealog.toPlatformGeometryJson())
     }
 
     @Test
     fun `the exported document carries no provenance at all`() {
         // The whole reason there are two variants. A `calibration` block here would fail the
         // connector's schema, which forbids unknown keys.
-        val json = ssrs18.toPlatformGeometryJson()
+        val json = sealog.toPlatformGeometryJson()
         assertFalse(json.contains("calibration"))
         assertFalse(json.contains("accuracy_m"))
         assertFalse(json.contains("latitude"))
@@ -112,7 +112,7 @@ class PlatformGeometryJsonTest {
 
     @Test
     fun `the wire document carries the zero, the heading and how each number was got`() {
-        val json = ssrs18.toPlatformGeometryJson(provenance = true)
+        val json = sealog.toPlatformGeometryJson(provenance = true)
         assertTrue(json.contains("\"calibration\""))
         assertTrue(json.contains("\"latitude\": 57.708912345"))
         assertTrue(json.contains("\"heading_deg\": 35"))
@@ -130,11 +130,11 @@ class PlatformGeometryJsonTest {
     fun `a typed offset states no accuracy rather than a perfect one`() {
         // proto3's absent-versus-zero problem in JSON form: `"accuracy_m": 0` would claim the offset
         // was measured perfectly, when in fact it was not measured at all.
-        val typed = ssrs18.copy(
+        val typed = sealog.copy(
             sensors = listOf(
                 SensorMount(
                     label = "Mast light",
-                    frameId = "ssrs18-frame-mast",
+                    frameId = "sealog-frame-mast",
                     sensorType = SensorType.OTHER,
                     translation = Vec3M(0.0, 0.0, -2.4),
                 )
@@ -165,7 +165,7 @@ class PlatformGeometryJsonTest {
 
     @Test
     fun `a quote in a name cannot break the document`() {
-        val awkward = ssrs18.copy(name = "The \"Sea\" Dog", sensors = emptyList())
+        val awkward = sealog.copy(name = "The \"Sea\" Dog", sensors = emptyList())
         assertTrue(awkward.toPlatformGeometryJson().contains("\"name\": \"The \\\"Sea\\\" Dog\""))
     }
 
@@ -173,11 +173,11 @@ class PlatformGeometryJsonTest {
     fun `rotations are folded into the range the schema allows`() {
         // The schema bounds every angle to -180..180. A typed 270 is a thing somebody can mean and
         // not a thing we may publish, so it becomes -90 — the same rotation.
-        val spun = ssrs18.copy(
+        val spun = sealog.copy(
             sensors = listOf(
                 SensorMount(
                     label = "Aft camera",
-                    frameId = "ssrs18-frame-camera-aft",
+                    frameId = "sealog-frame-camera-aft",
                     sensorType = SensorType.CAMERA,
                     translation = Vec3M(-1.0, 0.0, 0.0),
                     rotation = EulerDeg(yaw = 270.0, pitch = -400.0, roll = 361.0),
@@ -208,7 +208,7 @@ class PlatformGeometryJsonTest {
             "translation_m", "rotation_deg",
             "x", "y", "z", "yaw", "pitch", "roll",
         )
-        val emitted = Regex("\"([a-z_0-9]+)\":").findAll(ssrs18.toPlatformGeometryJson())
+        val emitted = Regex("\"([a-z_0-9]+)\":").findAll(sealog.toPlatformGeometryJson())
             .map { it.groupValues[1] }
             .toSet()
         assertEquals(emptySet<String>(), emitted - allowed)

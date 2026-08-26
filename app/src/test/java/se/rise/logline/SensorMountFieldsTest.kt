@@ -85,15 +85,15 @@ class SensorMountFieldsTest {
     // ---- provenance ----
 
     private fun platformWith(mount: SensorMount) = PlatformCalibration(
-        name = "SSRS18",
-        entityId = "ssrs18",
-        parentFrameId = "ssrs18-frame-ccrp",
+        name = "Sealog",
+        entityId = "sealog",
+        parentFrameId = "sealog-frame-ccrp",
         sensors = listOf(mount),
     )
 
     private val typed = SensorMount(
         label = "Ouster",
-        frameId = "ssrs18-frame-lidar",
+        frameId = "sealog-frame-lidar",
         sensorType = SensorType.LIDAR,
         translation = Vec3M(0.22, 0.0, -0.35),
         rotation = EulerDeg(yaw = 90.0, pitch = 0.0, roll = 0.0),

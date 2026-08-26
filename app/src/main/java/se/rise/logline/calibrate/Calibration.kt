@@ -14,7 +14,7 @@ package se.rise.logline.calibrate
  * every one of them is optional.
  */
 data class PlatformCalibration(
-    /** Human name of the platform, e.g. `SSRS18`. Everything else defaults from this. */
+    /** Human name of the platform, e.g. `Sealog`. Everything else defaults from this. */
     val name: String,
     /**
      * The `entity_id` the calibration publishes under.
@@ -218,7 +218,7 @@ fun defaultEntityId(platformName: String): String = slugify(platformName).ifEmpt
 
 fun defaultParentFrameId(platformName: String): String = "${defaultEntityId(platformName)}-frame-ccrp"
 
-/** `SSRS18` + `Ouster OS lidar` → `ssrs18-frame-ouster-os-lidar`. */
+/** `Sealog` + `Ouster OS lidar` → `sealog-frame-ouster-os-lidar`. */
 fun defaultFrameId(platformName: String, sensorLabel: String): String {
     val sensor = slugify(sensorLabel).ifEmpty { "sensor" }
     return "${defaultEntityId(platformName)}-frame-$sensor"

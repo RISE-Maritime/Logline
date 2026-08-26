@@ -1104,7 +1104,7 @@ restarts a run — unlike the per-subject switches, which do not.
 
 Each platform can carry a **photograph**, picked from the phone's gallery on the first step of its
 page and shown beside it in the library. It is there because a list of entity ids is hard to read —
-`ssrs18` and `ssrs19` are one character apart, and a picture of the boat is not. The photo stays on
+`sealog-1` and `sealog-2` are one character apart, and a picture of the boat is not. The photo stays on
 this phone: it is not part of the geometry document, so it is neither published nor written into an
 export or a settings profile, and it does travel in an Android backup, being the one thing here that
 nobody can rebuild without walking back down to the quay.
@@ -1129,9 +1129,9 @@ The result goes out under the **platform's** entity id, not the phone's — `ent
 data is about — and exports as a file keelson's own `connectors/platform` reads unchanged:
 
 ```
-rise/@v0/ssrs18/pubsub/frame_transform/calibration
-rise/@v0/ssrs18/pubsub/configuration_json/calibration
-rise/@v0/ssrs18/pubsub/location_fix/calibration
+rise/@v0/sealog/pubsub/frame_transform/calibration
+rise/@v0/sealog/pubsub/configuration_json/calibration
+rise/@v0/sealog/pubsub/location_fix/calibration
 ```
 
 The phone's own sensors are unaffected by which platform is selected: a battery reading is about the phone

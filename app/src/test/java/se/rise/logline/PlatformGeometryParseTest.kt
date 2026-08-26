@@ -29,9 +29,9 @@ import se.rise.logline.calibrate.toStoredJson
 class PlatformGeometryParseTest {
 
     private fun platform() = PlatformCalibration(
-        name = "SSRS18",
-        entityId = "ssrs18",
-        parentFrameId = "ssrs18-frame-ccrp",
+        name = "Sealog",
+        entityId = "sealog",
+        parentFrameId = "sealog-frame-ccrp",
         platformType = PlatformType.VESSEL,
         description = "Small USV test platform",
         lengthOverAllM = 1.8,
@@ -53,7 +53,7 @@ class PlatformGeometryParseTest {
         sensors = listOf(
             SensorMount(
                 label = "Ouster OS lidar",
-                frameId = "ssrs18-frame-lidar",
+                frameId = "sealog-frame-lidar",
                 sensorType = SensorType.LIDAR,
                 translation = Vec3M(0.22, 0.0, -0.35),
                 rotation = EulerDeg(yaw = 90.0, pitch = 0.0, roll = -175.0),
@@ -63,7 +63,7 @@ class PlatformGeometryParseTest {
             ),
             SensorMount(
                 label = "Rutx GNSS antenna",
-                frameId = "ssrs18-frame-gnss",
+                frameId = "sealog-frame-gnss",
                 sensorType = SensorType.GNSS,
                 translation = Vec3M(0.27, 0.0, 0.0),
             ),
@@ -86,10 +86,10 @@ class PlatformGeometryParseTest {
      */
     @Test
     fun `the strict export reads back as geometry with no provenance`() {
-        val read = parsePlatformGeometry(platform().toPlatformGeometryJson(), fallbackEntityId = "ssrs18")!!
+        val read = parsePlatformGeometry(platform().toPlatformGeometryJson(), fallbackEntityId = "sealog")!!
 
-        assertEquals("ssrs18", read.entityId)
-        assertEquals("ssrs18-frame-ccrp", read.parentFrameId)
+        assertEquals("sealog", read.entityId)
+        assertEquals("sealog-frame-ccrp", read.parentFrameId)
         assertEquals(platform().sensors.map { it.frameId }, read.sensors.map { it.frameId })
         assertEquals(platform().sensors.map { it.translation }, read.sensors.map { it.translation })
         assertNull("the export carries no zero, so none may be read", read.zero)
@@ -103,11 +103,11 @@ class PlatformGeometryParseTest {
      */
     @Test
     fun `a document with no entity id takes the one it is filed under`() {
-        val read = parsePlatformGeometry(platform().toRegistryEntryJson("rise"), fallbackEntityId = "ssrs18")!!
-        assertEquals("ssrs18", read.entityId)
+        val read = parsePlatformGeometry(platform().toRegistryEntryJson("rise"), fallbackEntityId = "sealog")!!
+        assertEquals("sealog", read.entityId)
 
         // ...and with nothing to fall back on, the name is slugified rather than the read failing.
-        assertEquals("ssrs18", parsePlatformGeometry(platform().toRegistryEntryJson("rise"))!!.entityId)
+        assertEquals("sealog", parsePlatformGeometry(platform().toRegistryEntryJson("rise"))!!.entityId)
     }
 
     /** `realm`, `queryables`, `data_streams` and the rest are crowsnest's; they parse to nothing here. */
@@ -283,7 +283,7 @@ class PlatformGeometryParseTest {
     /** ...and one platform, handed to the same function, is one platform rather than a registry of fields. */
     @Test
     fun `a single platform document is not mistaken for a registry`() {
-        assertEquals(listOf("ssrs18"), parsePlatformDocument(platform().toStoredJson()).map { it.entityId })
+        assertEquals(listOf("sealog"), parsePlatformDocument(platform().toStoredJson()).map { it.entityId })
     }
 
     /**

@@ -55,8 +55,8 @@ Reference Point — sits at that origin unless `ccrp_m` says otherwise.
 
 ## The procedure
 
-1. **Name the platform.** The entity id and the parent frame id follow the name (`SSRS18` → `ssrs18`,
-   `ssrs18-frame-ccrp`) until you edit one of them by hand.
+1. **Name the platform.** The entity id and the parent frame id follow the name (`Sealog` → `sealog`,
+   `sealog-frame-ccrp`) until you edit one of them by hand.
 2. **Set the zero point.** Stand at the platform's reference point and *Capture position* — twenty seconds
    of fixes, averaged — or *Type position* from a chart or a survey. A platform you intend to measure
    entirely with a tape needs no zero point at all.
@@ -115,14 +115,14 @@ Two more limits worth stating plainly:
 
 ## What goes on the wire
 
-With one lidar on `SSRS18` at 0.22 m forward, 0.35 m up and yawed 90° to starboard:
+With one lidar on `Sealog` at 0.22 m forward, 0.35 m up and yawed 90° to starboard:
 
 **`frame_transform`**, one message per sensor, republished every ten seconds:
 
 ```
 timestamp { seconds: 1787085413 nanos: 965459000 }
-parent_frame_id: "ssrs18-frame-ccrp"
-child_frame_id: "ssrs18-frame-ouster-os-lidar"
+parent_frame_id: "sealog-frame-ccrp"
+child_frame_id: "sealog-frame-ouster-os-lidar"
 translation { x: 0.22 z: -0.35 }
 rotation { z: 0.7071067811865476 w: 0.7071067811865476 }
 ```
@@ -141,12 +141,12 @@ Two things there are deliberate:
 
 ```json
 {
-  "name": "SSRS18",
+  "name": "Sealog",
   "ccrp_m": { "x": 0, "y": 0, "z": 0 },
   "frame_transforms": [
     {
-      "parent_frame_id": "ssrs18-frame-ccrp",
-      "child_frame_id": "ssrs18-frame-ouster-os-lidar",
+      "parent_frame_id": "sealog-frame-ccrp",
+      "child_frame_id": "sealog-frame-ouster-os-lidar",
       "sensor_type": "lidar",
       "sensor_description": "Ouster OS lidar",
       "translation_m": { "x": 0.22, "y": 0, "z": -0.35 },
@@ -169,7 +169,7 @@ Two things there are deliberate:
       "captured_at_ms": 1700000000000
     },
     "sensors": [
-      { "child_frame_id": "ssrs18-frame-ouster-os-lidar", "capture": "manual" }
+      { "child_frame_id": "sealog-frame-ouster-os-lidar", "capture": "manual" }
     ],
     "updated_at_ms": 1700000001000
   }
@@ -183,7 +183,7 @@ and nothing about where that point is on the earth. The zero is what anchors the
 too — as `foxglove.LocationFix`, under the platform's entity and the `calibration` source:
 
 ```
-rise/@v0/ssrs18/pubsub/location_fix/calibration
+rise/@v0/sealog/pubsub/location_fix/calibration
 ```
 
 Three things keep it from being mistaken for the platform's live position, and all three matter:
@@ -235,9 +235,9 @@ same kind of gap as `keelson.Audio` having no AAC encoding, and it is recorded h
 ```bash
 uv run connectors/platform/bin/platform-geometry2keelson.py \
   --realm rise \
-  --entity-id ssrs18 \
+  --entity-id sealog \
   --source-id platform \
-  --config ssrs18-platform-geometry.json \
+  --config sealog-platform-geometry.json \
   --interval 10
 ```
 

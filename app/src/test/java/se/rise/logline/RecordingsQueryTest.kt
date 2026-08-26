@@ -188,7 +188,7 @@ class RecordingsQueryTest {
             recordingKindOf("logline-settings-2026-08-19T133226.json"),
         )
         assertEquals(RecordingKind.PlatformLibrary, recordingKindOf("logline-platform-registry.json"))
-        assertEquals(RecordingKind.PlatformGeometry, recordingKindOf("ssrs18-platform-geometry.json"))
+        assertEquals(RecordingKind.PlatformGeometry, recordingKindOf("sealog-platform-geometry.json"))
         assertEquals(RecordingKind.Other, recordingKindOf("holiday-snap.jpg"))
         assertEquals("case is not the file system's promise", RecordingKind.Recording, recordingKindOf("LOGLINE.MCAP"))
     }
@@ -221,7 +221,7 @@ class RecordingsQueryTest {
     fun `an export is neither complete nor incomplete`() {
         val run = recording("logline-2026-08-21T104536.mcap", durationMillis = 10L)
         val rescued = recording("logline-2026-08-21T110000.mcap", durationMillis = null)
-        val geometry = export("ssrs18-platform-geometry.json")
+        val geometry = export("sealog-platform-geometry.json")
         val profile = export("logline-settings-2026-08-21T120000.json")
         val all = listOf(run, rescued, geometry, profile)
 
@@ -271,7 +271,7 @@ class RecordingsQueryTest {
         )
         assertEquals(
             "982 bytes · Platform geometry export",
-            recordingSubtitle(export("ssrs18-platform-geometry.json")),
+            recordingSubtitle(export("sealog-platform-geometry.json")),
         )
         assertEquals(
             "982 bytes · Platform library export",

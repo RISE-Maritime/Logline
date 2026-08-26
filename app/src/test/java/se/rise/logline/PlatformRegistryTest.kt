@@ -64,7 +64,7 @@ class PlatformRegistryTest {
     /** What goes out comes back, provenance included — a share that lost it would lose uncertainty. */
     @Test
     fun `a library round-trips through the wire form`() {
-        val platforms = listOf(platform("SSRS18"), platform("Manatee", CaptureMethod.MANUAL))
+        val platforms = listOf(platform("Sealog"), platform("Manatee", CaptureMethod.MANUAL))
 
         val decoded = decodePlatformRegistry(
             encodePlatformRegistry(7L, "origin-a", 1_700_000_009_000L, platforms)
@@ -93,7 +93,7 @@ class PlatformRegistryTest {
      */
     @Test
     fun `a phone never applies its own library back over itself`() {
-        val own = RemotePlatformRegistry(99L, "origin-a", 0L, listOf(platform("SSRS18")))
+        val own = RemotePlatformRegistry(99L, "origin-a", 0L, listOf(platform("Sealog")))
 
         assertFalse(shouldApplyRemote(own, localVersion = 1L, ownOrigin = "origin-a"))
         assertTrue(shouldApplyRemote(own, localVersion = 1L, ownOrigin = "origin-b"))
@@ -102,7 +102,7 @@ class PlatformRegistryTest {
     /** Last-writer-wins by version, and "the same version" is not newer. */
     @Test
     fun `only a strictly newer library is applied`() {
-        val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(platform("SSRS18")))
+        val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(platform("Sealog")))
 
         assertTrue(shouldApplyRemote(remote, localVersion = 4L, ownOrigin = "origin-a"))
         assertFalse(shouldApplyRemote(remote, localVersion = 5L, ownOrigin = "origin-a"))
@@ -119,12 +119,12 @@ class PlatformRegistryTest {
      */
     @Test
     fun `a remote library brings documents and takes nothing else`() {
-        val local = listOf(platform("SSRS18"), platform("Manatee"))
-        val remote = listOf(platform("SSRS18").copy(description = "edited elsewhere"), platform("Gota"))
+        val local = listOf(platform("Sealog"), platform("Manatee"))
+        val remote = listOf(platform("Sealog").copy(description = "edited elsewhere"), platform("Gota"))
 
         val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = emptySet())
 
-        assertEquals(listOf("ssrs18", "gota"), merged.map { it.entityId })
+        assertEquals(listOf("sealog", "gota"), merged.map { it.entityId })
         assertEquals("edited elsewhere", merged.first().description)
     }
 
@@ -137,14 +137,14 @@ class PlatformRegistryTest {
      */
     @Test
     fun `a platform this phone is publishing is never deleted by a remote library`() {
-        val local = listOf(platform("SSRS18"), platform("Manatee"))
+        val local = listOf(platform("Sealog"), platform("Manatee"))
         val remote = listOf(platform("Gota"))
 
         val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = setOf("manatee"))
 
         assertEquals(listOf("gota", "manatee"), merged.map { it.entityId })
         // ...and the one nothing was publishing is gone, as the remote said.
-        assertTrue(merged.none { it.entityId == "ssrs18" })
+        assertTrue(merged.none { it.entityId == "sealog" })
     }
 
     /**
@@ -159,14 +159,14 @@ class PlatformRegistryTest {
     fun `a merged library is ordered after the one it was merged from`() {
         val remote = RemotePlatformRegistry(5L, "origin-b", 0L, listOf(platform("Gota")))
         val merged = mergeRemotePlatforms(
-            local = listOf(platform("SSRS18")),
+            local = listOf(platform("Sealog")),
             remote = remote.platforms,
-            protectedEntityIds = setOf("ssrs18"),
+            protectedEntityIds = setOf("sealog"),
         )
         // What the applier stores: the remote's version, then bumped.
         val storedVersion = remote.version + 1
 
-        assertEquals(listOf("gota", "ssrs18"), merged.map { it.entityId })
+        assertEquals(listOf("gota", "sealog"), merged.map { it.entityId })
         assertTrue(
             "the merged library must be acceptable to the station it was merged from",
             shouldApplyRemote(
@@ -179,10 +179,10 @@ class PlatformRegistryTest {
 
     @Test
     fun `a protected platform the remote also has is not duplicated`() {
-        val local = listOf(platform("SSRS18"))
-        val remote = listOf(platform("SSRS18").copy(description = "edited elsewhere"))
+        val local = listOf(platform("Sealog"))
+        val remote = listOf(platform("Sealog").copy(description = "edited elsewhere"))
 
-        val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = setOf("ssrs18"))
+        val merged = mergeRemotePlatforms(local, remote, protectedEntityIds = setOf("sealog"))
 
         assertEquals(1, merged.size)
         assertEquals("edited elsewhere", merged.single().description)

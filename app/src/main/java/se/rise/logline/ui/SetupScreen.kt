@@ -33,7 +33,7 @@ import se.rise.logline.ui.components.readAsOneItem
  * publishing` compete with five controls that do nothing during a run.
  *
  * The rows here are rows, not buttons, and each carries as a subtitle the state its old button label
- * used to smuggle into itself (`Platforms · SSRS18`). That is the whole of this app's button hierarchy
+ * used to smuggle into itself (`Platforms · Sealog`). That is the whole of this app's button hierarchy
  * problem: with these gone, `START Publish & REC` is the only filled button in the resting state.
  *
  * Like every screen here it takes data and lambdas — no repository, no `Context`.

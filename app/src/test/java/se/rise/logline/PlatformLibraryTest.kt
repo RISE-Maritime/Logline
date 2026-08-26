@@ -49,25 +49,25 @@ class PlatformLibraryTest {
      */
     @Test
     fun `the active platform always publishes`() {
-        val s = settings(platform("SSRS18"), platform("Manatee"))
+        val s = settings(platform("Sealog"), platform("Manatee"))
 
-        assertEquals(listOf("ssrs18"), s.publishingPlatforms().map { it.entityId })
-        assertEquals(listOf("ssrs18"), s.setPlatformPublishing("ssrs18", false).publishingPlatforms().map { it.entityId })
+        assertEquals(listOf("sealog"), s.publishingPlatforms().map { it.entityId })
+        assertEquals(listOf("sealog"), s.setPlatformPublishing("sealog", false).publishingPlatforms().map { it.entityId })
     }
 
     @Test
     fun `opting another platform in publishes both`() {
-        val s = settings(platform("SSRS18"), platform("Manatee")).setPlatformPublishing("manatee", true)
+        val s = settings(platform("Sealog"), platform("Manatee")).setPlatformPublishing("manatee", true)
 
-        assertEquals(listOf("ssrs18", "manatee"), s.publishingPlatforms().map { it.entityId })
+        assertEquals(listOf("sealog", "manatee"), s.publishingPlatforms().map { it.entityId })
     }
 
     /** A platform with no sensors has nothing to say, so it publishes nothing even when selected. */
     @Test
     fun `a platform with no sensors never publishes`() {
-        val s = settings(PlatformCalibration.forName("SSRS18"))
+        val s = settings(PlatformCalibration.forName("Sealog"))
 
-        assertEquals("ssrs18", s.activePlatformEntityId)
+        assertEquals("sealog", s.activePlatformEntityId)
         assertTrue(s.publishingPlatforms().isEmpty())
     }
 
@@ -78,35 +78,35 @@ class PlatformLibraryTest {
      */
     @Test
     fun `renaming a platform carries its selection across`() {
-        val s = settings(platform("SSRS18"), platform("Manatee"))
+        val s = settings(platform("Sealog"), platform("Manatee"))
             .setPlatformPublishing("manatee", true)
-        val renamed = s.platforms.first().copy(entityId = "ssrs18-b")
+        val renamed = s.platforms.first().copy(entityId = "sealog-b")
 
-        val after = s.upsertPlatform("ssrs18", renamed)
+        val after = s.upsertPlatform("sealog", renamed)
 
-        assertEquals(listOf("ssrs18-b", "manatee"), after.platforms.map { it.entityId })
-        assertEquals("ssrs18-b", after.activePlatformEntityId)
-        assertEquals(listOf("ssrs18-b", "manatee"), after.publishingPlatforms().map { it.entityId })
+        assertEquals(listOf("sealog-b", "manatee"), after.platforms.map { it.entityId })
+        assertEquals("sealog-b", after.activePlatformEntityId)
+        assertEquals(listOf("sealog-b", "manatee"), after.publishingPlatforms().map { it.entityId })
     }
 
     @Test
     fun `renaming an opted-in platform moves it in the publishing set, not the active one`() {
-        val s = settings(platform("SSRS18"), platform("Manatee")).setPlatformPublishing("manatee", true)
+        val s = settings(platform("Sealog"), platform("Manatee")).setPlatformPublishing("manatee", true)
         val renamed = s.platforms[1].copy(entityId = "manatee-2")
 
         val after = s.upsertPlatform("manatee", renamed)
 
-        assertEquals("ssrs18", after.activePlatformEntityId)
+        assertEquals("sealog", after.activePlatformEntityId)
         assertEquals(setOf("manatee-2"), after.publishingPlatformEntityIds)
     }
 
     /** Editing a platform without touching its id replaces it in place rather than appending a twin. */
     @Test
     fun `editing a platform replaces it in place`() {
-        val s = settings(platform("SSRS18"), platform("Manatee"))
+        val s = settings(platform("Sealog"), platform("Manatee"))
         val edited = s.platforms.first().copy(description = "Now with a description")
 
-        val after = s.upsertPlatform("ssrs18", edited)
+        val after = s.upsertPlatform("sealog", edited)
 
         assertEquals(2, after.platforms.size)
         assertEquals("Now with a description", after.platforms.first().description)
@@ -114,19 +114,19 @@ class PlatformLibraryTest {
 
     @Test
     fun `a platform with no previous id is added`() {
-        val after = settings(platform("SSRS18")).upsertPlatform(null, platform("Manatee"))
+        val after = settings(platform("Sealog")).upsertPlatform(null, platform("Manatee"))
 
-        assertEquals(listOf("ssrs18", "manatee"), after.platforms.map { it.entityId })
+        assertEquals(listOf("sealog", "manatee"), after.platforms.map { it.entityId })
         // Adding does not steal the selection: the phone is still on the platform it was on.
-        assertEquals("ssrs18", after.activePlatformEntityId)
+        assertEquals("sealog", after.activePlatformEntityId)
     }
 
     /** A dangling selection publishes nothing, so removal has to take every reference with it. */
     @Test
     fun `removing a platform removes every reference to it`() {
-        val s = settings(platform("SSRS18"), platform("Manatee")).setPlatformPublishing("manatee", true)
+        val s = settings(platform("Sealog"), platform("Manatee")).setPlatformPublishing("manatee", true)
 
-        val after = s.removePlatform("ssrs18")
+        val after = s.removePlatform("sealog")
 
         assertEquals(listOf("manatee"), after.platforms.map { it.entityId })
         assertEquals("", after.activePlatformEntityId)
@@ -143,17 +143,17 @@ class PlatformLibraryTest {
      */
     @Test
     fun `an entity id already in use is reported as taken`() {
-        val s = settings(platform("SSRS18"), platform("Manatee"))
+        val s = settings(platform("Sealog"), platform("Manatee"))
 
-        assertTrue(s.entityIdTaken("manatee", exceptEntityId = "ssrs18"))
+        assertTrue(s.entityIdTaken("manatee", exceptEntityId = "sealog"))
         // ...but a platform does not collide with itself, or every edit would be blocked.
-        assertFalse(s.entityIdTaken("ssrs18", exceptEntityId = "ssrs18"))
+        assertFalse(s.entityIdTaken("sealog", exceptEntityId = "sealog"))
         assertFalse(s.entityIdTaken("brand-new", exceptEntityId = null))
     }
 
     @Test
     fun `an active selection naming a platform that is gone resolves to nothing`() {
-        val s = settings(platform("SSRS18")).copy(activePlatformEntityId = "never-existed")
+        val s = settings(platform("Sealog")).copy(activePlatformEntityId = "never-existed")
 
         assertEquals(null, s.activePlatform())
         assertTrue(s.publishingPlatforms().isEmpty())

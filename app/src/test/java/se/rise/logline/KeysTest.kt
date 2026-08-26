@@ -97,15 +97,15 @@ class KeysTest {
     @Test
     fun `rpc key follows the interface-and-version layout`() {
         assertEquals(
-            "rise/@v0/ssrs18/@rpc/configurable/v1/get_config/calibration",
-            rpcKey("rise", "ssrs18", "configurable", "v1", "get_config", "calibration"),
+            "rise/@v0/sealog/@rpc/configurable/v1/get_config/calibration",
+            rpcKey("rise", "sealog", "configurable", "v1", "get_config", "calibration"),
         )
     }
 
     @Test
     fun `the entity id comes out of the third chunk`() {
-        assertEquals("ssrs18", entityIdFromKey("rise/@v0/ssrs18/pubsub/frame_transform/calibration"))
-        assertEquals("ssrs18", entityIdFromKey(rpcKey("rise", "ssrs18", "configurable", "v1", "get_config", "x")))
+        assertEquals("sealog", entityIdFromKey("rise/@v0/sealog/pubsub/frame_transform/calibration"))
+        assertEquals("sealog", entityIdFromKey(rpcKey("rise", "sealog", "configurable", "v1", "get_config", "x")))
     }
 
     /**
@@ -192,7 +192,7 @@ class KeysTest {
     @Test
     fun `a key that is not pubsub is not parsed`() {
         // An RPC key: the category chunk is `@rpc`, so this is not a subject and a source.
-        assertNull(pubsubSubjectAndSource("rise/@v0/ssrs18/@rpc/configurable/v1/get_config/calibration"))
+        assertNull(pubsubSubjectAndSource("rise/@v0/sealog/@rpc/configurable/v1/get_config/calibration"))
         // A liveliness token, whose category slot is a wildcard.
         assertNull(pubsubSubjectAndSource("rise/@v0/pixel_6/*/phone"))
         assertNull(pubsubSubjectAndSource("not a key"))

@@ -402,11 +402,11 @@ class SettingsRepositoryTest {
     @Test
     fun `a calibrated platform takes its two subjects out of the off set`() {
         val settings = settingsWith().withLibrary(
-            PlatformCalibration.forName("SSRS18").copy(
+            PlatformCalibration.forName("Sealog").copy(
                 sensors = listOf(
                     SensorMount(
                         label = "Lidar",
-                        frameId = "ssrs18-frame-lidar",
+                        frameId = "sealog-frame-lidar",
                         sensorType = SensorType.LIDAR,
                         translation = Vec3M(0.22, 0.0, 0.0),
                     )
@@ -431,7 +431,7 @@ class SettingsRepositoryTest {
     /** A platform named but never populated publishes nothing — there are no sensors to describe. */
     @Test
     fun `a platform with no sensors stays off`() {
-        val settings = settingsWith().withLibrary(PlatformCalibration.forName("SSRS18"))
+        val settings = settingsWith().withLibrary(PlatformCalibration.forName("Sealog"))
 
         assertTrue(PublishedSubject.FRAME_TRANSFORM in settings.offSubjects())
     }
@@ -474,9 +474,9 @@ class SettingsRepositoryTest {
     // ---- platform calibration ----
 
     private fun platform() = PlatformCalibration(
-        name = "SSRS18",
-        entityId = "ssrs18",
-        parentFrameId = "ssrs18-frame-ccrp",
+        name = "Sealog",
+        entityId = "sealog",
+        parentFrameId = "sealog-frame-ccrp",
         platformType = PlatformType.VESSEL,
         description = "Small USV test platform",
         lengthOverAllM = 1.8,
@@ -497,7 +497,7 @@ class SettingsRepositoryTest {
         sensors = listOf(
             SensorMount(
                 label = "Ouster OS lidar",
-                frameId = "ssrs18-frame-lidar",
+                frameId = "sealog-frame-lidar",
                 sensorType = SensorType.LIDAR,
                 translation = Vec3M(0.22, 0.0, -0.35),
                 rotation = EulerDeg(yaw = 90.0, pitch = 0.0, roll = -175.0),
@@ -507,7 +507,7 @@ class SettingsRepositoryTest {
             ),
             SensorMount(
                 label = "Rutx GNSS antenna",
-                frameId = "ssrs18-frame-gnss",
+                frameId = "sealog-frame-gnss",
                 sensorType = SensorType.GNSS,
                 translation = Vec3M(0.27, 0.0, 0.0),
             ),
@@ -568,15 +568,15 @@ class SettingsRepositoryTest {
             settingsWith().copy(
                 platforms = listOf(platform(), otherPlatform()),
                 activePlatformEntityId = "stora-krabban",
-                publishingPlatformEntityIds = setOf("ssrs18"),
+                publishingPlatformEntityIds = setOf("sealog"),
             ),
         )
 
         val read = readSettings(prefs, defaultEntityId = "pixel_6")
         assertEquals("stora-krabban", read.activePlatformEntityId)
-        assertEquals(setOf("ssrs18"), read.publishingPlatformEntityIds)
+        assertEquals(setOf("sealog"), read.publishingPlatformEntityIds)
         // Both, because the active platform is included whether or not it is in the set.
-        assertEquals(listOf("ssrs18", "stora-krabban"), read.publishingPlatforms().map { it.entityId })
+        assertEquals(listOf("sealog", "stora-krabban"), read.publishingPlatforms().map { it.entityId })
     }
 
     @Test
@@ -673,9 +673,9 @@ class SettingsRepositoryTest {
 
     /** A preferences file as an older build left it: the flat `calib_*` keys and no `platform_count`. */
     private fun writeLegacyPlatform(prefs: MutablePreferences) {
-        prefs[Keys.CALIB_NAME] = "SSRS18"
-        prefs[Keys.CALIB_ENTITY_ID] = "ssrs18"
-        prefs[Keys.CALIB_PARENT_FRAME_ID] = "ssrs18-frame-ccrp"
+        prefs[Keys.CALIB_NAME] = "Sealog"
+        prefs[Keys.CALIB_ENTITY_ID] = "sealog"
+        prefs[Keys.CALIB_PARENT_FRAME_ID] = "sealog-frame-ccrp"
         prefs[Keys.CALIB_PLATFORM_TYPE] = "VESSEL"
         prefs[Keys.CALIB_ZERO_LAT] = "57.708912"
         prefs[Keys.CALIB_ZERO_LON] = "11.974560"
@@ -684,7 +684,7 @@ class SettingsRepositoryTest {
         prefs[Keys.CALIB_ZERO_CAPTURE] = "GNSS_AVERAGE"
         prefs[Keys.CALIB_SENSOR_COUNT] = "1"
         prefs[Keys.calibSensor(0, "label")] = "Ouster OS lidar"
-        prefs[Keys.calibSensor(0, "frame_id")] = "ssrs18-frame-lidar"
+        prefs[Keys.calibSensor(0, "frame_id")] = "sealog-frame-lidar"
         prefs[Keys.calibSensor(0, "type")] = "LIDAR"
         prefs[Keys.calibSensor(0, "x")] = "0.22"
         prefs[Keys.calibSensor(0, "y")] = "0.0"
@@ -706,8 +706,8 @@ class SettingsRepositoryTest {
         val read = readSettings(prefs, defaultEntityId = "pixel_6")
 
         assertEquals(listOf(platform()), read.platforms)
-        assertEquals("ssrs18", read.activePlatformEntityId)
-        assertEquals(listOf("ssrs18"), read.publishingPlatforms().map { it.entityId })
+        assertEquals("sealog", read.activePlatformEntityId)
+        assertEquals(listOf("sealog"), read.publishingPlatforms().map { it.entityId })
     }
 
     /**
@@ -721,10 +721,10 @@ class SettingsRepositoryTest {
         writeLegacyPlatform(prefs)
 
         val read = readSettings(prefs, defaultEntityId = "pixel_6")
-        assertEquals(listOf("ssrs18"), read.platforms.map { it.entityId })
-        assertEquals("ssrs18", read.activePlatformEntityId)
-        assertEquals(listOf("ssrs18"), read.publishingPlatforms().map { it.entityId })
-        assertEquals("ssrs18-frame-lidar", read.platforms.single().sensors.single().frameId)
+        assertEquals(listOf("sealog"), read.platforms.map { it.entityId })
+        assertEquals("sealog", read.activePlatformEntityId)
+        assertEquals(listOf("sealog"), read.publishingPlatforms().map { it.entityId })
+        assertEquals("sealog-frame-lidar", read.platforms.single().sensors.single().frameId)
     }
 
     /** Migrated once and then gone: two sources of truth for one platform is how the two drift apart. */
@@ -739,7 +739,7 @@ class SettingsRepositoryTest {
         assertNull(prefs[Keys.CALIB_NAME])
         assertNull(prefs[Keys.CALIB_SENSOR_COUNT])
         assertNull(prefs[Keys.calibSensor(0, "frame_id")])
-        assertEquals(listOf("ssrs18"), readSettings(prefs, defaultEntityId = "pixel_6").platforms.map { it.entityId })
+        assertEquals(listOf("sealog"), readSettings(prefs, defaultEntityId = "pixel_6").platforms.map { it.entityId })
     }
 
     /**
@@ -755,10 +755,10 @@ class SettingsRepositoryTest {
         val prefs = mutablePreferencesOf()
         val two = settingsWith().copy(
             platforms = listOf(platform(), otherPlatform()),
-            activePlatformEntityId = "ssrs18",
+            activePlatformEntityId = "sealog",
         )
         writeSettings(prefs, two)
-        writeSettings(prefs, two.removePlatform("ssrs18"))
+        writeSettings(prefs, two.removePlatform("sealog"))
 
         val read = readSettings(prefs, defaultEntityId = "pixel_6")
         assertEquals(listOf("stora-krabban"), read.platforms.map { it.entityId })
@@ -811,7 +811,7 @@ class SettingsRepositoryTest {
             prefs,
             settingsWith().copy(
                 platforms = listOf(platform(), otherPlatform()),
-                activePlatformEntityId = "ssrs18",
+                activePlatformEntityId = "sealog",
                 publishingPlatformEntityIds = setOf("stora-krabban"),
                 sharePlatformLibrary = true,
                 platformRegistryVersion = 7L,
@@ -822,11 +822,11 @@ class SettingsRepositoryTest {
         val read = readSettings(prefs, defaultEntityId = "pixel_6")
 
         assertEquals(listOf(platform(), otherPlatform()), read.platforms)
-        assertEquals("ssrs18", read.activePlatformEntityId)
+        assertEquals("sealog", read.activePlatformEntityId)
         assertEquals(setOf("stora-krabban"), read.publishingPlatformEntityIds)
         // The active platform always publishes, whether or not it is in the opted-in set.
         assertEquals(
-            listOf("ssrs18", "stora-krabban"),
+            listOf("sealog", "stora-krabban"),
             read.publishingPlatforms().map { it.entityId }.sorted(),
         )
         assertTrue(read.sharePlatformLibrary)
@@ -860,7 +860,7 @@ class SettingsRepositoryTest {
             prefs,
             settingsWith().copy(
                 platforms = listOf(platform(), otherPlatform()),
-                activePlatformEntityId = "ssrs18",
+                activePlatformEntityId = "sealog",
             ),
         )
         val migrated = readSettings(prefs, defaultEntityId = "pixel_6")
@@ -876,7 +876,7 @@ class SettingsRepositoryTest {
         assertNull(prefs[Keys.LEGACY_RIG_REGISTRY_VERSION])
         assertNull(prefs[Keys.LEGACY_RIG_REGISTRY_ORIGIN])
         assertEquals(
-            listOf("ssrs18", "stora-krabban"),
+            listOf("sealog", "stora-krabban"),
             readSettings(prefs, defaultEntityId = "pixel_6").platforms.map { it.entityId },
         )
     }
@@ -920,7 +920,7 @@ class SettingsRepositoryTest {
 
         val read = readSettings(prefs, defaultEntityId = "pixel_6")
 
-        assertEquals(listOf("ssrs18"), read.platforms.map { it.entityId })
+        assertEquals(listOf("sealog"), read.platforms.map { it.entityId })
         assertEquals("", read.activePlatformEntityId)
         assertEquals(emptyList<PlatformCalibration>(), read.publishingPlatforms())
     }
