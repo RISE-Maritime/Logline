@@ -19,6 +19,19 @@ Those two halves are independent — either can be switched off.
 
 Five minutes alongside is worth an hour of wondering later.
 
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="screen-shots/Screenshot_Session_TAB.png" width="260" alt="The top of the Session tab: a card reading Ready to publish with 48 streams ready and 88.6 GB free, a quay trial tag, the recording and publishing rate selectors, and the PUB / REC / START row along the bottom."><br>
+<sub>The card, the tags and the rates — steps 1, 2 and 5</sub>
+</td>
+<td align="center" width="50%">
+<img src="screen-shots/Screenshot_session_tab_sensor_list.png" width="260" alt="The sensor groups further down the Session tab: GNSS, IMU, Device, Radio cellular, Radio wifi and Platform calibration, each with a count and a master switch."><br>
+<sub>Further down the same tab: every group, and its switch</sub>
+</td>
+</tr>
+</table>
+
 **1. Open the app and read the card on the Session tab.** It should say **Ready to publish**,
 with a line like `50 streams ready` and another like `89.1 GB free · about 164 days of
 recording`. If either line is missing or says something else, that is the app telling you
@@ -71,6 +84,19 @@ dialog. The file keeps its name.
 The top bar carries the run's state on every screen: two lamps, **PUB** and **REC**. Only REC
 blinks, and only while a file is actually being written.
 
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="screen-shots/Screenshot_live_map.png" width="260" alt="The Live tab showing the chart on satellite imagery over the Gothenburg archipelago, with the follow, layer and expand controls down its right edge, and No fix yet stated in the strip beneath it."><br>
+<sub>The chart. Here it has no fix yet, and says so where the position would be</sub>
+</td>
+<td align="center" width="50%">
+<img src="screen-shots/Screenshot_live_telemetry.png" width="260" alt="The Live tab scrolled past the chart: SOG, COG and HDG T across the top, the GNSS, SAT, CELL and BAT vitals line, the group health chips, the Keeping up card, and a speed-over-ground plot."><br>
+<sub>Scrolled past it: the three values, the vitals, the plots</sub>
+</td>
+</tr>
+</table>
+
 Down the Live tab:
 
 **The chart.** Your position, the accuracy circle, and — if the marks are switched on — the
@@ -119,6 +145,11 @@ position *and* `No fix`. Indoors this is normal.
 
 The **Events** tab is for saying what happened, while it happens.
 
+<p align="center">
+<img src="screen-shots/Screenshot_event_marker.png" width="280" alt="The Events tab: a note field with Info, Warning and Error severities and a Send note button, three quick-mark buttons — Waypoint, Observation and an amber Incident — and one open timer listed under Marked this run. The tab's own icon carries a badge reading 1."><br>
+<sub>A timer is running here — hence the <b>1</b> on the Events tab itself</sub>
+</p>
+
 **Quick marks** are the buttons at the bottom, nearest your thumb.
 
 - **Tap** one to mark an instant.
@@ -140,6 +171,11 @@ Marks are recorded whether or not the run is publishing. With PUB off they go to
 ## Finding the files afterwards
 
 The **Files** tab lists everything the app has saved, newest first.
+
+<p align="center">
+<img src="screen-shots/Screenshot_recordings.png" width="280" alt="The Files tab: a search box, Newest first and All controls above a count of 22 recordings, then rows giving each file's name, size, message count, duration and tags, with Details, Share and Delete on each."><br>
+<sub>The top row here is one of the incomplete ones — 22 MB, and still readable</sub>
+</p>
 
 A row reads `logline-2026-08-24T100724.mcap` and `1 MB · 51 322 messages over 00:01:02`, plus
 any tags. The small picture on the left is the run's own track — shape and scale, not place.

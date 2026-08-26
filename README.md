@@ -1,3 +1,5 @@
+<img src="art/logline_icon.png" alt="Logline" width="96">
+
 # Logline
 
 An Android app that turns a phone into a [Keelson](https://github.com/RISE-Maritime/keelson) sensor
@@ -15,6 +17,42 @@ publisher on someone else's bus.
 | [docs/deploying.md](docs/deploying.md) | building, signing and getting it onto other phones |
 
 [CHANGELOG.md](CHANGELOG.md) says what is in a given build.
+
+## What it looks like
+
+Six screens, in the order a run passes through them. Taken on a Pixel 6;
+[docs/user-guide.md](docs/user-guide.md) explains each one in words.
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/screen-shots/Screenshot_Session_TAB.png" width="240" alt="The Session tab: a status card reading Ready to publish, the run's tags, the recording and publishing rate selectors, and the PUB / REC / START row pinned above the navigation bar."><br>
+<sub><b>Session</b> — what a run will do, and the button that starts it</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/screen-shots/Screenshot_session_tab_sensor_list.png" width="240" alt="The sensor groups further down the Session tab: GNSS, IMU, Device, Radio cellular, Radio wifi and Platform calibration, each with a count and a master switch, and the Audio and video card below them."><br>
+<sub>…and further down it, every subject the phone can publish</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/screen-shots/Screenshot_live_map.png" width="240" alt="The Live tab showing the chart on satellite imagery over the Gothenburg archipelago, with the follow, layer and expand controls, and No fix yet stated under it."><br>
+<sub><b>Live</b> — the chart, and what it says when there is no fix</sub>
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+<img src="docs/screen-shots/Screenshot_live_telemetry.png" width="240" alt="The Live tab scrolled past the chart: SOG, COG and HDG T, the vitals line, the group health chips, the Keeping up card counting shed samples, and a speed-over-ground plot."><br>
+<sub>…scrolled past it, the numbers and whether they are keeping up</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/screen-shots/Screenshot_event_marker.png" width="240" alt="The Events tab: a note field with Info, Warning and Error severities, three quick-mark buttons, and a running timer listed under Marked this run."><br>
+<sub><b>Events</b> — a note, or a quick mark held open as a timer</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/screen-shots/Screenshot_recordings.png" width="240" alt="The Files tab listing MCAP recordings with their size, message count, duration and tags, above a search box and ordering controls."><br>
+<sub><b>Files</b> — every recording, with its figures and its track</sub>
+</td>
+</tr>
+</table>
 
 ## What it publishes
 
@@ -1450,7 +1488,16 @@ art/                       Source artwork + the launcher-icon generator
 `art/logline_icon.svg` is the source of the launcher icon. Android cannot use SVG, so
 `art/svg_to_adaptive_icon.py` converts it into the two adaptive-icon VectorDrawables
 (`ic_launcher_background.xml`, `ic_launcher_foreground.xml`) — edit the SVG and re-run the script
-rather than hand-editing the XML.
+rather than hand-editing the XML. `art/logline_icon.png` is the same artwork rendered for this
+file, since markdown cannot size an SVG reliably; regenerate it alongside:
+
+```bash
+python3 -c "import cairosvg; cairosvg.svg2png(url='art/logline_icon.svg', \
+  write_to='art/logline_icon.png', output_width=512, output_height=512)"
+```
+
+`docs/screen-shots/` holds the screens above. They are the app as shipped, not mock-ups, so a
+screen that changes shape wants its picture retaken rather than its caption reworded.
 
 See [docs/architecture.md](docs/architecture.md) for how these fit together, and
 [CLAUDE.md](CLAUDE.md) for the working conventions.
