@@ -4,6 +4,11 @@ Android (Kotlin + Compose) publisher that puts a phone's GNSS, IMU, barometer an
 Keelson/Zenoh bus.
 Single Gradle module `:app`, package `se.rise.logline`, ~3000 lines of Kotlin.
 Read [README.md](README.md) for what it does; this file is how to work on it.
+**The README is a front page, not the reference** — it is the pitch, the screenshots and an
+index. The detail lives in `docs/`: `subjects.md`, `keys-and-liveliness.md`, `connecting.md`,
+`settings.md`, `live-view.md`, `recording.md`, `development.md`, plus the older `user-guide.md`,
+`deploying.md`, `calibration.md` and `architecture.md`. A new explanation belongs on one of those
+pages and in the index, never appended to the README.
 
 ## Build environment — read this first
 
