@@ -52,7 +52,7 @@ class ChecklistReducerTest {
         assertEquals(ItemStatus.Completed, item.status)
         assertEquals(1_000L, item.completedAtEpochMillis)
         assertEquals("Ted", item.completedBy)
-        assertEquals("ROC-A", item.completedByRocSite)
+        assertEquals("ROC-A", item.completedBySite)
     }
 
     /**

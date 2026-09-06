@@ -152,7 +152,9 @@ not authored here. Java/Kotlin lite bindings are generated at build time by the
 | --- | --- |
 | `Envelope.proto` | `keelson/messages/Envelope.proto` |
 | `Primitives.proto`, `Decomposed3DVector.proto` | `keelson/messages/payloads/` |
-| `Checklist{Event,State,Presence,Procedure}.proto` | `keelson/messages/payloads/` |
+| `Checklist{Event,State,Presence,Procedure,Evidence}.proto` | `keelson/messages/payloads/` |
+| `Audio.proto`, `LocationFixQuality.proto`, `WHEPProxy.proto` | `keelson/messages/payloads/` |
+| `ErrorResponse.proto` | `keelson/interfaces/` — the only one not from `payloads/` |
 | `foxglove/*.proto` | `keelson/messages/payloads/foxglove/` |
 
 To pull in upstream changes, copy the files across and rebuild — never hand-edit them here.

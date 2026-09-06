@@ -54,7 +54,7 @@ object ChecklistCodec {
             .setTimestamp(protoTimestamp(now))
             .setProcedureId(procedureId)
             .setPublishedByOperator(operator.operatorId)
-            .setPublishedByRocSite(operator.rocSite)
+            .setPublishedBySite(operator.rocSite)
             .setEventCount(progress.eventCount)
             .addAllItems(progress.items.map { (itemId, item) -> item.toProto(itemId) })
             .build()
@@ -207,13 +207,13 @@ private fun ItemProgress.toProto(itemId: String): ChecklistStateMessage.ItemStat
             }
         )
         .setStartedBy(startedBy)
-        .setStartedByRocSite(startedByRocSite)
+        .setStartedBySite(startedBySite)
         .setCompletedBy(completedBy)
-        .setCompletedByRocSite(completedByRocSite)
+        .setCompletedBySite(completedBySite)
         .setFlagged(flagged)
         .setFlagReason(flagReason)
         .setFlaggedBy(flaggedBy)
-        .setFlaggedByRocSite(flaggedByRocSite)
+        .setFlaggedBySite(flaggedBySite)
         .addAllNotes(
             notes.map {
                 ChecklistStateMessage.ItemNote.newBuilder()
@@ -221,7 +221,7 @@ private fun ItemProgress.toProto(itemId: String): ChecklistStateMessage.ItemStat
                     .setText(it.text)
                     .setCreatedAt(protoTimestamp(Instant.ofEpochMilli(it.atEpochMillis)))
                     .setAuthor(it.author)
-                    .setAuthorRocSite(it.authorRocSite)
+                    .setAuthorSite(it.authorSite)
                     .build()
             }
         )
@@ -240,17 +240,17 @@ private fun ChecklistStateMessage.ItemState.toModel(): ItemProgress = ItemProgre
     },
     startedAtEpochMillis = startedAt.epochMillisOrNull(),
     startedBy = startedBy,
-    startedByRocSite = startedByRocSite,
+    startedBySite = startedBySite,
     completedAtEpochMillis = completedAt.epochMillisOrNull(),
     completedBy = completedBy,
-    completedByRocSite = completedByRocSite,
+    completedBySite = completedBySite,
     notes = notesList.map {
-        ItemNote(it.noteId, it.text, it.createdAt.epochMillis(), it.author, it.authorRocSite)
+        ItemNote(it.noteId, it.text, it.createdAt.epochMillis(), it.author, it.authorSite)
     },
     flagged = flagged,
     flagReason = flagReason,
     flaggedBy = flaggedBy,
-    flaggedByRocSite = flaggedByRocSite,
+    flaggedBySite = flaggedBySite,
 )
 
 private fun ChecklistEventType.toProto(): ChecklistEvent.EventType = when (this) {
@@ -285,13 +285,13 @@ private fun ChecklistEvent.EventType.toModel(): ChecklistEventType = when (this)
 }
 
 private fun CursorState.toProto(): ChecklistPresence.CursorState = when (this) {
-    CursorState.Idle -> ChecklistPresence.CursorState.CURSOR_IDLE
-    CursorState.Viewing -> ChecklistPresence.CursorState.CURSOR_VIEWING
-    CursorState.EditingNote -> ChecklistPresence.CursorState.CURSOR_EDITING_NOTE
+    CursorState.Idle -> ChecklistPresence.CursorState.CURSOR_STATE_IDLE
+    CursorState.Viewing -> ChecklistPresence.CursorState.CURSOR_STATE_VIEWING
+    CursorState.EditingNote -> ChecklistPresence.CursorState.CURSOR_STATE_EDITING_NOTE
 }
 
 private fun ChecklistPresence.CursorState.toModel(): CursorState = when (this) {
-    ChecklistPresence.CursorState.CURSOR_VIEWING -> CursorState.Viewing
-    ChecklistPresence.CursorState.CURSOR_EDITING_NOTE -> CursorState.EditingNote
+    ChecklistPresence.CursorState.CURSOR_STATE_VIEWING -> CursorState.Viewing
+    ChecklistPresence.CursorState.CURSOR_STATE_EDITING_NOTE -> CursorState.EditingNote
     else -> CursorState.Idle
 }

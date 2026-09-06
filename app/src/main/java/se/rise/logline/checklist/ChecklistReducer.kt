@@ -148,7 +148,7 @@ fun applyEvent(
                         status = ItemStatus.InProgress,
                         startedAtEpochMillis = event.atEpochMillis,
                         startedBy = event.username,
-                        startedByRocSite = event.rocSite,
+                        startedBySite = event.rocSite,
                     )
                 )
                 mark(TimelineKind.Started)
@@ -167,7 +167,7 @@ fun applyEvent(
                         status = ItemStatus.Completed,
                         completedAtEpochMillis = event.atEpochMillis,
                         completedBy = event.username,
-                        completedByRocSite = event.rocSite,
+                        completedBySite = event.rocSite,
                     )
                 )
                 mark(TimelineKind.Completed)
@@ -180,10 +180,10 @@ fun applyEvent(
                     status = ItemStatus.Pending,
                     startedAtEpochMillis = null,
                     startedBy = "",
-                    startedByRocSite = "",
+                    startedBySite = "",
                     completedAtEpochMillis = null,
                     completedBy = "",
-                    completedByRocSite = "",
+                    completedBySite = "",
                 )
             )
             mark(TimelineKind.Reverted)
@@ -195,7 +195,7 @@ fun applyEvent(
                 text = event.detail,
                 atEpochMillis = event.atEpochMillis,
                 author = event.username,
-                authorRocSite = event.rocSite,
+                authorSite = event.rocSite,
             )
             // Guarded by note id as well as event id: a snapshot carries notes without the events
             // that made them, so the same note can arrive by both routes.
@@ -211,7 +211,7 @@ fun applyEvent(
                     flagged = true,
                     flagReason = event.detail,
                     flaggedBy = event.username,
-                    flaggedByRocSite = event.rocSite,
+                    flaggedBySite = event.rocSite,
                 )
             )
             mark(TimelineKind.Flagged, event.detail)
@@ -223,7 +223,7 @@ fun applyEvent(
                     flagged = false,
                     flagReason = "",
                     flaggedBy = "",
-                    flaggedByRocSite = "",
+                    flaggedBySite = "",
                 )
             )
             mark(TimelineKind.FlagResolved, event.detail)

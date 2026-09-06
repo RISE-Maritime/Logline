@@ -68,10 +68,12 @@ class SettingsRepositoryTest {
         assertEquals(false, settings.checklistEnabled)
         assertEquals("", settings.operatorId)
         assertEquals("", settings.operatorName)
-        // Where crowsnest keeps them — not the logger's own realm and entity, which are `rise` and the
-        // device slug. A build that confused the two would publish where nothing is listening.
-        assertEquals("crowsnest", settings.checklistRealm)
-        assertEquals("checklist", settings.checklistEntityId)
+        // Where crowsnest keeps them. Same realm as this logger's own data since 2026-08-26, but a
+        // DIFFERENT entity — `roc1` is the operations centre's shared tree, not the device slug this
+        // phone publishes sensor data under. A build that confused the two would publish where
+        // nothing is listening.
+        assertEquals("rise", settings.checklistRealm)
+        assertEquals("roc1", settings.checklistEntityId)
         // Absent means the battery-optimisation question has not been put yet, so the first run asks
         // it. Defaulting the other way would mean a fresh install silently never asks — and the phones
         // that need the exemption are exactly the ones nobody is watching.
@@ -116,8 +118,8 @@ class SettingsRepositoryTest {
         writeSettings(prefs, readSettings(prefs, "pixel_6").copy(checklistRealm = "", checklistEntityId = ""))
 
         val settings = readSettings(prefs, defaultEntityId = "pixel_6")
-        assertEquals("crowsnest", settings.checklistRealm)
-        assertEquals("checklist", settings.checklistEntityId)
+        assertEquals("rise", settings.checklistRealm)
+        assertEquals("roc1", settings.checklistEntityId)
     }
 
     // ---- Build.MODEL slug ----
@@ -174,8 +176,8 @@ class SettingsRepositoryTest {
             operatorName = "Ted",
             operatorRole = "master",
             rocSiteId = "deck",
-            checklistRealm = "crowsnest",
-            checklistEntityId = "checklist",
+            checklistRealm = "rise",
+            checklistEntityId = "roc1",
             // Set to the non-default here on purpose: it defaults to false, so a version of this test
             // that left it alone would pass just as well against a write path that never stored it.
             batteryExemptionAsked = true,

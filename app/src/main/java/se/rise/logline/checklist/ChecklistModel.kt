@@ -38,7 +38,7 @@ data class ItemNote(
     val text: String,
     val atEpochMillis: Long,
     val author: String,
-    val authorRocSite: String,
+    val authorSite: String,
 )
 
 /** What has happened to one item. Every "who" is a person at a site, because two sites share this. */
@@ -46,15 +46,15 @@ data class ItemProgress(
     val status: ItemStatus = ItemStatus.Pending,
     val startedAtEpochMillis: Long? = null,
     val startedBy: String = "",
-    val startedByRocSite: String = "",
+    val startedBySite: String = "",
     val completedAtEpochMillis: Long? = null,
     val completedBy: String = "",
-    val completedByRocSite: String = "",
+    val completedBySite: String = "",
     val notes: List<ItemNote> = emptyList(),
     val flagged: Boolean = false,
     val flagReason: String = "",
     val flaggedBy: String = "",
-    val flaggedByRocSite: String = "",
+    val flaggedBySite: String = "",
 )
 
 /**

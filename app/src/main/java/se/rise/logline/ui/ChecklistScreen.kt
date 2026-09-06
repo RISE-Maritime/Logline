@@ -267,7 +267,7 @@ private fun ItemCard(
                     progress.completedAtEpochMillis?.let { at ->
                         Text(
                             "Done ${formatAge(at, nowMillis)} by ${progress.completedBy.ifBlank { "someone" }}" +
-                                progress.completedByRocSite.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty(),
+                                progress.completedBySite.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty(),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -275,7 +275,7 @@ private fun ItemCard(
                     if (progress.status == ItemStatus.InProgress) {
                         Text(
                             "Started by ${progress.startedBy.ifBlank { "someone" }}" +
-                                progress.startedByRocSite.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty(),
+                                progress.startedBySite.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty(),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.tertiary,
                         )
@@ -290,7 +290,7 @@ private fun ItemCard(
                     }
                     progress.notes.forEach { note ->
                         Text(
-                            "“${note.text}” — ${note.author} (${note.authorRocSite})",
+                            "“${note.text}” — ${note.author} (${note.authorSite})",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

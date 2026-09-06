@@ -70,14 +70,14 @@ class ChecklistWireTest {
                     status = ItemStatus.Completed,
                     completedAtEpochMillis = 1_755_000_000_500L,
                     completedBy = "Ted",
-                    completedByRocSite = "ROC-B",
+                    completedBySite = "ROC-B",
                     notes = listOf(
                         ItemNote("note_9", "hi", 1_755_000_000_400L, "Ted", "ROC-B"),
                     ),
                     flagged = true,
                     flagReason = "why",
                     flaggedBy = "Ted",
-                    flaggedByRocSite = "ROC-B",
+                    flaggedBySite = "ROC-B",
                 )
             ),
         )
@@ -100,7 +100,7 @@ class ChecklistWireTest {
         val item = snapshot.items.getValue("item_003")
         assertEquals(ItemStatus.Completed, item.status)
         assertEquals(1_755_000_000_500L, item.completedAtEpochMillis)
-        assertEquals("ROC-B", item.completedByRocSite)
+        assertEquals("ROC-B", item.completedBySite)
         assertEquals(listOf("note_9"), item.notes.map { it.noteId })
         assertTrue(item.flagged)
         assertEquals("why", item.flagReason)

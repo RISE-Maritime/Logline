@@ -8,27 +8,28 @@ import org.junit.Test
  * The keys, pinned against the literals in crowsnest's `src/services/checklistSync.js`.
  *
  * There is exactly one other implementation of this protocol, and it builds its keys by string
- * concatenation from `CHECKLIST_BASE = "crowsnest/@v0/checklist/pubsub"`. A drift here does not fail:
+ * concatenation from `CHECKLIST_BASE` in its `services/keelsonRealm.js`, currently
+ * `"rise/@v0/roc1/pubsub"`. A drift here does not fail:
  * the phone publishes to a key nobody subscribes to and subscribes to a key nobody publishes on, and
  * both sides look like they are working. That is what this test exists to catch.
  */
 class ChecklistKeysTest {
 
-    private val keys = ChecklistKeys("crowsnest", "checklist")
+    private val keys = ChecklistKeys("rise", "roc1")
 
     @Test
     fun `event key matches crowsnest eventKeyExpr`() {
-        assertEquals("crowsnest/@v0/checklist/pubsub/checklist_event/ROC-A", keys.event("ROC-A"))
+        assertEquals("rise/@v0/roc1/pubsub/checklist_event/ROC-A", keys.event("ROC-A"))
     }
 
     @Test
     fun `event subscription matches crowsnest eventSubscribeKeyExpr`() {
-        assertEquals("crowsnest/@v0/checklist/pubsub/checklist_event/*", keys.eventSubscription())
+        assertEquals("rise/@v0/roc1/pubsub/checklist_event/*", keys.eventSubscription())
     }
 
     @Test
     fun `state key is addressed by procedure, not by site`() {
-        assertEquals("crowsnest/@v0/checklist/pubsub/checklist_state/proc_001", keys.state("proc_001"))
+        assertEquals("rise/@v0/roc1/pubsub/checklist_state/proc_001", keys.state("proc_001"))
     }
 
     /**
@@ -38,7 +39,7 @@ class ChecklistKeysTest {
     @Test
     fun `presence key carries site and operator as separate tokens`() {
         assertEquals(
-            "crowsnest/@v0/checklist/pubsub/checklist_presence/ROC-A/op-7",
+            "rise/@v0/roc1/pubsub/checklist_presence/ROC-A/op-7",
             keys.presence("ROC-A", "op-7"),
         )
     }
@@ -51,7 +52,7 @@ class ChecklistKeysTest {
     @Test
     fun `presence subscription uses a double wildcard`() {
         assertEquals(
-            "crowsnest/@v0/checklist/pubsub/checklist_presence/**",
+            "rise/@v0/roc1/pubsub/checklist_presence/**",
             keys.presenceSubscription(),
         )
         val presence = keys.presence("ROC-A", "op-7")
@@ -65,15 +66,15 @@ class ChecklistKeysTest {
     @Test
     fun `procedure keys address one definition and the whole library`() {
         assertEquals(
-            "crowsnest/@v0/checklist/pubsub/checklist_procedure/proc_002",
+            "rise/@v0/roc1/pubsub/checklist_procedure/proc_002",
             keys.procedure("proc_002"),
         )
-        assertEquals("crowsnest/@v0/checklist/pubsub/checklist_procedure/*", keys.procedureQuery())
+        assertEquals("rise/@v0/roc1/pubsub/checklist_procedure/*", keys.procedureQuery())
     }
 
     @Test
     fun `state query covers every procedure the storage holds`() {
-        assertEquals("crowsnest/@v0/checklist/pubsub/checklist_state/*", keys.stateQuery())
+        assertEquals("rise/@v0/roc1/pubsub/checklist_state/*", keys.stateQuery())
     }
 
     /**
