@@ -183,6 +183,18 @@ class Recorder(private val appContext: Context) {
     private val sweepLock = Mutex()
 
     /**
+     * Set when something outside the drain wants the current file closed and published now.
+     *
+     * The one caller is the low-battery watchdog: a phone about to die should get what it has
+     * recorded into Downloads while it still has the power to copy it, rather than leaving the whole
+     * run as an orphan for the sweep to rescue afterwards.
+     *
+     * Read on the drain, at the same point the size cap is, so the close happens between two samples
+     * and never in the middle of one. Cleared by the read, so a request cannot rotate twice.
+     */
+    private val rotationRequested = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
      * Offer a sample. Never blocks and never throws — it is called from the publish path, where a
      * throw would be swallowed into a subject failure and kill that collector.
      */
@@ -306,7 +318,7 @@ class Recorder(private val appContext: Context) {
                 // in the file, so a sample counts as drained only once it is in one.
                 queueLoad.drained()
                 pushFileStatus(session)
-                if (session.shouldRotate()) {
+                if (session.shouldRotate() || rotationRequested.getAndSet(false)) {
                     session.close(activeTags)
                     // **After the close, not before.** `bytesWritten` reads through to the writer, and
                     // closing is what emits the summary section and the footer — pushed first, the
@@ -409,6 +421,24 @@ class Recorder(private val appContext: Context) {
      * new run's file. That failure has a precedent here: a single long-lived channel once made the
      * second run in a process record nothing at all.
      */
+    /**
+     * Close and publish the current file at the next sample, then carry on into a new one.
+     *
+     * **Not a stop.** The run continues, because a logger that gave up at a threshold would throw
+     * away whatever life the phone has left for no gain — the next file is recoverable exactly as
+     * this one would have been. What it buys is that everything up to this moment reaches Downloads
+     * *while there is still power to copy it*, finalised and with its summary section, rather than
+     * sitting in app-private storage as an orphan that depends on somebody opening the app again.
+     *
+     * A no-op when nothing is recording. Idempotent in the sense that matters: two requests before
+     * the drain reaches its next sample produce one rotation, since the flag is cleared by the read.
+     */
+    fun requestRotation() {
+        if (scope == null) return
+        Log.i(TAG, "rotation requested; the current file will be closed and published")
+        rotationRequested.set(true)
+    }
+
     fun runToken(): Any? = scope
 
     /**

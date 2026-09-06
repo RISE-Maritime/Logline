@@ -71,6 +71,15 @@ data class PublisherStatus(
      * this phone's ability to keep going rather than about anything it is observing.
      */
     val batteryRuntime: RuntimeEstimate = RuntimeEstimate.Unknown,
+    /**
+     * The battery has fallen to the point where the run's recording was secured — see
+     * `SensorPublisher.watchBattery`.
+     *
+     * A **state, not an event**: it stays true for the rest of the run unless the phone goes on
+     * charge, so a screen opened afterwards still says what happened. Its one job on screen is to
+     * turn "battery running out" from a prediction into a statement that something was done about it.
+     */
+    val batteryCritical: Boolean = false,
 ) {
     /** Never null — a subject with no samples yet reads as a zeroed status, which is what the UI wants. */
     operator fun get(subject: PublishedSubject): SubjectStatus = subjects[subject] ?: SubjectStatus()
@@ -146,6 +155,8 @@ class PublisherStatusStore {
 
     /** The battery collector's latest verdict. Updated at the battery rate, which is 0.2 Hz by default. */
     fun batteryRuntime(estimate: RuntimeEstimate) = _status.update { it.copy(batteryRuntime = estimate) }
+
+    fun batteryCritical(critical: Boolean) = _status.update { it.copy(batteryCritical = critical) }
 
     fun replayStarted(count: Int) = _status.update { it.copy(replayPending = count) }
 

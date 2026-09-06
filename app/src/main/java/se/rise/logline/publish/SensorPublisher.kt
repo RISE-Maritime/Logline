@@ -146,6 +146,60 @@ internal const val MIN_CALIBRATION_INTERVAL_MILLIS = 1_000L
 private const val MIN_PLAUSIBLE_DIE_CELSIUS = -40f
 private const val MAX_PLAUSIBLE_DIE_CELSIUS = 125f
 
+/**
+ * The charge at which a run secures what it has recorded so far.
+ *
+ * Ten rather than something tighter, because the point is to have time: the copy to Downloads is up
+ * to 512 MB, and a phone logging GNSS, IMU and the radio with the screen off is not going to give
+ * much warning between 3% and nothing. Ten per cent of a phone that has already run for hours is
+ * still tens of minutes, and the cost of being early is one extra file boundary.
+ *
+ * Deliberately a **percentage rather than the runtime estimate**. `RuntimeEstimator` reports
+ * `Unknown` until it has measured a real drain, which can be most of a short run, and it is the one
+ * thing that must not be unavailable exactly when it is needed. The charge is always there.
+ */
+const val CRITICAL_BATTERY_PCT = 10f
+
+/**
+ * How often the low-battery watchdog looks. Slow on purpose: it is watching a number that moves in
+ * whole percent over minutes, and its own cost should not be part of what drains the phone.
+ */
+private const val BATTERY_WATCH_MILLIS = 30_000L
+
+/** What [batteryAction] decided one reading calls for. */
+enum class BatteryAction {
+    /** Close and publish the current file, and say so. */
+    Secure,
+
+    /** Back on power: forget that it happened, so a later drop is protected too. */
+    Rearm,
+    Nothing,
+}
+
+/**
+ * Whether a battery reading should secure the run, re-arm it, or neither.
+ *
+ * Pure so the rules can be tested without a phone, which matters more here than usual: the state
+ * this decides on is a `var` in a collector, the interesting cases are transitions rather than
+ * values, and the failure mode of getting it wrong — rotating the file every thirty seconds while
+ * the charge hovers on the threshold — is one nobody would notice until a run had produced a
+ * hundred files.
+ *
+ * @param charge percent, or null where the phone reported nothing this tick.
+ * @param charging null where unknown, which is treated as *not* charging: a phone that will not say
+ *   is one whose battery is still going down as far as anybody here knows.
+ * @param secured whether this run has already been secured and not since re-armed.
+ */
+fun batteryAction(charge: Float?, charging: Boolean?, secured: Boolean): BatteryAction = when {
+    // Nothing to go on. Not a reason to act, and not a reason to forget an earlier crossing either.
+    charge == null -> BatteryAction.Nothing
+    charging == true -> if (secured) BatteryAction.Rearm else BatteryAction.Nothing
+    // Once per crossing, not once per poll: a charge sitting on the threshold would otherwise close
+    // and publish the file on every tick of the watchdog.
+    !secured && charge <= CRITICAL_BATTERY_PCT -> BatteryAction.Secure
+    else -> BatteryAction.Nothing
+}
+
 private const val REPLAY_BATCH = 40
 private const val REPLAY_BATCH_PAUSE_MILLIS = 100L
 
@@ -456,6 +510,7 @@ class SensorPublisher(private val appContext: Context) {
 
                 // Not a subject collector — the connection watchdog runs whatever is switched on.
                 launch { watchConnection(opened) }
+                launch { watchBattery() }
 
                 // Each collector runs only while at least one of its subjects is switched on, so
                 // switching a whole sensor off releases its listener rather than merely dropping its
@@ -856,6 +911,48 @@ class SensorPublisher(private val appContext: Context) {
                     job?.cancelAndJoin()
                     job = null
                 }
+            }
+        }
+    }
+
+    /**
+     * Secure the recording before the phone dies, and say so.
+     *
+     * **The counterpart to the free-space floor, which the battery never had.** `openSession()`
+     * refuses below `MIN_FREE_BYTES`, so a full disk ends a run tidily; a flat battery ended it by
+     * killing the process, leaving the whole run as an unfinalised orphan. Nothing anywhere compared
+     * the charge to a number — `RuntimeEstimator` predicted the time left and only ever drew it on a
+     * screen.
+     *
+     * At [CRITICAL_BATTERY_PCT] the current file is closed and published *while there is still power
+     * to copy it*, and the run carries on into a new one. It does not stop: the remaining charge is
+     * worth recording, and the tail is recoverable exactly as the whole run used to be.
+     *
+     * **Its own collector, not a hook in `runBattery`.** That one is a subject publisher, and
+     * `supervise()` cancels it when every battery subject is switched off — so a safety behaviour
+     * hung off it would quietly disappear for anybody who turned the battery telemetry off. This
+     * polls on its own slow clock for the same reason the connection watchdog does: it is about the
+     * run's survival rather than about anything being published.
+     *
+     * Re-arms on charge, so a phone plugged in and later unplugged is protected twice. Deliberately
+     * once per crossing rather than per poll — a battery hovering at the threshold must not rotate
+     * the file every thirty seconds.
+     */
+    private suspend fun watchBattery() {
+        var secured = false
+        BatteryProvider(appContext).samples(BATTERY_WATCH_MILLIS).collect { sample ->
+            when (batteryAction(sample.stateOfChargePct, sample.isCharging, secured)) {
+                BatteryAction.Secure -> {
+                    secured = true
+                    Log.w(TAG, "battery at ${sample.stateOfChargePct}%; securing the recording")
+                    statusStore.batteryCritical(true)
+                    recorder.requestRotation()
+                }
+                BatteryAction.Rearm -> {
+                    secured = false
+                    statusStore.batteryCritical(false)
+                }
+                BatteryAction.Nothing -> Unit
             }
         }
     }

@@ -69,9 +69,13 @@ missing, so a reader scans it rather than seeking. At most a few seconds at the 
 was still in memory when the power went — and on a real one measured here nothing was: the last
 chunk had already been written, and the repair added 50 bytes without removing any.
 
-Nothing stops a run because the battery is low. The Session screen warns under half an hour and the
-notification carries the same figure, but neither ends the recording the way running out of disk
-does, so a run left going will be ended by the phone rather than by the app.
+**At 10% the run secures itself.** The file so far is closed and copied to Downloads while there is
+still power to do it, recording carries on into a new one, and the phone alerts you — the one
+notification this app will interrupt you with, because plugging in at that point saves the rest of
+the run. Nothing stops: a logger that gave up at 10% would throw away the last of the battery for no
+reason, and whatever it records after that is recovered the same way any interrupted run is.
+
+Running out of *disk* does stop a run, because there is nowhere to put the next file.
 
 Compression costs something here, and it is bounded deliberately. A killed process loses whatever is
 still buffered in the open chunk, where before it lost only a partial message — so chunks are flushed

@@ -1718,16 +1718,37 @@ simply never finds anything on the bus.
   recording properly. A shutdown kill does not call it, and even when it is called `Recorder.stop()`
   is deliberately fire-and-forget with a grace timeout — returning from it does not mean the file was
   closed. Anything that needs a *closed* file has to go through the orphan sweep instead.
-- **Storage ends a run; the battery does not.** `openSession()` refuses below `MIN_FREE_BYTES` and
-  sets an error, so a full disk stops the recording rather than corrupting it. There is no
-  counterpart for charge: no threshold anywhere, and no receiver for `ACTION_BATTERY_LOW` or
-  `ACTION_SHUTDOWN` — the whole receiver list is two `BOOT_COMPLETED` entries, `MODE_CHANGED_ACTION`
-  in `LocationProvider`, and a *null-receiver sticky read* of `ACTION_BATTERY_CHANGED` in
-  `BatteryProvider`, which subscribes to nothing. `RuntimeEstimator` measures both tanks with the
-  same code and only one of them acts. What the battery half produces is a `StatusLine` under thirty
-  minutes, visible only in the foreground, and the same string in a `PRIORITY_LOW` notification with
-  `setOnlyAlertOnce(true)` — so it will not alert. Worth knowing before assuming a run ends tidily
-  when the phone dies: it ends the way a kill ends it.
+- **Both tanks now act, and they act differently on purpose.** Storage *stops* a run —
+  `openSession()` refuses below `MIN_FREE_BYTES` — because there is nowhere left to put the next
+  file. The battery **secures** the run instead: at `CRITICAL_BATTERY_PCT` (10%), `watchBattery()`
+  calls `Recorder.requestRotation()`, which closes and publishes the current file *while there is
+  still power to copy it* and carries on into a new one. Stopping there would throw away whatever
+  life the phone has left for no gain, since the tail is recoverable exactly as the whole run used
+  to be; a full disk has no such option.
+  **A percentage, not the runtime estimate.** `RuntimeEstimator` reports `Unknown` until it has
+  measured a real drain, which can be most of a short run — and this is the one thing that must not
+  be unavailable exactly when it is needed. The charge is always there.
+  **Its own collector, not a hook in `runBattery()`.** That one is a subject publisher, and
+  `supervise()` cancels it once every battery subject is switched off — so a safety behaviour hung
+  off it would quietly vanish for anybody who turned the battery telemetry off. It polls on its own
+  30 s clock, the same shape `watchConnection` uses.
+  **Once per crossing, re-armed by charging.** A charge hovering on the threshold is read every
+  thirty seconds, and acting on each reading would close and publish the file every thirty seconds.
+  `batteryAction()` is pure and `BatteryWatchdogTest` pins the transitions, including that an absent
+  reading neither acts nor *forgets* — a gauge going quiet must not re-arm a run and let it secure
+  itself all over again.
+  Verified on a Pixel 6 with `dumpsys battery unplug; set level 5`: fired once across three polls at
+  5%, published a properly closed 2.2 MB file **with its summary section** 58 ms later, and the run
+  carried on into a new file. Then, re-armed by the phone's real charger and dropped again, it fired
+  a second time. Note `BatteryManager.isCharging` reads the hardware and does **not** follow
+  `dumpsys battery set ac 1`, so the re-arm can only be exercised with an actual charger.
+- **The low-battery alert is the only notification in this app that interrupts anybody**, and it
+  needs its own channel to do it. The ongoing run notification is `IMPORTANCE_LOW` with
+  `setOnlyAlertOnce(true)`, and from Android 8 the *channel's* importance decides whether anything
+  alerts — so a `PRIORITY_HIGH` notification posted to that channel is silent. Hence
+  `BATTERY_CHANNEL_ID` at `IMPORTANCE_HIGH`, posted once via `distinctUntilChanged` on
+  `PublisherStatus.batteryCritical`. It earns the interruption because it is the one moment where
+  doing something — plugging in — changes the outcome of a run in progress.
 - **The recording carries no index, and that is a measured trade rather than an omission.** Readers
   scan the data section to open a file. Legal MCAP, and what happened before an index was tried.
   It *was* tried, and both findings are expensive enough to rediscover that they are kept here.

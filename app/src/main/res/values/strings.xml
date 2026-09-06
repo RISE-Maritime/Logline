@@ -12,4 +12,8 @@
     <string name="notification_storage">~%1$s on storage</string>
     <string name="notification_disconnected">router unreachable</string>
     <string name="notification_stop">Stop</string>
+    <string name="battery_channel_name">Low battery</string>
+    <string name="battery_channel_description">Alerts once when a run\'s battery gets low enough that the recording is secured</string>
+    <string name="battery_alert_title">Battery low — recording secured</string>
+    <string name="battery_alert_text">The file so far is saved to Downloads. Recording continues; plug in to keep the run going.</string>
 </resources>

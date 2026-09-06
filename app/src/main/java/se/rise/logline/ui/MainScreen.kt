@@ -565,6 +565,16 @@ private fun StatusCard(
                 // hours of charge and forty minutes of space has forty minutes.
                 val left = timeLeft(status.batteryRuntime, recording.spaceRuntime)
                 when {
+                    // Ahead of the prediction below, because it is no longer one: the charge has
+                    // already crossed the line and the run has already done something about it. A
+                    // screen still saying "about 20 minutes left" over the top of that would be
+                    // describing a future the phone has stopped waiting for.
+                    status.batteryCritical -> StatusLine(
+                        text = "Battery low — recording secured",
+                        tone = StatusTone.Warning,
+                        detail = "Everything up to this point is saved to Downloads. Recording " +
+                            "continues into a new file; plug in to keep the run going.",
+                    )
                     left != null && left.millis < LOW_RUNTIME_MILLIS -> StatusLine(
                         text = when (left.limit) {
                             RuntimeLimit.Battery -> "Battery running out"

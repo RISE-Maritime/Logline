@@ -71,25 +71,7 @@ completes, and that is not something app code can fix.
 ## Other 
 
 
-- [x] **Nothing is ever `fsync`ed, so a real power cut loses more than the chunk bound implies.**
-      `sink.flush()` appears once, in `McapWriter.finish()`; during a run the 64 kB
-      `BufferedOutputStream` drains only when it fills, and what reaches the OS sits in the page
-      cache on the kernel's own 5–30 s writeback schedule. A process kill is fine — the page cache
-      survives an orderly shutdown, which is why killing the app 25 s in recovered 24.7 s. A genuine
-      cut (a protection circuit tripping under load in the cold, a hardware fault) is not.
-      A sync after each `flushChunk()` would bound it to the 2 s the chunk already bounds. The cost
-      has to be measured before it is worth having: it lands on the drain coroutine, the one thing in
-      this app that must not fall behind, and `DRAIN_GRACE_MILLIS` and the queue depth are both sized
-      on the assumption that writing is cheap.
-      **Reasoned, not measured.** The hard-cut case has never been reproduced here, and modern phones
-      do not make it easy to try.
-      Done: `RecordingSession.commit()` flushes and syncs after each chunk, so a kill and a hard cut
-      now cost the same bounded thing. The cost was the open question and it is answered — **1.65 ms
-      mean over 71 commits on a Pixel 6, one every ~1.4 s, 0.12% of the drain's wall time**, nothing
-      dropped at 336 samples/s across 50 streams. Cheaper than feared because the interval is set by
-      the 256 kB size bound, so a slower run syncs *less* often. Note what is still true: the
-      hard-cut case remains unreproduced, so this bounds a failure nobody here has seen. Done in the
-      commit below.
+
 
 - [ ] **`McapRecovery` cannot tell a tail of zeros from data.** Its walk reads an opcode and a length
       and accepts any record that fits the file, so a zero-filled tail — which is what ext4's delayed
@@ -100,7 +82,7 @@ completes, and that is not something app code can fix.
       strict reader may object to the opcode. Checking the opcode against the known set would cut in
       the right place. Only reachable through the hard-cut case above, so unreproduced here too.
 
-- [ ] **Storage ends a run; the battery does not.** `openSession()` refuses below `MIN_FREE_BYTES`
+- [x] **Storage ends a run; the battery does not.** `openSession()` refuses below `MIN_FREE_BYTES`
       and sets an error, so a full disk stops the recording rather than corrupting it. There is no
       counterpart for charge — no threshold anywhere, and no receiver for `ACTION_BATTERY_LOW` or
       `ACTION_SHUTDOWN`. Both tanks are measured by the same `RuntimeEstimator` and only one of them
@@ -112,6 +94,15 @@ completes, and that is not something app code can fix.
       should also *stop* there is a product decision: on a boat, carrying on into a fresh file until
       the phone dies may well be what somebody wants. This is the only one of these four that
       addresses the scenario rather than its aftermath.
+      Done, and the product decision went to **secure, do not stop** — the remaining charge is worth
+      recording and the tail is recoverable anyway. Threshold 10%, its own 30 s collector rather than
+      a hook in `runBattery()` (which `supervise()` cancels when the battery subjects are switched
+      off, so the safety behaviour would have vanished with them), fired once per crossing and
+      re-armed by charging. It also alerts, on its own `IMPORTANCE_HIGH` channel, because the ongoing
+      notification is `IMPORTANCE_LOW` and cannot: that is the one moment where plugging in changes
+      the outcome. Verified on a Pixel 6 by forcing the level down — one fire across three polls, a
+      properly closed 2.2 MB file with its summary in Downloads 58 ms later, the run continuing, and
+      a second fire after re-arming on the real charger. Done in the commit below.
 
 - [ ] **The three checklist QoS assignments are unobserved, and the reason is that nothing publishes
       them — not that nothing can listen.** `checklist_event` is `elevated`, `checklist_presence`

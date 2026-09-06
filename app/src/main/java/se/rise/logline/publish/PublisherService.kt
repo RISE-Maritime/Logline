@@ -39,6 +39,17 @@ import kotlinx.coroutines.runBlocking
 private const val TAG = "PublisherService"
 private const val CHANNEL_ID = "publishing"
 private const val NOTIFICATION_ID = 1
+
+/**
+ * A second channel, for the one thing this app has to interrupt somebody about.
+ *
+ * It cannot share the ongoing notification's channel: that one is `IMPORTANCE_LOW` so a run does not
+ * buzz every time its figures change, and from Android 8 the channel's importance decides whether
+ * anything alerts — a `PRIORITY_HIGH` notification posted to a low channel is silent. So the run's
+ * status stays quiet and this stays loud, which is the split the two actually want.
+ */
+private const val BATTERY_CHANNEL_ID = "battery"
+private const val BATTERY_NOTIFICATION_ID = 2
 private const val WAKE_LOCK_TAG = "logline:publishing"
 private const val NOTIFICATION_REFRESH_MILLIS = 5_000L
 
@@ -151,6 +162,7 @@ class PublisherService : Service() {
             // — `start()` returns as soon as it has launched, and a failure arriving before this line
             // is still the first thing the collector sees.
             watchForFailure()
+        watchBattery()
             updateNotification()
         }
 
@@ -180,6 +192,22 @@ class PublisherService : Service() {
      * If the Zenoh session fails to open there is nothing left to keep alive — the error is already
      * on [SensorPublisher.status] for the UI to show, so drop the notification and the wake lock.
      */
+    /**
+     * Alert once when the run secures itself against a flat battery.
+     *
+     * `distinctUntilChanged` is what makes it once: `batteryCritical` is a state that stays true for
+     * the rest of the run, so collecting it raw would re-post on every unrelated status change — and
+     * a warning that arrives every few seconds is one people learn to swipe away.
+     */
+    private fun watchBattery() {
+        scope.launch {
+            app.publisher.status
+                .map { it.batteryCritical }
+                .distinctUntilChanged()
+                .collect { critical -> if (critical) notifyBatteryCritical() }
+        }
+    }
+
     private fun watchForFailure() {
         scope.launch {
             app.publisher.status
@@ -321,6 +349,40 @@ class PublisherService : Service() {
             .build()
     }
 
+    /**
+     * Tell the operator once, when the battery has fallen far enough that the run secured itself.
+     *
+     * **The only alerting notification in the app**, and it earns that because it is the one moment
+     * where doing something — plugging in — changes the outcome of a run in progress. Everything the
+     * app said about the battery before this was a foreground-only line on a screen nobody is looking
+     * at with the phone in a pocket, plus a figure appended to a `PRIORITY_LOW` ongoing notification
+     * with `setOnlyAlertOnce(true)`, which by construction cannot alert about anything that happens
+     * after it is first posted.
+     *
+     * Not ongoing and dismissible: it reports something that has already happened, so leaving it
+     * stuck to the shade would just be in the way.
+     */
+    private fun notifyBatteryCritical() {
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            2,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(this, BATTERY_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle(getString(R.string.battery_alert_title))
+            .setContentText(getString(R.string.battery_alert_text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(getString(R.string.battery_alert_text)))
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .build()
+        runCatching { notificationManager().notify(BATTERY_NOTIFICATION_ID, notification) }
+            .onFailure { Log.w(TAG, "could not post the low-battery alert", it) }
+    }
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -331,6 +393,17 @@ class PublisherService : Service() {
             setShowBadge(false)
         }
         notificationManager().createNotificationChannel(channel)
+
+        notificationManager().createNotificationChannel(
+            NotificationChannel(
+                BATTERY_CHANNEL_ID,
+                getString(R.string.battery_channel_name),
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = getString(R.string.battery_channel_description)
+                setShowBadge(true)
+            }
+        )
     }
 
     private fun notificationManager(): NotificationManager =
