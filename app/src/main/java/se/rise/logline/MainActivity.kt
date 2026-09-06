@@ -71,6 +71,8 @@ import se.rise.logline.calibrate.ImportDisposition
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.zeroFromFix
+import org.osmdroid.util.GeoPoint
+import se.rise.logline.ui.PositionPickerMap
 import se.rise.logline.calibrate.bodyOffsetMetres
 import se.rise.logline.calibrate.enuOffsetMetres
 import se.rise.logline.calibrate.exportCalibration
@@ -2074,6 +2076,37 @@ private fun App(
                 dirty = calibrationDraft != savedPlatform || pickedPhoto != null || photoRemoved,
                 step = calibrationStep,
                 onStepChange = { calibrationStep = it },
+                // The map, resolved here for the reason every other map in this app is: a `MapView`
+                // needs a `Context`, a tile cache and a lifecycle, and a screen may hold none of them.
+                //
+                // `liveLayer` rather than a setting of its own, so the picker opens on whatever the
+                // Live tab was last showing — which is satellite by default, and satellite is what
+                // makes a jetty pickable at all.
+                pickerMap = { start, existing, onCentre, m ->
+                    PositionPickerMap(
+                        start = start?.let { GeoPoint(it.latitude, it.longitude) },
+                        existing = existing?.let { GeoPoint(it.latitude, it.longitude) },
+                        onCentre = onCentre,
+                        layer = liveLayer,
+                        offlineOnly = current.offlineTilesOnly,
+                        mapTilerKey = current.mapTilerKey,
+                        modifier = m,
+                    )
+                },
+                previewMap = { at, m ->
+                    PositionPickerMap(
+                        start = GeoPoint(at.latitude, at.longitude),
+                        existing = GeoPoint(at.latitude, at.longitude),
+                        // A preview reports nothing: it is not being panned, and the card has
+                        // nowhere to put a moving coordinate anyway.
+                        onCentre = { _, _ -> },
+                        interactive = false,
+                        layer = liveLayer,
+                        offlineOnly = current.offlineTilesOnly,
+                        mapTilerKey = current.mapTilerKey,
+                        modifier = m,
+                    )
+                },
             )
         }
         composable(Routes.SENSOR_MOUNT) { backStackEntry ->

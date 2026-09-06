@@ -2228,6 +2228,28 @@ simply never finds anything on the bus.
   position exists: `Settings.offSubjects()` gates it on `PlatformZero.hasPosition`, because a tape-measured
   platform and a heading-only zero both have geometry worth publishing and no position, and 0°N 0°E is the
   most confident possible way of being wrong.
+- **The zero point has three sources, and the map one states no accuracy on purpose.** `Capture
+  position` averages twenty seconds of fixes, `Pick on map` pans a chart under a fixed crosshair, and
+  `Type` takes decimal degrees. `CaptureMethod.MAP` records which, and `zeroFromMap()` deliberately
+  leaves `accuracyM`, `verticalAccuracyM` and `scatterM` null unless a figure is typed: the error in
+  a picked point is the basemap's georeferencing plus how well somebody pointed, and the app knows
+  neither. Deriving one from the zoom is the obvious move and is wrong — it measures the pointing,
+  not the imagery, so it reads as sub-metre at exactly the zoom where imagery is most likely to be
+  several metres out. It keeps the previous altitude and the heading, because a chart gives neither
+  and a surveyed one is better than nothing.
+  **A pick dragged to 0°N 0°E reads as no position at all.** `hasPosition` uses Null Island as the
+  absent marker, which was safe while a zero could only be captured or typed and is now reachable by
+  panning. Pinned in `ZeroFromMapTest` as a known cost rather than left to be found.
+- **The picker is the first map in this app that is read as well as written**, and it is full screen
+  for the reason `RecordingChart` records: an interactive map inside a `verticalScroll` loses every
+  drag to the page. `PositionPickerMap` reports its centre through an `onCentre` lambda fed by
+  osmdroid's `MapListener` — **both** `onScroll` and `onZoom`, since a zoom moves the ground under a
+  fixed centre just as a scroll moves the centre over fixed ground, and listening to one leaves the
+  readout stale after the other. The crosshair is a Compose `Box` over the `AndroidView`, not an
+  overlay: it is fixed in screen space and needs no projection.
+  The same composable draws the card's preview with `interactive = false` — gestures off rather than
+  a transparent view over the top, because osmdroid would still receive the touches and a map that
+  pans a little when you meant to scroll is worse than one that plainly does not.
 - **A captured offset smaller than its own fix accuracy is noise, and the UI says so.** Averaging twenty
   seconds of fixes cuts *scatter*, not *bias* — GNSS multipath holds still for minutes — so
   `AveragedFix` reports both numbers and `SensorMount.accuracyExceedsOffset` drives a red line on the

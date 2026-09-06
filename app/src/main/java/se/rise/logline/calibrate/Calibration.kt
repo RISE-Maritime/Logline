@@ -190,6 +190,41 @@ fun zeroFromFix(
     capturedAtEpochMillis = atEpochMillis,
 )
 
+/**
+ * A zero point put down on a chart.
+ *
+ * A sibling of [zeroFromFix] and a function for the same reason: the alternative is a field-by-field
+ * copy inside a Compose lambda, which is where the vertical-accuracy bug lived unnoticed.
+ *
+ * [accuracyM] is whatever the surveyor chose to state, and null when they did not — see
+ * [CaptureMethod.MAP] for why nothing derives one. There is no scatter: a single point put down by
+ * hand has no repeatability to measure, and reporting 0 would claim perfect precision.
+ */
+fun zeroFromMap(
+    latitude: Double,
+    longitude: Double,
+    accuracyM: Double?,
+    previous: PlatformZero?,
+    atEpochMillis: Long,
+): PlatformZero = PlatformZero(
+    latitude = latitude,
+    longitude = longitude,
+    // Deliberately kept from whatever was there. A chart gives a position, not a height — and an
+    // altitude already surveyed by standing there is better than the nothing this could offer.
+    altitudeM = previous?.altitudeM,
+    accuracyM = accuracyM,
+    // Not derived from the horizontal one. Without a measurement there is nothing to halve or
+    // double, and inventing a vertical accuracy would put a covariance on the wire that no
+    // instrument ever produced.
+    verticalAccuracyM = null,
+    scatterM = null,
+    headingDeg = previous?.headingDeg ?: 0.0,
+    headingSource = previous?.headingSource ?: HeadingSource.MANUAL,
+    capture = CaptureMethod.MAP,
+    samples = 0,
+    capturedAtEpochMillis = atEpochMillis,
+)
+
 enum class PlatformType(val wire: String) {
     VESSEL("vessel"),
     LANDKRABBA("landkrabba"),
@@ -222,6 +257,18 @@ enum class CaptureMethod(val label: String) {
 
     /** A rotation read off the phone's own attitude, laid against the sensor's mounting face. */
     PHONE_ATTITUDE("Phone attitude"),
+
+    /**
+     * Put down on a chart, by panning it under a crosshair.
+     *
+     * **Carries no accuracy, and that is the honest answer rather than a gap.** The error in a
+     * picked point is the basemap's own georeferencing plus how well somebody pointed, and the app
+     * knows neither: Esri's and MapTiler's imagery is typically several metres out, which at working
+     * zoom dominates the pointing error entirely. Deriving a figure from the zoom level would
+     * therefore read as sub-metre precisely where it is least true. A surveyor who knows their
+     * chart's quality can type one; nothing invents it.
+     */
+    MAP("Map"),
     MANUAL("Typed"),
 }
 

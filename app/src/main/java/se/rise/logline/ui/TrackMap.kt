@@ -598,11 +598,11 @@ private class FixOverlay : Overlay() {
  * placeholder, not a claim: nothing is drawn on it until a real position arrives, at which point the
  * chart jumps to [TRACK_ZOOM] on the actual fix.
  */
-private val HOME_CENTRE = GeoPoint(57.7089, 11.9746)
-private const val HOME_ZOOM = 10.0
+internal val HOME_CENTRE = GeoPoint(57.7089, 11.9746)
+internal const val HOME_ZOOM = 10.0
 
 /** Close enough to see which side of a jetty a track passed. */
-private const val TRACK_ZOOM = 16.0
+internal const val TRACK_ZOOM = 16.0
 
 internal const val TRACK_PX = 6f
 internal const val TRACK_HALO_PX = 4f

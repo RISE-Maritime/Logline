@@ -57,9 +57,17 @@ Reference Point — sits at that origin unless `ccrp_m` says otherwise.
 
 1. **Name the platform.** The entity id and the parent frame id follow the name (`Sealog` → `sealog`,
    `sealog-frame-ccrp`) until you edit one of them by hand.
-2. **Set the zero point.** Stand at the platform's reference point and *Capture position* — twenty seconds
-   of fixes, averaged — or *Type position* from a chart or a survey. A platform you intend to measure
-   entirely with a tape needs no zero point at all.
+2. **Set the zero point.** Three ways, and the calibration records which was used. *Capture
+   position* — stand at the platform's reference point for twenty seconds of averaged fixes.
+   *Pick on map* — pan a chart under a fixed crosshair and put the point down, which is how you
+   survey a berth you cannot walk to. *Type* — decimal degrees from a chart or a survey. A platform
+   you intend to measure entirely with a tape needs no zero point at all.
+
+   A picked position **records no accuracy** unless you state one. The app cannot know how well the
+   basemap is georeferenced, and the obvious substitute — the ground resolution at the zoom you
+   picked at — measures how precisely you pointed rather than how right the imagery is, so it would
+   read as sub-metre precisely where it is least true. Satellite imagery is commonly several metres
+   out. If you know your chart's quality, the picker takes a figure.
 3. **Establish the forward axis.** Three ways, and the calibration records which was used:
    - **Baseline** — capture the zero, walk forward along the centreline, capture again. The geodesic
      bearing between the two is the heading. The longer the baseline the better: over 20 m a metre of

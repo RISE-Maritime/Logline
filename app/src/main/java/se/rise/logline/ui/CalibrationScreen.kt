@@ -9,6 +9,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Color
+import se.rise.logline.calibrate.zeroFromMap
+import se.rise.logline.calibrate.LatLonAlt
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Button
 import androidx.compose.foundation.text.KeyboardOptions
@@ -145,9 +153,27 @@ fun CalibrationScreen(
      */
     step: Int,
     onStepChange: (Int) -> Unit,
+    /**
+     * The map somebody pans under a crosshair to put the zero point down, supplied by
+     * `MainActivity` — a `MapView` needs a `Context`, a tile cache and a lifecycle, none of which a
+     * screen may hold. The same slot `LiveScreen` and `RecordingDetailScreen` take their maps
+     * through.
+     */
+    pickerMap: @Composable (
+        start: LatLonAlt?,
+        existing: LatLonAlt?,
+        onCentre: (Double, Double) -> Unit,
+        Modifier,
+    ) -> Unit,
+    /** The same map, still and untouchable, for the card. */
+    previewMap: @Composable (at: LatLonAlt, Modifier) -> Unit,
 ) {
     var showFrameHelp by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    // Full screen rather than in the step, because the step is a scrolling column: an interactive
+    // map inside one loses every drag to the page, which is written down where the recording chart
+    // made the same choice. `rememberSaveable` so a rotation does not drop somebody out of it.
+    var picking by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var typedPosition by remember { mutableStateOf(false) }
     var typedHeading by remember { mutableStateOf(false) }
@@ -161,8 +187,39 @@ fun CalibrationScreen(
     // draft discarded it silently. Same `leave()` shape as `SettingsScreen`, and it matters more here
     // — twenty seconds of standing still at a point is not something to lose to a stray gesture.
     var info by remember { mutableStateOf<Pair<String, String>?>(null) }
-    val leave = { if (dirty) confirmDiscard = true else onCancel() }
+    // Back closes the picker before it considers leaving the editor. Without the ordering, backing
+    // out of a map would discard a half-surveyed platform, which is what `leave()` exists to prevent.
+    val leave = {
+        when {
+            picking -> picking = false
+            dirty -> confirmDiscard = true
+            else -> onCancel()
+        }
+    }
     BackHandler(enabled = true) { leave() }
+
+    if (picking) {
+        ZeroPositionPicker(
+            zero = calibration.zero,
+            map = pickerMap,
+            onCancel = { picking = false },
+            onPick = { latitude, longitude, accuracyM ->
+                picking = false
+                onChange(
+                    calibration.copy(
+                        zero = zeroFromMap(
+                            latitude = latitude,
+                            longitude = longitude,
+                            accuracyM = accuracyM,
+                            previous = calibration.zero,
+                            atEpochMillis = System.currentTimeMillis(),
+                        )
+                    )
+                )
+            },
+        )
+        return
+    }
 
     if (confirmDiscard) {
         ConfirmDialog(
@@ -372,7 +429,11 @@ fun CalibrationScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    ZeroCard(calibration.zero)
+                    ZeroCard(
+                        zero = calibration.zero,
+                        previewMap = previewMap,
+                        onOpenMap = { picking = true },
+                    )
                     CaptureRow(capture)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
@@ -380,8 +441,11 @@ fun CalibrationScreen(
                             enabled = capture !is CaptureState.Running,
                             modifier = Modifier.weight(1f),
                         ) { Text("Capture position") }
+                        OutlinedButton(onClick = { picking = true }, modifier = Modifier.weight(1f)) {
+                            Text("Pick on map")
+                        }
                         OutlinedButton(onClick = { typedPosition = true }, modifier = Modifier.weight(1f)) {
-                            Text("Type position")
+                            Text("Type")
                         }
                     }
                 }
@@ -639,7 +703,11 @@ private fun StepNav(step: Int, onStepChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun ZeroCard(zero: PlatformZero?) {
+private fun ZeroCard(
+    zero: PlatformZero?,
+    previewMap: @Composable (LatLonAlt, Modifier) -> Unit,
+    onOpenMap: () -> Unit,
+) {
     // A heading typed before anything was captured is stored as a zero with no position — see
     // [PlatformZero.hasPosition]. Drawing it as a position would put the platform at 0°N 0°E in the Gulf of
     // Guinea, which is the most confident possible way of being wrong.
@@ -652,6 +720,16 @@ private fun ZeroCard(zero: PlatformZero?) {
         return
     }
     Card(Modifier.fillMaxWidth()) {
+        // Where it landed, which the three numbers below cannot show. Not interactive — it sits in a
+        // scrolling column, and a map that fights the page for drags is worse than one that does not
+        // try. Tapping opens the picker, which has the whole screen to pan in.
+        previewMap(
+            zero.point(),
+            Modifier
+                .fillMaxWidth()
+                .height(PREVIEW_HEIGHT)
+                .clickable(onClick = onOpenMap),
+        )
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 formatPosition(zero.latitude, zero.longitude),
@@ -754,3 +832,110 @@ private fun MountRow(mount: SensorMount, onClick: () -> Unit) {
         }
     }
 }
+
+/**
+ * Put the zero point down on a chart.
+ *
+ * **The crosshair does not move; the map does.** A tap-to-place would be quicker and is wrong here:
+ * a fingertip covers about a boat's beam at working zoom, and the point being placed is the origin
+ * every sensor offset is measured from. Panning under a fixed mark is how a chartplotter does it,
+ * and it lets somebody see the exact spot they are choosing rather than the spot their thumb is on.
+ *
+ * Full screen with no scrolling parent, which is the whole reason this is a separate surface rather
+ * than a card in the wizard — see the note where `picking` is declared.
+ */
+@Composable
+private fun ZeroPositionPicker(
+    zero: PlatformZero?,
+    map: @Composable (LatLonAlt?, LatLonAlt?, (Double, Double) -> Unit, Modifier) -> Unit,
+    onCancel: () -> Unit,
+    onPick: (latitude: Double, longitude: Double, accuracyM: Double?) -> Unit,
+) {
+    val existing = zero?.takeIf { it.hasPosition }?.point()
+    // Seeded from the existing zero so the readout says something before the first drag, and so
+    // opening the picker on an already-placed zero and confirming immediately is a no-op rather than
+    // a move to wherever the map happened to open.
+    var latitude by remember { mutableStateOf(existing?.latitude) }
+    var longitude by remember { mutableStateOf(existing?.longitude) }
+    var accuracy by rememberSaveable { mutableStateOf("") }
+
+    val typedAccuracy = accuracy.trim().toDoubleOrNull()
+    val accuracyValid = accuracy.isBlank() || (typedAccuracy != null && typedAccuracy > 0.0)
+
+    ScreenScaffold(
+        title = "Pick the zero point",
+        onBack = onCancel,
+        bottomBar = {
+            FormActions(
+                saveLabel = "Use this position",
+                onSave = {
+                    val lat = latitude
+                    val lon = longitude
+                    if (lat != null && lon != null) onPick(lat, lon, typedAccuracy)
+                },
+                saveEnabled = latitude != null && longitude != null && accuracyValid,
+                onCancel = onCancel,
+            )
+        },
+    ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                map(existing, existing, { lat, lon -> latitude = lat; longitude = lon }, Modifier.fillMaxSize())
+                // Screen space, not a map overlay: the crosshair is fixed to the middle of the view
+                // and needs no projection to know where that is.
+                Icon(
+                    imageVector = IconMyLocation,
+                    contentDescription = "The position under the crosshair",
+                    tint = Color.White,
+                    modifier = Modifier.align(Alignment.Center).size(40.dp),
+                )
+            }
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    // `.fmt()` rather than `String.format`: the latter follows the phone's locale and
+                    // would print `57,4359` on a Swedish phone. That is the bug `SensorMountScreen`
+                    // shipped, and for the zero point it is worse than a mis-placed sensor — a value
+                    // that fails to parse back becomes 0.0, which reads as *no position at all*.
+                    latitude?.let { lat -> longitude?.let { lon -> formatPosition(lat, lon) } }
+                        ?: "Move the map to choose a position",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (existing != null) {
+                    Text(
+                        "The dot is where the zero point is now.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                OutlinedTextField(
+                    value = accuracy,
+                    onValueChange = { accuracy = it },
+                    label = { Text("Accuracy (optional, metres)") },
+                    isError = !accuracyValid,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    // Consequence and state, which stay on the page: this is what the calibration
+                    // will claim about itself, and a reader downstream cannot tell an unstated
+                    // accuracy from one nobody thought about.
+                    "A picked position records no accuracy unless you state one — the app cannot " +
+                        "know how well the chart is georeferenced, and imagery is often several " +
+                        "metres out.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Tall enough to place a quay in its surroundings, short enough to leave the numbers below it on the
+ * same screenful. The card is a read-out with a picture, not a chart.
+ */
+private val PREVIEW_HEIGHT = 140.dp
