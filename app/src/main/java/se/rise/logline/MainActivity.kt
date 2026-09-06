@@ -70,6 +70,7 @@ import se.rise.logline.calibrate.HeadingSource
 import se.rise.logline.calibrate.ImportDisposition
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.PlatformZero
+import se.rise.logline.calibrate.headingFromBaseline
 import se.rise.logline.calibrate.zeroFromFix
 import org.osmdroid.util.GeoPoint
 import se.rise.logline.ui.PositionPickerMap
@@ -1915,10 +1916,16 @@ private fun App(
                 onCaptureBaseline = {
                     captureFix("Averaging the point ahead") { fix ->
                         draft.zero?.let { zero ->
+                            // The length, not just the bearing. It is what says how much the bearing
+                            // is worth — a metre of GNSS error is about thirty degrees over two
+                            // metres and under three over twenty — and until now a walked baseline
+                            // recorded the angle while throwing away the one number that qualifies it.
+                            val baseline = headingFromBaseline(zero.point(), fix.point)
                             calibrationDraft = draft.copy(
                                 zero = zero.copy(
-                                    headingDeg = initialBearingDegrees(zero.point(), fix.point),
+                                    headingDeg = baseline.bearingDegrees,
                                     headingSource = HeadingSource.BASELINE,
+                                    headingBaselineM = baseline.lengthM,
                                 )
                             )
                         }
@@ -2086,6 +2093,21 @@ private fun App(
                     PositionPickerMap(
                         start = start?.let { GeoPoint(it.latitude, it.longitude) },
                         existing = existing?.let { GeoPoint(it.latitude, it.longitude) },
+                        onCentre = onCentre,
+                        layer = liveLayer,
+                        offlineOnly = current.offlineTilesOnly,
+                        mapTilerKey = current.mapTilerKey,
+                        modifier = m,
+                    )
+                },
+                forwardMap = { anchor, bearingDeg, onCentre, m ->
+                    PositionPickerMap(
+                        // Opens on the zero, so the ray's origin is on screen from the first frame
+                        // — a heading line whose start is off the edge is impossible to aim.
+                        start = GeoPoint(anchor.latitude, anchor.longitude),
+                        existing = GeoPoint(anchor.latitude, anchor.longitude),
+                        anchor = GeoPoint(anchor.latitude, anchor.longitude),
+                        bearingDeg = bearingDeg,
                         onCentre = onCentre,
                         layer = liveLayer,
                         offlineOnly = current.offlineTilesOnly,

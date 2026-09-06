@@ -248,6 +248,7 @@ private fun JsonObject.toPlatformZero(): PlatformZero? {
         headingDeg = double("heading_deg") ?: 0.0,
         headingSource = HeadingSource.entries.byWireName(string("heading_source"))
             ?: HeadingSource.MANUAL,
+        headingBaselineM = double("heading_baseline_m"),
         capture = CaptureMethod.entries.byWireName(string("capture")) ?: CaptureMethod.MANUAL,
         samples = int("samples") ?: 0,
         capturedAtEpochMillis = long("captured_at_ms") ?: 0L,

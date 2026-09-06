@@ -68,10 +68,19 @@ Reference Point — sits at that origin unless `ccrp_m` says otherwise.
    picked at — measures how precisely you pointed rather than how right the imagery is, so it would
    read as sub-metre precisely where it is least true. Satellite imagery is commonly several metres
    out. If you know your chart's quality, the picker takes a figure.
-3. **Establish the forward axis.** Three ways, and the calibration records which was used:
+3. **Establish the forward axis.** Four ways, and the calibration records which was used — along
+   with the baseline length where there was one, because that is what says how much the angle is
+   worth:
    - **Baseline** — capture the zero, walk forward along the centreline, capture again. The geodesic
      bearing between the two is the heading. The longer the baseline the better: over 20 m a metre of
      GNSS error is under three degrees, over 2 m it is thirty.
+   - **Map** — the same two points, taken off a chart instead of walked. Anchored at the zero: pan a
+     point ahead on the centreline under the crosshair. Often *better* than walking it, and the
+     reason is not obvious: a chart's dominant error is the imagery's georeferencing, which is
+     largely a uniform local shift — and a uniform shift **cancels** out of a bearing between two
+     points on the same imagery, leaving only how well you pointed. So a 77 m baseline down a quay
+     reads about 0.7° per metre of error where a 2 m walked one reads twenty-seven. The screen states
+     the length and that figure while you choose the point, and refuses a baseline under 5 m.
    - **Compass** — hold the phone **flat, screen up, top edge pointing forward**, and read the fused
      rotation vector for four seconds. The angle is the direction of the phone's +Y axis, which is why
      how you hold it is part of the instruction. Needs a position first, because true north is magnetic

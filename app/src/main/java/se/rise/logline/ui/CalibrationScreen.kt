@@ -167,6 +167,13 @@ fun CalibrationScreen(
     ) -> Unit,
     /** The same map, still and untouchable, for the card. */
     previewMap: @Composable (at: LatLonAlt, Modifier) -> Unit,
+    /** The same map again, anchored at the zero and drawing the axis it is being pointed along. */
+    forwardMap: @Composable (
+        anchor: LatLonAlt,
+        bearingDeg: Double?,
+        onCentre: (Double, Double) -> Unit,
+        Modifier,
+    ) -> Unit,
 ) {
     var showFrameHelp by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -174,6 +181,7 @@ fun CalibrationScreen(
     // map inside one loses every drag to the page, which is written down where the recording chart
     // made the same choice. `rememberSaveable` so a rotation does not drop somebody out of it.
     var picking by rememberSaveable { mutableStateOf(false) }
+    var pickingAxis by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var typedPosition by remember { mutableStateOf(false) }
     var typedHeading by remember { mutableStateOf(false) }
@@ -192,6 +200,7 @@ fun CalibrationScreen(
     val leave = {
         when {
             picking -> picking = false
+            pickingAxis -> pickingAxis = false
             dirty -> confirmDiscard = true
             else -> onCancel()
         }
@@ -213,6 +222,34 @@ fun CalibrationScreen(
                             accuracyM = accuracyM,
                             previous = calibration.zero,
                             atEpochMillis = System.currentTimeMillis(),
+                        )
+                    )
+                )
+            },
+        )
+        return
+    }
+
+    calibration.zero?.takeIf { pickingAxis && it.hasPosition }?.let { zero ->
+        ForwardAxisPicker(
+            zero = zero,
+            map = forwardMap,
+            onCancel = { pickingAxis = false },
+            onPick = { heading, baselineM ->
+                pickingAxis = false
+                onChange(
+                    calibration.copy(
+                        zero = zero.copy(
+                            headingDeg = heading,
+                            // A typed bearing is a typed bearing however it was reached. Recording it
+                            // as a map baseline because the map was open would claim a measurement
+                            // nobody made — and the null length is what says so.
+                            headingSource = if (baselineM == null) {
+                                HeadingSource.MANUAL
+                            } else {
+                                HeadingSource.MAP_BASELINE
+                            },
+                            headingBaselineM = baselineM,
                         )
                     )
                 )
@@ -461,36 +498,51 @@ fun CalibrationScreen(
                     SectionHeader(
                         "Forward axis",
                         trailing = calibration.zero?.let {
-                            "${it.headingDeg.roundToInt()}° ${it.headingSource.label.lowercase()}"
+                            // The length belongs beside the angle: it is what says how much the
+                            // angle is worth, and a rail that shows one without the other invites
+                            // trusting a bearing taken over two metres.
+                            val over = it.headingBaselineM?.let { m -> " · ${m.roundToInt()} m" }.orEmpty()
+                            "${it.headingDeg.roundToInt()}° ${it.headingSource.label.lowercase()}$over"
                         },
                     )
                     Text(
                         "Which way the platform's +X points, true. Baseline: capture the zero, then a point ahead " +
-                            "on the centreline. Compass: hold the phone flat, screen up, top edge forward.",
+                            "on the centreline. Map: point at one on a chart instead. Compass: hold the phone " +
+                            "flat, screen up, top edge forward.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Two rows of two rather than four across: three already had to be shortened to
+                    // one word each to stop them wrapping, and a fourth would take the width below
+                    // what any of these words fit in. 2x2 is squarer than 3+1 besides.
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = onCaptureBaseline,
                             enabled = calibration.zero != null && capture !is CaptureState.Running,
                             modifier = Modifier.weight(1f),
-                        ) { Text("Baseline") }
+                        ) { Text("Baseline", maxLines = 1) }
+                        OutlinedButton(
+                            onClick = { pickingAxis = true },
+                            enabled = calibration.zero?.hasPosition == true,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Map", maxLines = 1) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = onCaptureHeading,
                             enabled = capture !is CaptureState.Running,
                             modifier = Modifier.weight(1f),
-                        ) { Text("Compass") }
+                        ) { Text("Compass", maxLines = 1) }
                         OutlinedButton(onClick = { typedHeading = true }, modifier = Modifier.weight(1f)) {
-                            Text("Type")
+                            Text("Type", maxLines = 1)
                         }
                     }
                     // Said rather than left to a greyed button: a baseline is measured *from* the zero
                     // point, so without one there is nothing to measure from. This gap predates the
                     // move above and hiding the surrounding prose would only have deepened it.
-                    if (calibration.zero == null) {
+                    if (calibration.zero?.hasPosition != true) {
                         Text(
-                            "Baseline needs a zero point first.",
+                            "Baseline and map both need a zero point first — they measure from it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

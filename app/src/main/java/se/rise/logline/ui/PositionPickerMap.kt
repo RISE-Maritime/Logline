@@ -15,6 +15,9 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.CopyrightOverlay
 import org.osmdroid.views.overlay.Overlay
+import kotlin.math.sin
+import kotlin.math.hypot
+import kotlin.math.cos
 
 /**
  * A map you pan under a crosshair to put a position down.
@@ -58,11 +61,20 @@ fun PositionPickerMap(
      * to scroll is worse than one that plainly does not pan.
      */
     interactive: Boolean = true,
+    /**
+     * The point a forward axis is measured **from**, when this map is being used for one.
+     *
+     * Null for the zero-point picker, which is placing a point rather than an angle.
+     */
+    anchor: GeoPoint? = null,
+    /** The heading to draw from [anchor], true degrees. Null draws no ray. */
+    bearingDeg: Double? = null,
 ) {
     // Keyed, because `setTileSource` compares by identity — a fresh instance every recomposition
     // would swap the source and throw away its tile cache several times a second.
     val tileSource = remember(layer, mapTilerKey) { sourceFor(layer, mapTilerKey) }
     val marker = remember { ExistingZeroOverlay() }
+    val axis = remember { ForwardAxisOverlay() }
     val copyright = remember { mutableRefOf<CopyrightOverlay>() }
     // Guards the opening centre. Setting it on every update would haul the map back under the
     // crosshair each time the layer changed, which is the one thing a picker must never do.
@@ -83,6 +95,8 @@ fun PositionPickerMap(
                 )
                 setMultiTouchControls(interactive)
                 isClickable = interactive
+                // Under the marker, so the dot stays readable where the ray starts.
+                overlays.add(axis)
                 overlays.add(marker)
                 controller.setZoom(if (start == null) HOME_ZOOM else PICK_ZOOM)
                 controller.setCenter(start ?: HOME_CENTRE)
@@ -117,6 +131,8 @@ fun PositionPickerMap(
             copyright.value?.setTextColor(attributionColour(layer))
             marker.at = existing
             marker.inkColor = chartInk(layer)
+            axis.from = anchor
+            axis.bearingDeg = bearingDeg
 
             if (opened.value != true) {
                 opened.value = true
@@ -182,6 +198,57 @@ private class ExistingZeroOverlay : Overlay() {
 
     private companion object {
         const val MARKER_PX = 8f
+    }
+}
+
+/**
+ * The forward axis, drawn from the point it is measured from.
+ *
+ * **In screen space from the anchor's pixel**, not between two geographic points, because the ray
+ * has no far end — it is a direction, and a direction drawn to a computed point would invite reading
+ * the point as part of the measurement. The same reason and the same arithmetic as the live chart's
+ * heading vector: bearings run clockwise from north while screen y grows downwards, hence the
+ * sin/−cos pair.
+ *
+ * Halo first, then the line, for the reason recorded on the chart's own vectors: no single colour is
+ * legible on both pale map tiles and dark satellite imagery, so the contrast comes from the drawing
+ * rather than from what is underneath.
+ */
+private class ForwardAxisOverlay : Overlay() {
+
+    var from: GeoPoint? = null
+    var bearingDeg: Double? = null
+
+    private val halo = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = AXIS_PX + 4f
+        color = Color.argb(0xE6, 0xFF, 0xFF, 0xFF)
+    }
+    private val line = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = AXIS_PX
+        color = Color.rgb(0xE0, 0x6C, 0x2A)
+    }
+
+    override fun draw(canvas: Canvas, map: MapView, shadow: Boolean) {
+        if (shadow) return
+        val start = from ?: return
+        val bearing = bearingDeg ?: return
+        val origin = map.projection.toPixels(start, null)
+        // Long enough to leave the screen at any sensible zoom, so it reads as a ray rather than as a
+        // line to somewhere in particular.
+        val reach = hypot(canvas.width.toFloat(), canvas.height.toFloat())
+        val radians = Math.toRadians(bearing)
+        val x = origin.x + reach * sin(radians).toFloat()
+        val y = origin.y - reach * cos(radians).toFloat()
+        canvas.drawLine(origin.x.toFloat(), origin.y.toFloat(), x, y, halo)
+        canvas.drawLine(origin.x.toFloat(), origin.y.toFloat(), x, y, line)
+    }
+
+    private companion object {
+        const val AXIS_PX = 4f
     }
 }
 

@@ -106,6 +106,34 @@ fun initialBearingDegrees(from: LatLonAlt, to: LatLonAlt): Double {
 }
 
 /**
+ * A forward axis taken from two points: which way, and over how far.
+ *
+ * The length is not decoration — it is what says how much the bearing is worth. Angular error is
+ * position error divided by baseline length, so a metre of uncertainty is about thirty degrees over
+ * two metres and under three over twenty. Returning both together is what stops a caller recording
+ * one without the other.
+ */
+data class Baseline(val bearingDegrees: Double, val lengthM: Double)
+
+fun headingFromBaseline(from: LatLonAlt, to: LatLonAlt): Baseline {
+    val enu = enuOffsetMetres(from, to)
+    return Baseline(
+        bearingDegrees = initialBearingDegrees(from, to),
+        lengthM = hypot(enu.eastM, enu.northM),
+    )
+}
+
+/**
+ * The angle a metre of position error subtends over a baseline of [lengthM].
+ *
+ * The whole "walk further" instruction in one number, so a screen can state it at the moment
+ * somebody is choosing where to put the far point rather than in a paragraph they read once.
+ * Degenerate below a metre or so, where the answer is "this baseline is not worth having".
+ */
+fun degreesPerMetreOfError(lengthM: Double): Double =
+    if (lengthM <= 0.0) Double.POSITIVE_INFINITY else Math.toDegrees(atan2(1.0, lengthM))
+
+/**
  * Rotate a local ENU offset into the platform frame, given the true heading of the platform's +X axis.
  *
  * ```

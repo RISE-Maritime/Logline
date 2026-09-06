@@ -119,6 +119,9 @@ private fun PlatformCalibration.calibrationJson(): String {
         z.scatterM?.let { zeroFields += "        \"scatter_m\": ${it.json()}" }
         zeroFields += "        \"heading_deg\": ${z.headingDeg.json()}"
         zeroFields += "        \"heading_source\": \"${z.headingSource.name.lowercase()}\""
+        // Omitted rather than zeroed when there is no baseline: a compass heading has no length,
+        // and 0 m would read as a baseline so short that the bearing means nothing.
+        z.headingBaselineM?.let { zeroFields += "        \"heading_baseline_m\": ${it.json(3)}" }
         zeroFields += "        \"capture\": \"${z.capture.name.lowercase()}\""
         zeroFields += "        \"samples\": ${z.samples}"
         zeroFields += "        \"captured_at_ms\": ${z.capturedAtEpochMillis}"

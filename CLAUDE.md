@@ -2240,6 +2240,25 @@ simply never finds anything on the bus.
   **A pick dragged to 0°N 0°E reads as no position at all.** `hasPosition` uses Null Island as the
   absent marker, which was safe while a zero could only be captured or typed and is now reachable by
   panning. Pinned in `ZeroFromMapTest` as a known cost rather than left to be found.
+- **The forward axis can be taken off a chart, and it is often better than walking it.** A
+  baseline's angular error is position error divided by baseline length. Walked, both ends carry
+  independent GNSS error. On a chart the dominant error is the imagery's georeferencing, which is
+  largely a *uniform local shift* — and a uniform shift **cancels** out of a bearing between two
+  points on the same imagery, leaving only the pointing error. Measured on the phone: a 77 m map
+  baseline reports 0.7° per metre of error, where the 2 m one somebody might walk on a small
+  platform reports twenty-seven. `HeadingSource.MAP_BASELINE` records which, because a consumer
+  told only "baseline" could not tell those apart.
+  **`PlatformZero.headingBaselineM` is new provenance for both kinds**, walked included — the length
+  was knowable and unrecorded, so nothing downstream could tell a 3 m baseline from a 30 m one. Null
+  for compass and typed headings, which have no baseline, and **cleared when a bearing is typed**:
+  keeping the length from the pan that preceded it would attach a baseline to a number that did not
+  come from one.
+  **The picker refuses a baseline under `MIN_BASELINE_M` (5 m), and that is a real bug it fixes
+  rather than a nicety.** The map opens centred on the zero, so the crosshair starts *on* the anchor
+  — and the first frame reported `324° true · 0 m from the zero · about 83.0°`, which is `atan2`
+  answering from two identical points dressed as a measurement. Below the floor it shows the
+  existing heading marked `· unchanged` and disables Use, so confirming an untouched screen cannot
+  silently rewrite a compass heading as a typed one.
 - **The picker is the first map in this app that is read as well as written**, and it is full screen
   for the reason `RecordingChart` records: an interactive map inside a `verticalScroll` loses every
   drag to the page. `PositionPickerMap` reports its centre through an `onCentre` lambda fed by

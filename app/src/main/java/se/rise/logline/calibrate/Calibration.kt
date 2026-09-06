@@ -92,6 +92,19 @@ data class PlatformZero(
     val capture: CaptureMethod,
     val samples: Int,
     val capturedAtEpochMillis: Long,
+    /**
+     * How far apart the two points of a baseline were, metres. Null when the heading came from
+     * anything else.
+     *
+     * **The number that says what the heading is worth.** A baseline's angular error is position
+     * error over baseline length, so the same metre of uncertainty is thirty degrees over 2 m and
+     * under three over 20 — which `docs/calibration.md` tells people and nothing recorded. Without
+     * it a consumer cannot tell a 3 m baseline from a 30 m one, which is the same gap the whole
+     * `calibration` block exists to close.
+     *
+     * Recorded for both kinds of baseline, walked and picked.
+     */
+    val headingBaselineM: Double? = null,
 ) {
     fun point(): LatLonAlt = LatLonAlt(latitude, longitude, altitudeM ?: 0.0)
 
@@ -243,8 +256,21 @@ enum class SensorType(val wire: String, val label: String) {
 
 /** How the platform's forward axis was established. */
 enum class HeadingSource(val label: String) {
-    /** Bearing from the zero to a second point ahead on the centreline. */
+    /** Bearing from the zero to a second point ahead on the centreline, both walked to. */
     BASELINE("Baseline"),
+
+    /**
+     * The same two-point bearing, taken off a chart instead of walked.
+     *
+     * **Distinguished from [BASELINE] because it is a different kind of error, not a worse one.** A
+     * baseline's angular error is position error divided by baseline length. Walked, both ends carry
+     * independent GNSS error. On a chart the dominant error is the imagery's georeferencing, and that
+     * is largely a *uniform local shift* — which cancels out of a bearing between two points on the
+     * same imagery, leaving only the pointing error. So a 50 m map baseline along a quay can beat a
+     * 5 m walked one while having far worse absolute positions, and a consumer told only "baseline"
+     * could not tell those apart.
+     */
+    MAP_BASELINE("Map baseline"),
 
     /** The phone's own true-north heading, held flat with its top edge forward. */
     COMPASS("Compass"),
