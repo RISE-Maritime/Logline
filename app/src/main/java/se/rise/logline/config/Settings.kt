@@ -365,8 +365,13 @@ data class Settings(
     /**
      * Where the checklist lives, which is **not** where this phone's sensor data lives.
      *
-     * Defaults match crowsnest (`crowsnest/@v0/checklist/pubsub/...`). Configurable because a second
-     * deployment may put it elsewhere, and hard-coding it would mean a rebuild to find out.
+     * Defaults match crowsnest (`rise/@v0/roc1/pubsub/...`). The entity names the ROC's tree, not
+     * this phone and not the station an operator sits at — that is already the source id.
+     * Configurable because a second deployment may put it elsewhere, and hard-coding it would mean
+     * a rebuild to find out.
+     *
+     * These were `crowsnest` / `checklist` until 2026-08-26; a phone that is upgraded but keeps a
+     * saved profile carries the old values forward and will silently talk to the old tree.
      */
     val checklistRealm: String = DEFAULT_CHECKLIST_REALM,
     val checklistEntityId: String = DEFAULT_CHECKLIST_ENTITY,
@@ -375,8 +380,8 @@ data class Settings(
         const val DEFAULT_REALM = "rise"
 
         /** Crowsnest's checklist tree. See `checklist/ChecklistKeys.kt`. */
-        const val DEFAULT_CHECKLIST_REALM = "crowsnest"
-        const val DEFAULT_CHECKLIST_ENTITY = "checklist"
+        const val DEFAULT_CHECKLIST_REALM = "rise"
+        const val DEFAULT_CHECKLIST_ENTITY = "roc1"
         const val DEFAULT_ENDPOINT = "tls/router.example.com:443"
 
         /** Zenoh's own default scout socket. Deployments may move it — coswim uses :7448. */

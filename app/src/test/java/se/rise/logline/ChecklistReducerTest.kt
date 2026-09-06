@@ -152,21 +152,37 @@ class ChecklistReducerTest {
     }
 
     /**
-     * The `get` that bootstraps a procedure races the events arriving while it is in flight. Without
-     * the guard, an item completed a moment ago flips back to pending when the older snapshot lands.
+     * A snapshot that has taken in fewer events than local state **is still merged**, and loses
+     * nothing by it.
+     *
+     * This test used to be `a snapshot older than local state is ignored`, and it pinned a guard —
+     * `if (snapshot.eventCount < current.eventCount) return state` — that §7.2 now forbids outright.
+     * The count is a scalar, so two sites that each applied a *different* twelve events both hold 12
+     * and each rejects the other as stale; neither ever converges.
+     *
+     * What made the guard *look* necessary is the interesting part: the merge underneath it was a
+     * whole-item replace, so an older snapshot genuinely could flip a completed item back to
+     * pending. §7.2's rules remove the need for it — status is monotone and a completion is a
+     * min-register — so the protection moved from "reject the message" to "merge it correctly",
+     * which is the only version of it that converges.
      */
     @Test
-    fun `a snapshot older than local state is ignored`() {
+    fun `a snapshot with a lower event count is merged and takes nothing away`() {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 5_000))
         state = applyEvent(state, event("e2", ChecklistEventType.ItemCompleted, 6_000, itemId = "item_002"))
 
-        val stale = ProcedureSnapshot(
+        val behind = ProcedureSnapshot(
             procedureId = "proc_001",
             eventCount = 1,
             items = mapOf("item_001" to ItemProgress(status = ItemStatus.Pending)),
         )
 
-        assertEquals(state, applySnapshot(state, stale))
+        val merged = applySnapshot(state, behind).progressFor("proc_001")
+        assertEquals(ItemStatus.Completed, merged.item("item_001").status)
+        assertEquals(ItemStatus.Completed, merged.item("item_002").status)
+        // The hint does not go backwards either: `max`, so a peer's lower count cannot make local
+        // state look less advanced than it is.
+        assertEquals(2, merged.eventCount)
     }
 
     /** A snapshot only carries items somebody touched, so replacing the map would lose the rest. */

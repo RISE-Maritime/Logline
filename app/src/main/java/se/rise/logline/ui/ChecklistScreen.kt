@@ -420,6 +420,10 @@ private fun TimelineKind.phrase(): String = when (this) {
     TimelineKind.NoteAdded -> "noted on"
     TimelineKind.Flagged -> "flagged"
     TimelineKind.FlagResolved -> "resolved the flag on"
+    TimelineKind.EvidenceAttached -> "attached a photo to"
+    TimelineKind.TimeCorrected -> "corrected the time on"
+    TimelineKind.RunPlanned -> "planned the run"
+    TimelineKind.RunAbandoned -> "abandoned the run"
     TimelineKind.ProcedureStarted -> "opened the procedure"
     TimelineKind.ProcedureCompleted -> "completed the procedure"
 }
