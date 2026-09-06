@@ -1695,6 +1695,20 @@ simply never finds anything on the bus.
   original byte preserved verbatim and **50 appended** — a DataEnd, a footer and the closing magic —
   with all 15 chunks, 12 schemas and 50 channels intact across the 20.5 s it had recorded. Nothing
   was trimmed, because the last chunk had flushed before the phone went down.
+- **`McapRecovery`'s walk validates the opcode, not just the length, and that is what stops a zero
+  tail being read as data.** A *truncation* leaves a partial record that does not fit the file, which
+  the length check alone catches. A *power cut* on a filesystem with delayed allocation leaves
+  something else entirely: the length was journalled while the last blocks never reached the disk, so
+  the tail comes back as **zeros rather than short** — and zeros parse. Opcode `0x00`, length `0`,
+  nine bytes consumed, repeat.
+  Reproduced before fixing rather than reasoned about: a 4 kB zero tail had **one byte trimmed
+  instead of 4096**, the walk having marched through 455 phantom nine-byte records and stamped the
+  footer after all of them. An undefined `0x7F` opcode was accepted the same way.
+  The accepted range is the spec's own `0x01`–`0x0F`, not the narrower set `McapWriter` emits: both
+  fix the case, and the wider one cannot reject a record this app writes today or gains the ability
+  to write tomorrow, which a hand-listed set would eventually do silently and destructively. Checked
+  against a real interrupted recording from the dev phone — 1 540 716 bytes, trim 0 before and after,
+  so the stricter rule costs a genuine orphan nothing.
 - **The orphan sweep must never touch a file the drain owns**, and `Recorder.owned` is what stops it.
   `McapRecovery.finalise()` truncates to the last complete record and appends a footer; run against a
   live file that leaves the writer positioned past the new end, so everything it writes afterwards

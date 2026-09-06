@@ -73,7 +73,7 @@ completes, and that is not something app code can fix.
 
 
 
-- [ ] **`McapRecovery` cannot tell a tail of zeros from data.** Its walk reads an opcode and a length
+- [x] **`McapRecovery` cannot tell a tail of zeros from data.** Its walk reads an opcode and a length
       and accepts any record that fits the file, so a zero-filled tail — which is what ext4's delayed
       allocation can leave after a power cut, as against a simple truncation — parses as a chain of
       zero-length records with opcode `0x00`. That is not a valid MCAP opcode, but nothing checks, so
@@ -81,28 +81,13 @@ completes, and that is not something app code can fix.
       The messages before it are unaffected and still readable; the file is wrong at the edge, and a
       strict reader may object to the opcode. Checking the opcode against the known set would cut in
       the right place. Only reachable through the hard-cut case above, so unreproduced here too.
+      Reproduced after all — not the power cut, but the shape it leaves, by appending zeros to a
+      real unfinished file. Worse than filed: **one byte trimmed out of a 4 kB tail**, the walk
+      having accepted 455 phantom records. An undefined `0x7F` opcode went the same way. Fixed by
+      checking the opcode against the spec's `0x01`-`0x0F` before trusting the length, which costs a
+      genuine orphan nothing — checked against the real 1 540 716-byte one from this phone, trim 0
+      before and after. Done in the commit below.
 
-- [x] **Storage ends a run; the battery does not.** `openSession()` refuses below `MIN_FREE_BYTES`
-      and sets an error, so a full disk stops the recording rather than corrupting it. There is no
-      counterpart for charge — no threshold anywhere, and no receiver for `ACTION_BATTERY_LOW` or
-      `ACTION_SHUTDOWN`. Both tanks are measured by the same `RuntimeEstimator` and only one of them
-      acts; the battery half produces a foreground-only `StatusLine` under thirty minutes and a
-      `PRIORITY_LOW`, `setOnlyAlertOnce(true)` notification line that will not alert.
-      Closing and publishing the current file at a charge threshold would put the bulk of a run in
-      Downloads — finalised, indexed, openable — while there is still power, instead of leaving all
-      of it to `McapRecovery` and to the sweep that does not run until next time. Whether the run
-      should also *stop* there is a product decision: on a boat, carrying on into a fresh file until
-      the phone dies may well be what somebody wants. This is the only one of these four that
-      addresses the scenario rather than its aftermath.
-      Done, and the product decision went to **secure, do not stop** — the remaining charge is worth
-      recording and the tail is recoverable anyway. Threshold 10%, its own 30 s collector rather than
-      a hook in `runBattery()` (which `supervise()` cancels when the battery subjects are switched
-      off, so the safety behaviour would have vanished with them), fired once per crossing and
-      re-armed by charging. It also alerts, on its own `IMPORTANCE_HIGH` channel, because the ongoing
-      notification is `IMPORTANCE_LOW` and cannot: that is the one moment where plugging in changes
-      the outcome. Verified on a Pixel 6 by forcing the level down — one fire across three polls, a
-      properly closed 2.2 MB file with its summary in Downloads 58 ms later, the run continuing, and
-      a second fire after re-arming on the real charger. Done in the commit below.
 
 - [ ] **The three checklist QoS assignments are unobserved, and the reason is that nothing publishes
       them — not that nothing can listen.** `checklist_event` is `elevated`, `checklist_presence`

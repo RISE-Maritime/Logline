@@ -145,4 +145,75 @@ class McapRecoveryTest {
         assertTrue("the run kept writing past the footer", file.length() > afterRepair)
         out.close()
     }
+
+    /**
+     * **A tail of zeros is not data, and the walk must stop at it.**
+     *
+     * The failure this guards against is not a truncation — that case is covered above and the walk
+     * handles it, because a partial record does not fit the file and the loop breaks. It is what a
+     * power cut can leave on a filesystem with delayed allocation: the file's *length* was journalled
+     * but its last blocks were never written, so the tail comes back as zeros rather than short.
+     *
+     * Those zeros parse. Opcode `0x00`, length `0`, nine bytes consumed, repeat — so the walk marches
+     * to the end of the padding and stamps a footer after it, and the file's declared data section
+     * now contains a stretch of records this app never wrote. The messages before it survive, which
+     * is why this is a wrongness at the edge rather than a loss, but the trim has landed in the wrong
+     * place and `0x00` is not an MCAP opcode at all.
+     */
+    @Test
+    fun `a tail of zeros is trimmed rather than kept as records`() {
+        val file = temp("zerotail")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        val channel = writer.addChannel("rise/@v0/pixel_6/pubsub/air_pressure_pa/phone", schema, "protobuf")
+        repeat(40) { i -> writer.writeMessage(channel, i + 1, 1_000L + i, 1_000L + i, byteArrayOf(9, 9, 9, 9)) }
+        out.flush()
+        out.close()
+        val realBytes = file.length()
+
+        // The blocks the kernel never got round to writing.
+        file.appendBytes(ByteArray(4096))
+        assertEquals(realBytes + 4096, file.length())
+
+        val trimmed = McapRecovery.finalise(file)
+
+        assertEquals("the whole zero tail should go", 4096L, trimmed)
+        // And what is left is the real data plus an ending, with nothing in between.
+        assertEquals(realBytes + FOOTER_BYTES, file.length())
+        assertTrue(file.readBytes().takeLast(8).toByteArray().contentEquals(McapWriter.MAGIC))
+        assertArrayEquals(
+            "every real byte kept",
+            file.readBytes().copyOfRange(0, realBytes.toInt()),
+            file.readBytes().copyOfRange(0, realBytes.toInt()),
+        )
+    }
+
+    /**
+     * The same rule from the other side: a byte that is not an opcode this writer emits ends the
+     * walk, whatever it is. Garbage in the tail is garbage whether it happens to be zeros or not.
+     */
+    @Test
+    fun `an unrecognised opcode ends the walk`() {
+        val file = temp("garbage")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        out.flush()
+        out.close()
+        val realBytes = file.length()
+
+        // A record header claiming an opcode MCAP has never defined, with a plausible length.
+        file.appendBytes(byteArrayOf(0x7F) + ByteArray(8) + ByteArray(16))
+
+        assertEquals(25L, McapRecovery.finalise(file))
+        assertEquals(realBytes + FOOTER_BYTES, file.length())
+    }
+
+    private companion object {
+        /** DataEnd (9 + 4) + Footer (9 + 20) + the closing magic (8). */
+        const val FOOTER_BYTES = 50L
+    }
 }
