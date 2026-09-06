@@ -101,20 +101,59 @@ completes, and that is not something app code can fix.
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
       turn the feature on. Done in db09694.
 
+- [ ] **The three checklist QoS assignments cannot be observed from here.** `checklist_event` is
+      `elevated`, `checklist_presence` `transient` and `checklist_state` `background` as of
+      `0.6.0-pre.15`, and `policyQosForSubject` now says so. What is pinned is the policy table; the
+      delivered priority is not checkable without a subscriber, and there is none while
+      `SUBSCRIPTIONS_SAFE` is false. Worth a Python subscriber's confirmation when it lifts.
+
+- [ ] **`ChecklistProcedure.Item.parent_item_id` is vendored and unused, so sub-items render flat.**
+      The one part of the current checklist protocol this app still does not speak. Not a bug — a
+      procedure without sub-items is unaffected — but a nested one reads as a flat list with nothing
+      saying it was nested.
+
+- [ ] **Two §7.4 open ends this app now inherits by being a conformant participant.** Neither is
+      fixable here; both are worth knowing before reading the behaviour as a bug.
+      **A reopen cannot reach a station that missed the event.** §7.2 makes `ItemState.status`
+      monotone and says reopening is carried by `EVENT_TYPE_ITEM_REOPENED` — but events have no
+      router storage and no delivery guarantee, and `ItemState` has no field a snapshot could carry a
+      reopen in. So a station that misses it holds COMPLETED permanently, and §7.2 forbids any later
+      snapshot from correcting it. It degrades twice: the re-completion that follows is discarded as
+      a "confirmation", so the two stations also disagree about *when* it was done — and because a
+      confirmation is a legitimate outcome, neither can tell that from two operators checking one
+      thing.
+      **`checklist_state`'s key set grows without bound**, one key per run forever, and bootstrap
+      enumerates it. Upstream records that as an accepted cost with no retention story. This phone's
+      DataStore grows with it, and capping the persisted set to the non-terminal runs plus the most
+      recent N is a change the app *could* make on its own.
+
 - [ ] **The two older checklist screens are out of the nav graph but still in the tree.**
       `ui/ChecklistsScreen.kt` and `ui/ChecklistScreen.kt` — 697 lines of procedure editing, notes and
       reminders — are unreachable since `Routes.CHECKLISTS` began routing to `ChecklistRunsScreen`.
       Left deliberately: deleting a working feature should not be a side effect of adding a simpler one,
       and if the binding is fixed they may be what somebody wants back. Keep or delete is a decision,
       not a cleanup.
+      **"Unreachable" is wrong, and was wrong when written.** `Routes.CHECKLIST` (`checklist/{id}`)
+      routes to both of them and a reminder notification deep-links straight there, so they are one
+      tap from any armed reminder. They were ported through the run re-key with a one-line hop
+      (`ChecklistState.openRunOf`) rather than dropped, which is what that discovery made the right
+      call. The decision is still open and is now a real one: `ChecklistRunsScreen` has grown flags,
+      evidence and run controls, so the overlap is larger than it was — but the note and reminder
+      dialogs still live only in the old pair.
 
-- [ ] **Checklist progress is keyed on the procedure, not the run.** Two runs of one procedure live at
+- [x] **Checklist progress is keyed on the procedure, not the run.** Two runs of one procedure live at
       the same time collapse into a single row, and the live bus had five concurrent runs during this
       investigation. The snapshot's `run_id` is read and shown, but re-keying the map touches 22 call
       sites across the reducer, both older screens, the reminder receiver and persistence — and
       `ChecklistEvent` would have to be re-vendored and re-keyed with it, or snapshots and events would
       write to different keys in one map, which is worse than either choice. Only worth doing if the
       feature is ever enabled.
+      The estimate of 22 call sites was about right — 13 in `main`, the rest in tests. `ChecklistEvent`
+      was re-vendored with it, as this item said it would have to be. The part that turned out easier
+      than feared: there is **no migration**, because `runIdOf()` resolves an empty run id to the
+      procedure id, which is both what upstream instructs for a pre-run-model publisher and what
+      `decodeSnapshot` was already doing — so persisted records land exactly where they were.
+      Done in 5515e49.
 
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
       Two independent faults, both found by running it:
@@ -130,7 +169,7 @@ completes, and that is not something app code can fix.
       thing to check when a feed has no audio.
 
 
-- [ ] **BLOKED by Kotlin Zheno - The checklist protocol has grown a run model and photo evidence, and this app knows neither.**
+- [x] **BLOKED by Kotlin Zheno - The checklist protocol has grown a run model and photo evidence, and this app knows neither.**
   Looked at properly at `0.6.0-pre.12`, against crowsnest at `origin/main`.
   **`checklist_evidence` is `foxglove.CompressedImage`, one key per `evidence_id`** — deliberately
   its own subject rather than a field on the snapshot, because that snapshot is republished every
@@ -159,3 +198,13 @@ completes, and that is not something app code can fix.
   decision, not a bug fix, and the checklist feature is off by default meanwhile.
   **Moot until the JNI crash is fixed**: tested on the live bus, turning checklists on crashes the
   app on the bootstrap query's reply before any of this matters — see the `EntityGlobalId` item.
+  Adopted in full against `0.6.0-pre.15`, in five commits: QoS (4a77ff9), the proto re-vendor
+  (1f15a2a), §7.2's merge rules and the new event types (016efc0), the run re-key and snapshot
+  publishing (5515e49), and evidence (a60492d).
+  **Two claims above were already stale when this was ticked**, and are left standing rather than
+  edited so the record shows what was believed at the time: `ChecklistEvidence.proto` *is* vendored,
+  and the five protos are no longer JS-SDK-only reconstructions but released files in a tag. What it
+  got right and is worth keeping: every upstream change really was additive, per message, and the
+  renumbering scare really was an artefact of comparing fields across nested messages.
+  Still not adopted: `ChecklistProcedure.Item.parent_item_id`, so sub-items render flat.
+  Done in a60492d.

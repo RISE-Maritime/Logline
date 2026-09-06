@@ -107,17 +107,28 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `rise/**` matches nothing and fails silently, `rise/@v0/**` works. `KeysTest` pins the chunk position.
 - **QoS comes from `qos.yaml`, via `qosForSubject()`** in `keelson/Qos.kt`. Those profiles are a
   transcription of `../keelson/messages/qos.yaml` — a copy, like the vendored protos. Never hand-tune a
-  publisher's priority or reliability here; if a profile is wrong it is wrong upstream first. **Ten
-  subjects differ from Zenoh's defaults**, across three profiles — five `elevated` (`location_fix`,
-  `speed_over_ground_knots`, `course_over_ground_deg`, and both headings), three `transient` (`audio`,
-  `image_compressed`, `video_compressed`), two `background` (`raw_nmea0183`, `log_message`) — and
+  publisher's priority or reliability here; if a profile is wrong it is wrong upstream first.
+  **Thirteen subjects differ from Zenoh's defaults**, across three profiles — six `elevated`
+  (`location_fix`, `speed_over_ground_knots`, `course_over_ground_deg`, both headings, and
+  `checklist_event`), four `transient` (`audio`, `image_compressed`, `video_compressed`,
+  `checklist_presence`), three `background` (`raw_nmea0183`, `log_message`, `checklist_state`) — and
   everything else is unlisted upstream and inherits `default` on purpose, so the same subject travels
-  identically from every connector. **Re-verified against `0.6.0-pre.12`: zero drift** — all ten still
-  match, and every other subject this app publishes is still unlisted upstream. That check is a dozen
+  identically from every connector. **Re-verified against `0.6.0-pre.15`, and this time there was
+  drift**: the ten *sensor* subjects still match exactly, and the three checklist ones above were
+  assigned upstream in `pre.15` having been unlisted in every release before it. That check is a dozen
   lines of script and worth re-running against each release rather than reading this list, which has
-  been wrong before. Upstream now names **52** non-default subjects across *five* profiles, having
-  gained a `realtime` one for the hand-controller inputs; `QosProfile` already transcribes all five and
-  this app publishes nothing in that profile. The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
+  been wrong before. Two subjects are `default` **by decision rather than by omission**, which
+  `qos.yaml` now says in words: `checklist_procedure`, a template edited at human pace, and
+  `checklist_evidence` — which carries the *same* `foxglove.CompressedImage` as `image_compressed` and
+  deliberately takes the opposite stance, because a camera frame is corrected by the next one and an
+  evidence photo is a one-shot write nothing will ever republish. Grouping the two by payload type is
+  the obvious tidy-up and would make a safety photo the cheapest thing on the link. Upstream now names
+  **61** non-default subjects across *six* profiles, having gained `no_drop` (`DATA_HIGH`, **BLOCK**,
+  RELIABLE, express) for `scenario_tick_ack`; `QosProfile` transcribes all six and this app publishes
+  in neither `realtime` nor `no_drop`. `QosTest` no longer asserts that every profile drops — it
+  asserts that nothing *this app publishes* blocks, which is the real hazard since every publish here
+  happens on a sensor collector, plus that `no_drop` is the only BLOCK entry.
+  The Settings screen exposes a per-subject override on top of that — `policyQosForSubject()`
   is upstream policy, `qosForSubject(subject, overrides)` is what actually gets used. Overrides are an
   escape hatch, not the norm: default them to Auto and keep the policy path the one that works.
 - **Liveliness is three tiers, and the app declares two of them** (protocol specification §5, as
@@ -156,9 +167,16 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
 - **Subject names only via `Subjects`** in `keelson/Keys.kt`, and the subject *set* only via
   `PublishedSubject` in `keelson/SubjectRegistry.kt`. A new subject means a constant plus a registry
   entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **The newest tag is now the
-  right place to look** — re-checked at `0.6.0-pre.12`, where `pre.3`, `pre.5` and `pre.7` are *all*
-  ancestors and every subject this app publishes is present, `illuminance_lux` and the four
-  `checklist_*` ones included.
+  right place to look** — re-checked at `0.6.0-pre.15`, of which `pre.12` *is* an ancestor
+  (`git merge-base --is-ancestor` says so), and every subject this app publishes is present:
+  `illuminance_lux`, the four `checklist_*` ones and `checklist_evidence` included. `pre.15` added
+  `depth_below_{transducer,keel,surface}_m`, `scenario_event`, `scenario_tick_ack` and
+  `envelope_exceedance`, none of which a phone has the hardware or the role to publish.
+  **Take upstream files from a tag, not from `../keelson`'s worktree.** That checkout is a working
+  repository and is routinely parked on a feature branch: while this was being done it sat on one
+  that branched before the checklist merge and has no `Checklist*.proto` at all, so `/sync-protos`
+  against it would have reported five vendored files as having no upstream — which reads as "invented
+  here" and is false.
   **That was not true for most of this project's life, and the reason is worth keeping.** The lineages
   had forked: `pre.7` *was* `dev` while `pre.5` was cut from a feature branch, they diverged at
   `8621035` with neither an ancestor of the other, and the newest tag carried none of those five
@@ -594,13 +612,41 @@ Nothing else needs touching — `MainScreen`, `SettingsRepository`, `Settings.de
 A shared checklist that several sites work at once, interoperating with crowsnest's checklist app
 (`../crowsnest-dev/src/apps/checklist/`). Lives in `checklist/`, and touches almost nothing else.
 
-- **The protocol was not upstream.** `keelson.ChecklistEvent` / `ChecklistState` / `ChecklistPresence`
-  existed only as generated JS in the git-ignored `../keelson/sdks/js/dist/`, built from `.proto` files
-  nobody committed — crowsnest works because it depends on `file:../keelson/sdks/js`. They have been
-  reconstructed from those generated encoders and added to `../keelson/messages/payloads/`, along with a
-  new `ChecklistProcedure.proto`. `ChecklistWireTest` pins them against golden bytes produced by
-  crowsnest's own bindings; that test is the only thing standing between a field-number slip and a
+- **The protocol was not upstream, and now it is — including the hard half.** `keelson.ChecklistEvent`
+  / `ChecklistState` / `ChecklistPresence` once existed only as generated JS in the git-ignored
+  `../keelson/sdks/js/dist/`, built from `.proto` files nobody committed; they were reconstructed from
+  those encoders and contributed. All five are released files as of `0.6.0-pre.15`, and the vendored
+  copies are re-synced to it. `ChecklistWireTest` still pins them against golden bytes produced by
+  crowsnest's own bindings, and that test is the only thing standing between a field-number slip and a
   message that decodes cleanly into the wrong fields.
+  **Its six golden assertions split by direction, and the difference is load-bearing.** The three
+  *decode* ones must pass untouched forever: bytes crowsnest produced still decode field for field,
+  which is the proof that everything `pre.15` added is additive or an identifier rename. The three
+  *encode* ones pass only because proto3 omits empty strings, zero enums and empty repeated fields —
+  `encodeSnapshot` writes ten more fields than it used to, and a fixture left at its defaults still
+  encodes to the same bytes. **Do not "improve" those fixtures** by filling in `runId` or `status` to
+  make them look realistic: that changes the encoding, and the tempting fix — regenerating the golden
+  — re-pins it to this app's own output and destroys the only cross-implementation oracle in the file.
+- **§7 of the protocol specification is now normative, and it cites `ChecklistSync.kt` by name** as one
+  of its two as-built reference implementations (crowsnest's `useChecklistSync.js` is the other). The
+  merge rules that used to live in proto comments are binding, so a rule broken here is a rule broken
+  against a published specification rather than a local bug. `ChecklistMergeTest` is a test per rule,
+  each quoting the one it pins, and the one that matters most is the last: the same three snapshots
+  applied in all six orders must converge, which is §7.2's whole claim.
+  §7.3's storage table is the other half, and it is not decoration — `checklist_state` exists *only*
+  so a late joiner can bootstrap, so with no storage behind it a station joining between two 30 s
+  ticks sees nothing, which looks exactly like an empty checklist. Two deployment mistakes upstream
+  records as already having cost real debugging time, both silent: **a `memory` volume answers a
+  single-key `get` and returns nothing for a wildcard**, which is what bootstrap uses; and a storage
+  whose key expression names the wrong realm or entity persists nothing and says so nowhere.
+- **`event_count` is a staleness hint, never arbitration**, and the guard that treated it as one has
+  been deleted. `applySnapshot` used to open with `if (snapshot.eventCount < current.eventCount)
+  return state`; §7.2 and §7.4 forbid exactly that, because the count is a scalar — two sites that each
+  applied a *different* twelve events both hold 12, each discards the other as stale, and neither ever
+  converges. What made the guard look necessary was that the merge beneath it was a whole-`ItemProgress`
+  assignment, so an older snapshot genuinely could flip a completed item back to pending. The
+  protection moved from rejecting the message to merging it correctly, which is the only version that
+  converges. Do not put it back.
 - **Procedure *definitions* travel on the bus; nothing else knew that.** An event names an item by id
   and carries no text, so a client with no definition can say something was completed but not what it
   said. Crowsnest seeds its library from a hardcoded constant per browser. `checklist_procedure` fixes
@@ -623,11 +669,70 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   not, keyed on `route.startsWith("checklist")` so stepping between the list and a procedure does not
   cycle it. Two Zenoh sessions in one process are fine; `initZenohLogOnce()` already guards the one
   thing that may only happen once.
+- **Progress is keyed on the *run*, not on the procedure.** A procedure is a template and each
+  execution of it is a run with its own id, progress and history; §7.3 makes `checklist_state/{run_id}`
+  one key per run, forever. Keyed on the procedure, two concurrent runs collapsed into one row with
+  one run's ticks landing on the other's — and the live bus had five concurrent runs.
+  **The migration is by construction, not by a migration.** `runIdOf()` resolves an empty run id to
+  the procedure id, which is what upstream instructs for a publisher predating the run model, what
+  crowsnest's `runIdFor` already did for this app's events, and what `decodeSnapshot` was doing
+  anyway — so records this phone persisted before the re-key decode into a legacy run keyed exactly
+  where they were. `ChecklistState.openRunOf(procedureId)` is the hop for callers that still name a
+  procedure because they predate runs: a reminder firing, a notification deep link. Reminders stay
+  procedure-keyed on purpose — they are phone-local and about the template — and the receiver resolves
+  the run *at fire time*, so one set before a run started still finds it.
+  A run id and an evidence id are **single tokens by construction**, and `ChecklistKeys` refuses a
+  composite one outright: §7.3 names that as a silent failure, since a key with a slash publishes
+  without error and never persists, a storage's expression matching one token. `checklistId()` is what
+  generates them.
+- **The phone publishes `checklist_state` now, having only ever consumed it — and only for runs it
+  created.** It has to, once it can create a run: that subject exists solely so a late joiner can
+  bootstrap, so a run this phone started and never snapshotted is invisible to every station that was
+  not listening and unrecoverable afterwards, because nothing else will ever write that key. The
+  restriction is what makes it safe. §7.4 is blunt that **storage does not merge, it keeps the last
+  value**, so a joiner reads one arbitrary writer's snapshot and a subset writer would silently hand
+  it the subset; partitioning the writer set by creator is the nearest thing to upstream issue #204's
+  one-key-per-writer that needs no payload change, and it is the partition crowsnest uses. Note
+  `created_by`/`created_by_site` name *who created the run*, never who last republished it — crowsnest
+  made that substitution and, because it also chose which runs to republish from those fields, the
+  publish duty silently migrated with the label. A wrong label is a display bug; a wrong publisher is
+  a convergence bug. A `put` rather than a declared publisher, because the key set is unbounded and
+  one publisher per run would leak declarations for the life of the session.
+- **Evidence photos go on `checklist_evidence/{evidence_id}`, and this app can attach but not fetch.**
+  Bytes first, then the event, because the event advertises a key and publishing it first would have
+  every station render a tile for a photo that was never sent. Fetching somebody else's needs a Zenoh
+  `get`, whose reply aborts the process on this binding, so a remote photo renders from its metadata —
+  which is what `ChecklistItemEvidence`'s width and height are for. The import path is
+  `calibrate/importPhoto`, shared with the platform editor so there is one scale-rotate-re-encode path
+  in the app; `format` carries the **full** media type here (`image/jpeg`) rather than the camera
+  path's `"jpeg"`, because upstream requires it echoed so a recovered blob is self-describing.
+  `filesDir/checklist-evidence/` is excluded from **both** backup files — the opposite of `platforms/`,
+  and for the opposite reason: a platform photograph is configuration nothing can rebuild, this is a
+  copy of bytes the router holds durably, and a run's worth would fail the whole 25 MB backup.
+  **A lost evidence publish is unsolved and undetectable from either end** (§7.4): every profile is
+  DROP, so a shed publish is gone with no ack, nothing republishes it, and the snapshot goes on
+  rendering a tile for it. The UI must not imply otherwise.
 - **Its store is pushed, not pulled — the opposite of `LiveSampleStore` and `AnnotationLog`.** That rule
   is about the *publish path*: ~217 sensor samples a second must not drive recomposition. Nothing on the
   publish path feeds `ChecklistStore`. It is fed by taps, at both ends of the link, and a ticker there
   would only add latency to a tap. Updates still go through `MutableStateFlow.update`, because a Zenoh
   thread, a heartbeat coroutine and the UI all write it.
+- **A flag is a record, not a current value, and the five scalars are its cache.**
+  `ItemState.flags` carries the whole raise-to-resolve cycle; `flagged`/`flag_reason`/`flagged_by`/
+  `flagged_by_site`/`flagged_at` are derived from it by `ItemProgress.withFlagCache()`, which every
+  write to the list goes through so the two cannot disagree. The direction is one-way and that is what
+  keeps the cache honest: a non-empty list overrides whatever a snapshot claims the scalars are, and
+  the scalars are authoritative **only** from a publisher that sends no list. Both go on the wire until
+  the release that stops writing the scalars, because crowsnest still reads `flagged`. The deliberate
+  consequence: once one station is on `flags`, a legacy peer can no longer clear a flag at all, which
+  is the correct direction to fail.
+  Two things here were found by the tests rather than by reading the spec. **A `FLAG_RESOLVED` with an
+  empty `reference_id` was this app's own output** until `flagItem` started generating a flag id — and
+  without a receiver-side fallback to the one open flag, a resolve can only *append*, so an item
+  reported itself flagged the instant somebody cleared it. And **the unions converged as sets but not
+  as lists**: notes, flags and evidence came out in arrival order, so two stations showed one item's
+  notes differently. They are ordered by their own instants now, which makes the join properly
+  commutative and reads chronologically besides.
 - **Conflicts resolve the way crowsnest resolves them, on purpose.** Earliest completion wins and a
   later one is logged as a confirmation; an already-completed item cannot be un-started. Two additions:
   de-duplication by event id (a publisher's sample cache and the bootstrap `get` both re-deliver), and

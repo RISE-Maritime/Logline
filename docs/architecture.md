@@ -359,13 +359,24 @@ when it is not — a checklist is worked through with logging stopped, so it can
 `SensorPublisher`'s session, whose lifetime is a run. It publishes this operator's events and a
 presence heartbeat every 5 s, and takes everything else by subscription.
 
-**It issues no Zenoh query, and publishes no state snapshot**, both deliberately. The bootstrap `get`
-it used to run is what first exposed the binding fault; run snapshots arrive by subscription instead,
-which works because crowsnest republishes them periodically, and the item text comes from this phone's
-own store, which `ChecklistRepository` persists and `STARTER_PROCEDURES` seeds with crowsnest's own
-ids. The snapshot loop went because a snapshot is the *run owner's* statement and crowsnest owns the
-runs; the phone writing a procedure-keyed record onto a run-keyed storage key put a differently-shaped
-entry into a shared safety log.
+**It issues no Zenoh query**, deliberately: the bootstrap `get` it used to run is what first exposed
+the binding fault. Run snapshots arrive by subscription instead, which works because every station
+holding an active run republishes one every 30 s, and the item text comes from this phone's own
+store, which `ChecklistRepository` persists and `STARTER_PROCEDURES` seeds with crowsnest's own ids.
+
+**It does now publish state snapshots, and only for runs it created.** That reversed an earlier
+decision, and the reason it reversed is the run re-key: the phone can create a run, and
+`checklist_state` exists solely so a late joiner can bootstrap — so a run this phone started and
+never snapshotted is invisible to every station that was not listening at the time, because nothing
+else will ever write that key. The old objection was right about the shape of the risk and wrong
+about the fix: a phone writing a *procedure*-keyed record onto a run-keyed storage key really did put
+a differently-shaped entry into a shared safety log, and keying on the run is what removes that,
+rather than staying silent. Restricting the writer set by creator is what §7.4 asks for in place of
+the per-writer keys it has not got, and it is the partition crowsnest already uses.
+
+Progress is keyed on the **run**, not the procedure — §7.3 makes `checklist_state/{run_id}` one key
+per run, forever. A publisher predating the run model sends none, and `runIdOf()` files such a record
+under the procedure id rather than dropping it, which is also why the re-key needed no migration.
 
 The layering is the point:
 
@@ -377,10 +388,22 @@ The layering is the point:
 | `ChecklistStore.kt` | coroutines |
 | `ChecklistSync.kt` | all of the above, plus Zenoh and a `Context` |
 | `ChecklistRepository.kt` | DataStore — and `ChecklistCodec`, because it stores the wire bytes |
+| `ChecklistEvidenceStore.kt` | a `Context`, for `filesDir` — the photographs this phone has attached |
 
-`applyEvent` is a pure function of `(state, event)`, which is what makes the conflict rules testable
-without a bus: earliest completion wins, an already-completed item cannot be un-started, and every
-event is de-duplicated by id because a publisher's sample cache and the bootstrap query both re-deliver.
+`applyEvent` and `applySnapshot` are pure functions, which is what makes the conflict rules testable
+without a bus — and since protocol-specification.md §7 they are testable against a *published
+specification* rather than against this app's own reading of some proto comments. §7 names
+`ChecklistSync.kt` as one of its two as-built reference implementations, and `ChecklistMergeTest` is
+a test per §7.2 rule: earliest completion wins as a min-register over values, status is monotone,
+notes and flags and evidence union by id, a flag's resolution is absorbing, terminal beats
+non-terminal with `ABANDONED` winning, and the archive is re-emitted once seen. Every event is
+de-duplicated by id, because a publisher's sample cache re-delivers.
+
+There is deliberately **no `event_count` guard**. It reads like one is missing; §7.2 forbids it. The
+count is a scalar, so two sites that each applied a different twelve events both hold 12 and each
+rejects the other as stale. Convergence comes from the field rules, which hold regardless of arrival
+order — `merging three snapshots converges in every order` is the test that checks the claim rather
+than an instance of it.
 
 `ChecklistStore` is a `StateFlow` — the opposite of `LiveSampleStore`, and for a reason that does not
 generalise: that rule protects the UI from the *publish path* at 217 samples/s, and nothing on the
