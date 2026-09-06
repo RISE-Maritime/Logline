@@ -8,6 +8,9 @@ import se.rise.logline.checklist.ItemStatus
 import se.rise.logline.checklist.RunStatus
 import se.rise.logline.checklist.TimeField
 import se.rise.logline.checklist.TimelineKind
+import se.rise.logline.checklist.ProcedureItem
+import se.rise.logline.checklist.ProcedureSnapshot
+import se.rise.logline.checklist.applySnapshot
 import se.rise.logline.checklist.applyEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -307,5 +310,121 @@ class ChecklistEventTypesTest {
         val state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 1_000))
 
         assertEquals(ItemStatus.Completed, state.run("proc_001").item("item_001").status)
+    }
+
+    // ── authorship and the archive: what the phone must record about its own runs ────────────────
+
+    /**
+     * **Starting or planning a run records who did it**, and until this worked the snapshot publisher
+     * was dead code.
+     *
+     * `ChecklistSync.snapshotRuns()` republishes only runs this phone created, and it decides that by
+     * comparing `createdBy` against the operator id. Nothing on the event path filled those fields —
+     * they were populated only from an *incoming* snapshot — so every run this phone created had an
+     * empty `createdBy`, the filter matched nothing, and the whole reason the app started publishing
+     * snapshots at all was silently defeated.
+     */
+    @Test
+    fun `starting a run records who created it and when`() {
+        val state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ProcedureStarted, 1_000, itemId = ""))
+
+        assertEquals("op-1", state.theRun().createdBy)
+        assertEquals("ROC-A", state.theRun().createdBySite)
+        assertEquals(1_000L, state.theRun().createdAtEpochMillis)
+    }
+
+    /**
+     * And **first writer wins**: a later start from a second station does not reassign authorship.
+     *
+     * A run genuinely can be started twice — a publisher's cache re-delivers, and two operators can
+     * both press start — and creation is not a thing that happens twice.
+     */
+    @Test
+    fun `a second start does not reassign who created the run`() {
+        var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ProcedureStarted, 1_000, itemId = ""))
+        state = applyEvent(
+            state,
+            ChecklistEventRecord(
+                eventId = "e2",
+                atEpochMillis = 2_000,
+                type = ChecklistEventType.ProcedureStarted,
+                operatorId = "op-9",
+                username = "Ana",
+                role = "",
+                rocSite = "ROC-B",
+                procedureId = "proc_001",
+                itemId = "",
+            ),
+        )
+
+        assertEquals("op-1", state.theRun().createdBy)
+        assertEquals(1_000L, state.theRun().createdAtEpochMillis)
+    }
+
+    /**
+     * **Ending a run freezes the wording it was worked against.**
+     *
+     * §7.2 has a receiver re-emit an archive once it has seen one, and this app did — but nothing
+     * ever produced one, so a run this phone completed published an empty `items_snapshot` and the
+     * archive existed only if some other station happened to write it. A completed run has to render
+     * against the wording that was on screen at the time, and the template is the one thing that can
+     * change afterwards.
+     */
+    @Test
+    fun `completing a run freezes the item wording`() {
+        val definition = listOf(
+            ProcedureItem("item_001", 1, "Verify route plan", "Check ECDIS", true),
+            ProcedureItem("item_002", 2, "Test VHF radio"),
+        )
+
+        val state = applyEvent(
+            ChecklistState(),
+            event("e1", ChecklistEventType.ProcedureCompleted, 1_000, itemId = ""),
+            procedureItems = { definition },
+        )
+
+        assertEquals(definition, state.theRun().itemsSnapshot)
+    }
+
+    /** Abandoning ends a run too, so it archives on the same terms. */
+    @Test
+    fun `abandoning a run freezes the item wording`() {
+        val definition = listOf(ProcedureItem("item_001", 1, "Verify route plan"))
+
+        val state = applyEvent(
+            ChecklistState(),
+            event("e1", ChecklistEventType.RunAbandoned, 1_000, itemId = "", detail = "fog"),
+            procedureItems = { definition },
+        )
+
+        assertEquals(definition, state.theRun().itemsSnapshot)
+    }
+
+    /**
+     * An archive already held is not overwritten by this phone's own idea of the template — the
+     * whole point is that it records what was worked against, not what the library says today.
+     */
+    @Test
+    fun `an archive already held survives the run ending`() {
+        val asWorked = listOf(ProcedureItem("item_001", 1, "Verify route plan (2024 wording)"))
+        val today = listOf(ProcedureItem("item_001", 1, "Verify route plan (revised)"))
+
+        var state = applySnapshot(
+            ChecklistState(),
+            ProcedureSnapshot(
+                procedureId = "proc_001",
+                eventCount = 0,
+                items = emptyMap(),
+                itemsSnapshot = asWorked,
+                timestampEpochMillis = 500,
+            ),
+        )
+        state = applyEvent(
+            state,
+            event("e1", ChecklistEventType.ProcedureCompleted, 1_000, itemId = ""),
+            procedureItems = { today },
+        )
+
+        assertEquals(asWorked, state.theRun().itemsSnapshot)
     }
 }

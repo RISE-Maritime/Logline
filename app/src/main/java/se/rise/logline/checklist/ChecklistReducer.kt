@@ -244,6 +244,7 @@ fun applyEvent(
     state: ChecklistState,
     event: ChecklistEventRecord,
     itemTitle: (procedureId: String, itemId: String) -> String = { _, id -> id },
+    procedureItems: (procedureId: String) -> List<ProcedureItem> = { emptyList() },
 ): ChecklistState {
     if (event.eventId.isNotEmpty() && event.eventId in state.recentEventIds) return state
 
@@ -258,6 +259,42 @@ fun applyEvent(
     var startedAt = procedure.startedAtEpochMillis
     var completedAt = procedure.completedAtEpochMillis
     var abandonReason = procedure.abandonReason
+    var createdBy = procedure.createdBy
+    var createdBySite = procedure.createdBySite
+    var createdAt = procedure.createdAtEpochMillis
+    var itemsSnapshot = procedure.itemsSnapshot
+
+    /**
+     * Record who brought this run into existence, first writer winning.
+     *
+     * Read off the *creating act* — the plan or the start — and never off whoever last republished a
+     * snapshot, which is the substitution upstream records crowsnest making: because it also chose
+     * which runs to republish from these fields, the publish duty silently migrated with the label.
+     * Filled only when the run holds none, so a later `PROCEDURE_STARTED` from a second station
+     * cannot reassign authorship.
+     */
+    fun credit() {
+        if (createdBy.isEmpty() && createdBySite.isEmpty()) {
+            createdBy = event.operatorId
+            createdBySite = event.rocSite
+        }
+        if (createdAt == null) createdAt = event.atEpochMillis
+    }
+
+    /**
+     * Freeze the wording this run was worked against, on the publish that ends it.
+     *
+     * §7.2 has a receiver re-emit an archive once it has seen one, which this app did — but nothing
+     * ever *produced* one, so a run this phone completed published an empty `items_snapshot` and the
+     * archive existed only if some other station had written it. A completed run must render against
+     * the wording it was actually worked against rather than against today's template, and the
+     * template is the one thing that can change afterwards.
+     */
+    fun archive() {
+        if (itemsSnapshot.isEmpty()) {
+            itemsSnapshot = procedureItems(procedure.procedureId.ifEmpty { event.procedureId })
+        }
+    }
 
     fun put(progress: ItemProgress) {
         items = items + (event.itemId to progress)
@@ -411,11 +448,13 @@ fun applyEvent(
 
         ChecklistEventType.RunPlanned -> {
             status = joinRunStatus(status, RunStatus.Planned)
+            credit()
             mark(TimelineKind.RunPlanned, event.detail)
         }
 
         ChecklistEventType.RunAbandoned -> {
             status = joinRunStatus(status, RunStatus.Abandoned)
+            archive()
             // `""` is a legitimate value — a client that collected no reason — so a receiver must not
             // read empty as "no reason given" versus "reason lost". Never blank one already held.
             abandonReason = abandonReason.ifEmpty { event.detail }
@@ -465,6 +504,9 @@ fun applyEvent(
         ChecklistEventType.ProcedureStarted -> {
             status = joinRunStatus(status, RunStatus.Active)
             startedAt = earliestOf(startedAt, event.atEpochMillis)
+            // Starting a run creates it where nothing planned it first, which is the common path:
+            // most runs are begun rather than queued.
+            credit()
             mark(TimelineKind.ProcedureStarted)
         }
 
@@ -474,6 +516,7 @@ fun applyEvent(
         ChecklistEventType.ProcedureCompleted -> {
             status = joinRunStatus(status, RunStatus.Completed)
             completedAt = earliestOf(completedAt, event.atEpochMillis)
+            archive()
             mark(TimelineKind.ProcedureCompleted)
         }
 
@@ -490,6 +533,10 @@ fun applyEvent(
                 startedAtEpochMillis = startedAt,
                 completedAtEpochMillis = completedAt,
                 abandonReason = abandonReason,
+                createdBy = createdBy,
+                createdBySite = createdBySite,
+                createdAtEpochMillis = createdAt,
+                itemsSnapshot = itemsSnapshot,
                 // Not bumped for an event this build could not act on. `event_count` is a staleness
                 // hint a peer reads, and counting events that incorporated nothing overstates what
                 // this state has taken in.

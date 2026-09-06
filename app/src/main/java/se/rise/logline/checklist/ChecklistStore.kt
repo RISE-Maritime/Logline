@@ -66,7 +66,16 @@ class ChecklistStore {
 
     /** Apply one event, local or remote. De-duplication and conflict rules live in [applyEvent]. */
     fun apply(event: ChecklistEventRecord) = _state.update { current ->
-        current.copy(state = applyEvent(current.state, event, current::itemTitle))
+        current.copy(
+            state = applyEvent(
+                current.state,
+                event,
+                current::itemTitle,
+                // The wording to freeze when a run ends. Resolved here rather than inside the pure
+                // reducer, which knows about progress and deliberately nothing about the library.
+                { procedureId -> current.procedure(procedureId)?.items.orEmpty() },
+            ),
+        )
     }
 
     fun apply(snapshot: ProcedureSnapshot) = _state.update { current ->

@@ -666,7 +666,12 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
             val open = session ?: continue
             val checklistKeys = keys ?: continue
             store.state.value.state.progress.values
-                .filter { it.runId.isNotEmpty() && it.createdBySite == who.rocSite }
+                // By **operator**, not by site. The site is shared — several operators can sit at
+                // one ROC, and a phone's site id defaults to its entity id but is free text somebody
+                // may well set to match a station's — so filtering on it would have this phone
+                // republish runs it did not create, which is precisely the subset-writer hazard §7.4
+                // warns about. The operator id is generated once per install and never changes.
+                .filter { it.runId.isNotEmpty() && it.createdBy == who.operatorId }
                 .forEach { run ->
                     open.put(
                         checklistKeys.state(run.runId),

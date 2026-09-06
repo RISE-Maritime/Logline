@@ -122,9 +122,21 @@ completes, and that is not something app code can fix.
       subjects travel that path, which is a much smaller claim than the old wording implied.
 
 - [ ] **`ChecklistProcedure.Item.parent_item_id` is vendored and unused, so sub-items render flat.**
-      The one part of the current checklist protocol this app still does not speak. Not a bug — a
-      procedure without sub-items is unaffected — but a nested one reads as a flat list with nothing
-      saying it was nested.
+      Not a bug — a procedure without sub-items is unaffected — but a nested one reads as a flat list
+      with nothing saying it was nested.
+      **An earlier wording called this "the one part of the protocol this app does not speak", which
+      was wrong and hid two real bugs.** Looking for the others found that `created_by`/
+      `created_by_site`/`created_at` were populated only from an *incoming* snapshot, so a run this
+      phone created had none — and `snapshotRuns()` filters on exactly those, which made the whole
+      snapshot publisher dead code on the runs it existed for. And `items_snapshot` was merged and
+      re-emitted but never *produced*, so a run this phone completed published an empty archive.
+      Both fixed; both now have tests. Do not read a "the only remaining gap" claim in this file as
+      having been checked unless it says how.
+      What genuinely remains unspoken, having now been enumerated: `parent_item_id` above;
+      `scheduled_for`, which is decoded and merged but which nothing sets, since `planRun` takes no
+      due time; `procedure_version`, carried through but never written for this app's own runs; and
+      fetching another station's `checklist_evidence`, which needs a query and is blocked by the
+      binding rather than unimplemented.
 
 - [ ] **Two §7.4 open ends this app now inherits by being a conformant participant.** Neither is
       fixable here; both are worth knowing before reading the behaviour as a bug.

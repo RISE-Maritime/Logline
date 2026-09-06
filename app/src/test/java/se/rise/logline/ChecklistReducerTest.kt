@@ -146,7 +146,8 @@ class ChecklistReducerTest {
         val state = applyEvent(
             ChecklistState(),
             event("e1", ChecklistEventType.ItemCompleted, 1_000),
-        ) { _, itemId -> if (itemId == "item_001") "Test VHF radio" else itemId }
+            itemTitle = { _, itemId -> if (itemId == "item_001") "Test VHF radio" else itemId },
+        )
 
         assertEquals("Test VHF radio", state.timeline.first().itemTitle)
     }
