@@ -57,8 +57,10 @@ class ChecklistEventTypesTest {
     private fun completed(at: Long = 5_000) =
         applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, at))
 
-    private fun ChecklistState.item(id: String = "item_001") = progressFor("proc_001").item(id)
-    private fun ChecklistState.run() = progressFor("proc_001")
+    // The fixtures publish no run id, so `runIdOf` files them under the procedure id — which is
+    // exactly what a pre-run-model publisher produces, and the case worth exercising here.
+    private fun ChecklistState.item(id: String = "item_001") = run("proc_001").item(id)
+    private fun ChecklistState.theRun() = run("proc_001")
 
     // ── the two spellings of one act ────────────────────────────────────────────────────────────
 
@@ -262,15 +264,15 @@ class ChecklistEventTypesTest {
     @Test
     fun `planning and abandoning move the run's own status`() {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.RunPlanned, 1_000, itemId = ""))
-        assertEquals(RunStatus.Planned, state.run().status)
+        assertEquals(RunStatus.Planned, state.theRun().status)
 
         state = applyEvent(state, event("e2", ChecklistEventType.ProcedureStarted, 2_000, itemId = ""))
-        assertEquals(RunStatus.Active, state.run().status)
-        assertEquals(2_000L, state.run().startedAtEpochMillis)
+        assertEquals(RunStatus.Active, state.theRun().status)
+        assertEquals(2_000L, state.theRun().startedAtEpochMillis)
 
         state = applyEvent(state, event("e3", ChecklistEventType.RunAbandoned, 3_000, itemId = "", detail = "fog"))
-        assertEquals(RunStatus.Abandoned, state.run().status)
-        assertEquals("fog", state.run().abandonReason)
+        assertEquals(RunStatus.Abandoned, state.theRun().status)
+        assertEquals("fog", state.theRun().abandonReason)
     }
 
     /**
@@ -282,7 +284,7 @@ class ChecklistEventTypesTest {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.RunAbandoned, 3_000, itemId = ""))
         state = applyEvent(state, event("e2", ChecklistEventType.ProcedureStarted, 4_000, itemId = ""))
 
-        assertEquals(RunStatus.Abandoned, state.run().status)
+        assertEquals(RunStatus.Abandoned, state.theRun().status)
     }
 
     /**
@@ -296,7 +298,7 @@ class ChecklistEventTypesTest {
     fun `an unknown event type does not advance the event count`() {
         val state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.Unknown, 1_000))
 
-        assertEquals(0, state.run().eventCount)
+        assertEquals(0, state.theRun().eventCount)
     }
 
     /** An event from a publisher predating the run model is adopted, never dropped. */
@@ -304,6 +306,6 @@ class ChecklistEventTypesTest {
     fun `an event with no run id is filed under the procedure id`() {
         val state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 1_000))
 
-        assertEquals(ItemStatus.Completed, state.progressFor("proc_001").item("item_001").status)
+        assertEquals(ItemStatus.Completed, state.run("proc_001").item("item_001").status)
     }
 }

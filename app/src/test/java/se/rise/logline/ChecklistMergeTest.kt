@@ -64,8 +64,10 @@ class ChecklistMergeTest {
         abandonReason = abandonReason,
     )
 
-    private fun ChecklistState.item(id: String = "item_001") = progressFor("proc_001").item(id)
-    private fun ChecklistState.run() = progressFor("proc_001")
+    // The fixtures publish no run id, so `runIdOf` files them under the procedure id — which is
+    // exactly what a pre-run-model publisher produces, and the case worth exercising here.
+    private fun ChecklistState.item(id: String = "item_001") = run("proc_001").item(id)
+    private fun ChecklistState.theRun() = run("proc_001")
 
     // ── completion: a min-register over values ──────────────────────────────────────────────────
 
@@ -396,7 +398,7 @@ class ChecklistMergeTest {
 
         assertEquals(
             RunStatus.Completed,
-            applySnapshot(state, snapshot(status = RunStatus.Active, at = 9_999)).run().status,
+            applySnapshot(state, snapshot(status = RunStatus.Active, at = 9_999)).theRun().status,
         )
     }
 
@@ -415,11 +417,11 @@ class ChecklistMergeTest {
 
         assertEquals(
             RunStatus.Abandoned,
-            applySnapshot(completedHeld, snapshot(status = RunStatus.Abandoned, at = 1)).run().status,
+            applySnapshot(completedHeld, snapshot(status = RunStatus.Abandoned, at = 1)).theRun().status,
         )
         assertEquals(
             RunStatus.Abandoned,
-            applySnapshot(abandonedHeld, snapshot(status = RunStatus.Completed, at = 9_999)).run().status,
+            applySnapshot(abandonedHeld, snapshot(status = RunStatus.Completed, at = 9_999)).theRun().status,
         )
     }
 
@@ -438,7 +440,7 @@ class ChecklistMergeTest {
         val archive = listOf(ProcedureItem("item_001", 1, "Verify route plan"))
         val state = applySnapshot(ChecklistState(), snapshot(at = 1_000, itemsSnapshot = archive))
 
-        assertEquals(archive, applySnapshot(state, snapshot(at = 2_000)).run().itemsSnapshot)
+        assertEquals(archive, applySnapshot(state, snapshot(at = 2_000)).theRun().itemsSnapshot)
     }
 
     // ── the catch-all ───────────────────────────────────────────────────────────────────────────
@@ -454,7 +456,7 @@ class ChecklistMergeTest {
             snapshot(at = 1_000, title = "Departure", createdBy = "Ana", abandonReason = "fog"),
         )
 
-        val merged = applySnapshot(state, snapshot(at = 2_000)).run()
+        val merged = applySnapshot(state, snapshot(at = 2_000)).theRun()
         assertEquals("Departure", merged.title)
         assertEquals("Ana", merged.createdBy)
         assertEquals("fog", merged.abandonReason)
@@ -478,7 +480,7 @@ class ChecklistMergeTest {
                 items = emptyMap(),
                 timestampEpochMillis = 1_000,
             ),
-        ).run()
+        ).theRun()
 
         assertEquals("", merged.createdBy)
         assertEquals("", merged.createdBySite)
@@ -534,7 +536,7 @@ class ChecklistMergeTest {
             listOf(b, c, a), listOf(c, a, b), listOf(c, b, a),
         )
         val results = orders.map { order ->
-            order.fold(ChecklistState()) { state, s -> applySnapshot(state, s) }.run()
+            order.fold(ChecklistState()) { state, s -> applySnapshot(state, s) }.theRun()
         }
 
         results.forEach { assertEquals(results.first(), it) }

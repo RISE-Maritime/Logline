@@ -93,6 +93,8 @@ object ChecklistCodec {
         activeProcedureId: String,
         activeItemId: String,
         cursor: CursorState,
+        activeRunId: String = "",
+        openRunIds: Collection<String> = emptyList(),
         now: Instant = Instant.now(),
     ): ByteArray {
         val message = ChecklistPresence.newBuilder()
@@ -104,6 +106,8 @@ object ChecklistCodec {
             .setActiveProcedureId(activeProcedureId)
             .setActiveItemId(activeItemId)
             .setCursor(cursor.toProto())
+            .setActiveRunId(activeRunId)
+            .addAllOpenRunIds(openRunIds)
             .build()
         return enclose(message.toByteArray(), now)
     }
@@ -190,6 +194,11 @@ object ChecklistCodec {
                 activeProcedureId = m.activeProcedureId,
                 activeItemId = m.activeItemId,
                 cursor = m.cursor.toModel(),
+                activeRunId = m.activeRunId,
+                // Read guarded, because a publisher may predate the list and say only which run is
+                // focused. Falling back to the scalar means such an operator still shows as having
+                // one run open rather than none.
+                openRunIds = m.openRunIdsList.ifEmpty { listOfNotNull(m.activeRunId.ifEmpty { null }) },
                 // Arrival, not the stamp in the payload: staleness is "we have not heard from them",
                 // and a heartbeat from a phone whose clock is off must not read as stale on arrival.
                 seenAtEpochMillis = seenAtEpochMillis,

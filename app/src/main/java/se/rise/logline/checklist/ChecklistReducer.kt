@@ -168,14 +168,42 @@ enum class RunStatus { Unknown, Planned, Active, Completed, Abandoned }
  * structure to avoid.
  */
 data class ChecklistState(
+    /**
+     * Progress **keyed on the run**, not on the procedure.
+     *
+     * A procedure is a template and each execution of it is a run with its own id, progress and
+     * history — §7.3 makes `checklist_state/{run_id}` one key per run, forever. Keyed on the
+     * procedure, two runs of one procedure collapsed into a single row, and the live bus had five
+     * concurrent runs while this was being looked at.
+     *
+     * A publisher predating the run model sends no run id, and [runIdOf] files such a record under
+     * the procedure id rather than dropping it — which is also what makes this phone's own
+     * pre-re-key persisted records keep working without a migration.
+     */
     val progress: Map<String, ProcedureProgress> = emptyMap(),
     /** Newest first, bounded. A record of the session, not a second copy of the audit log. */
     val timeline: List<TimelineEntry> = emptyList(),
     /** Newest first, bounded. */
     val recentEventIds: List<String> = emptyList(),
 ) {
-    fun progressFor(procedureId: String): ProcedureProgress =
-        progress[procedureId] ?: ProcedureProgress()
+    fun run(runId: String): ProcedureProgress = progress[runId] ?: ProcedureProgress()
+
+    fun runsOf(procedureId: String): List<ProcedureProgress> =
+        progress.values.filter { it.procedureId == procedureId || it.runId == procedureId }
+
+    /**
+     * The run a procedure-shaped caller means: the newest one still going, or failing that the
+     * newest there is.
+     *
+     * The compatibility hop for everything that still names a procedure — a reminder fired for an
+     * item, a deep link out of a notification — because those were written when a procedure had at
+     * most one run and there was nothing to choose between.
+     */
+    fun openRunOf(procedureId: String): ProcedureProgress? {
+        val runs = runsOf(procedureId)
+        return runs.filterNot { it.isTerminal() }.maxByOrNull { it.createdAtEpochMillis ?: 0L }
+            ?: runs.maxByOrNull { it.createdAtEpochMillis ?: 0L }
+    }
 }
 
 private const val TIMELINE_LIMIT = 200
@@ -219,7 +247,8 @@ fun applyEvent(
 ): ChecklistState {
     if (event.eventId.isNotEmpty() && event.eventId in state.recentEventIds) return state
 
-    val procedure = state.progressFor(event.procedureId)
+    val runId = runIdOf(event.runId, event.procedureId)
+    val procedure = state.run(runId)
     val existing = procedure.item(event.itemId)
     var items = procedure.items
     var entry: TimelineEntry? = null
@@ -453,7 +482,9 @@ fun applyEvent(
 
     return state.copy(
         progress = state.progress + (
-            event.procedureId to procedure.copy(
+            runId to procedure.copy(
+                runId = runId,
+                procedureId = procedure.procedureId.ifEmpty { event.procedureId },
                 items = items,
                 status = status,
                 startedAtEpochMillis = startedAt,
@@ -496,7 +527,8 @@ fun applyEvent(
  * that *was* plain assignment; with the rules below there is nothing for it to protect against.
  */
 fun applySnapshot(state: ChecklistState, snapshot: ProcedureSnapshot): ChecklistState {
-    val held = state.progressFor(snapshot.procedureId)
+    val runId = runIdOf(snapshot.runId, snapshot.procedureId)
+    val held = state.run(runId)
     val incomingAt = snapshot.timestampEpochMillis
     val heldAt = held.lastSnapshotAtEpochMillis
     val newer = incomingAt != null && (heldAt == null || incomingAt >= heldAt)
@@ -507,8 +539,8 @@ fun applySnapshot(state: ChecklistState, snapshot: ProcedureSnapshot): Checklist
 
     return state.copy(
         progress = state.progress + (
-            snapshot.procedureId to held.copy(
-                runId = held.runId.ifEmpty { snapshot.runId },
+            runId to held.copy(
+                runId = runId,
                 procedureId = held.procedureId.ifEmpty { snapshot.procedureId },
                 items = (held.items.keys + snapshot.items.keys).associateWith { id ->
                     mergeItem(held.items[id] ?: ItemProgress(), snapshot.items[id] ?: ItemProgress())

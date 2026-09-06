@@ -1,7 +1,10 @@
 package se.rise.logline
 
 import se.rise.logline.checklist.ChecklistKeys
+import se.rise.logline.checklist.checklistId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -27,9 +30,60 @@ class ChecklistKeysTest {
         assertEquals("rise/@v0/roc1/pubsub/checklist_event/*", keys.eventSubscription())
     }
 
+    /**
+     * §7.3: **one key per run, forever.** A procedure is a template and each execution of it is a
+     * run — keyed on the procedure, two concurrent runs of one procedure overwrote each other in the
+     * router's latest-value store, and the live bus had five concurrent runs.
+     */
     @Test
-    fun `state key is addressed by procedure, not by site`() {
-        assertEquals("rise/@v0/roc1/pubsub/checklist_state/proc_001", keys.state("proc_001"))
+    fun `state key is addressed by run, not by procedure`() {
+        assertEquals(
+            "rise/@v0/roc1/pubsub/checklist_state/run_mt2zqy4l",
+            keys.state("run_mt2zqy4l"),
+        )
+    }
+
+    /** One key per photo, forever, immutable once written. */
+    @Test
+    fun `evidence keys address one photo and the whole store`() {
+        assertEquals("rise/@v0/roc1/pubsub/checklist_evidence/ev_1", keys.evidence("ev_1"))
+        assertEquals("rise/@v0/roc1/pubsub/checklist_evidence/*", keys.evidenceSubscription())
+    }
+
+    /**
+     * §7.3's other silent failure: **"a composite id publishes without error and never persists"**,
+     * because a storage's key expression ends in a single-token wildcard and a key with a slash in
+     * it simply does not match — with nothing anywhere saying so. Crashing on this app's own bug is
+     * the only version of this anybody finds out about.
+     */
+    @Test
+    fun `a composite run or evidence id is refused rather than published`() {
+        assertThrows(IllegalArgumentException::class.java) { keys.state("proc_001/run_1") }
+        assertThrows(IllegalArgumentException::class.java) { keys.evidence("2026/08/photo") }
+        assertThrows(IllegalArgumentException::class.java) { keys.state("") }
+    }
+
+    /** And what the app generates is a single token by construction, so it can never trip that. */
+    @Test
+    fun `a generated id is one plain token`() {
+        val id = checklistId("run")
+        assertTrue("'$id' must be one token", '/' !in id)
+        assertTrue("'$id' should be readable off the bus", id.matches(Regex("[A-Za-z0-9_-]+")))
+        assertTrue(id.startsWith("run_"))
+    }
+
+    /**
+     * Presence is keyed by **operator**, and stays that way now that a run id exists to be tempted
+     * by. Upstream warns against this specifically: every consumer keys presence by operator, so
+     * adding a run token would have one operator's beats overwrite each other and the heartbeat
+     * would stop meaning what it says. The run they are looking at travels *in* the payload.
+     */
+    @Test
+    fun `presence is still keyed by operator, never by run`() {
+        assertEquals(
+            "rise/@v0/roc1/pubsub/checklist_presence/ROC-A/op-7",
+            keys.presence("ROC-A", "op-7"),
+        )
     }
 
     /**
@@ -73,7 +127,7 @@ class ChecklistKeysTest {
     }
 
     @Test
-    fun `state query covers every procedure the storage holds`() {
+    fun `state query covers every run the storage holds`() {
         assertEquals("rise/@v0/roc1/pubsub/checklist_state/*", keys.stateQuery())
     }
 

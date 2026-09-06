@@ -38,6 +38,7 @@ import se.rise.logline.checklist.ChecklistUiState
 import se.rise.logline.checklist.ItemProgress
 import se.rise.logline.checklist.ItemStatus
 import se.rise.logline.checklist.Procedure
+import se.rise.logline.checklist.ProcedureProgress
 import se.rise.logline.checklist.ProcedureItem
 import se.rise.logline.checklist.TimelineKind
 import se.rise.logline.ui.components.ScreenScaffold
@@ -81,7 +82,9 @@ fun ChecklistScreen(
     modifier: Modifier = Modifier,
 ) {
     var prompt by remember { mutableStateOf<ItemPrompt?>(null) }
-    val progress = state.state.progressFor(procedure.procedureId)
+    // Procedure-shaped, because a reminder deep-links here by procedure id. Progress is keyed
+    // on the run now, so this resolves the one a person means: newest still going, else newest.
+    val progress = state.state.openRunOf(procedure.procedureId) ?: ProcedureProgress()
     val done = progress.completedCount()
     val requiredOutstanding = procedure.items
         .filter { it.required && progress.item(it.itemId).status != ItemStatus.Completed }

@@ -48,7 +48,7 @@ class ChecklistReducerTest {
     fun `completing an item records who and when`() {
         val state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 1_000))
 
-        val item = state.progressFor("proc_001").item("item_001")
+        val item = state.run("proc_001").item("item_001")
         assertEquals(ItemStatus.Completed, item.status)
         assertEquals(1_000L, item.completedAtEpochMillis)
         assertEquals("Ted", item.completedBy)
@@ -75,7 +75,7 @@ class ChecklistReducerTest {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 1_000))
         state = applyEvent(state, event("e2", ChecklistEventType.ItemCompleted, 5_000, who = "Ana", site = "ROC-B"))
 
-        val item = state.progressFor("proc_001").item("item_001")
+        val item = state.run("proc_001").item("item_001")
         assertEquals(1_000L, item.completedAtEpochMillis)
         assertEquals("Ted", item.completedBy)
         // Still recorded, as a confirmation — the second operator did do something.
@@ -87,7 +87,7 @@ class ChecklistReducerTest {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 5_000))
         state = applyEvent(state, event("e2", ChecklistEventType.ItemCompleted, 1_000, who = "Ana"))
 
-        assertEquals(1_000L, state.progressFor("proc_001").item("item_001").completedAtEpochMillis)
+        assertEquals(1_000L, state.run("proc_001").item("item_001").completedAtEpochMillis)
     }
 
     /** Events carry no sequence number, so this is the only ordering defence there is. */
@@ -96,7 +96,7 @@ class ChecklistReducerTest {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemCompleted, 5_000))
         state = applyEvent(state, event("e2", ChecklistEventType.ItemStarted, 1_000))
 
-        assertEquals(ItemStatus.Completed, state.progressFor("proc_001").item("item_001").status)
+        assertEquals(ItemStatus.Completed, state.run("proc_001").item("item_001").status)
     }
 
     @Test
@@ -105,7 +105,7 @@ class ChecklistReducerTest {
         state = applyEvent(state, event("e2", ChecklistEventType.ItemCompleted, 2_000))
         state = applyEvent(state, event("e3", ChecklistEventType.ItemReverted, 3_000))
 
-        val item = state.progressFor("proc_001").item("item_001")
+        val item = state.run("proc_001").item("item_001")
         assertEquals(ItemStatus.Pending, item.status)
         assertEquals(null, item.completedAtEpochMillis)
         assertEquals(null, item.startedAtEpochMillis)
@@ -127,18 +127,18 @@ class ChecklistReducerTest {
             event("e2", ChecklistEventType.NoteAdded, 1_000, detail = "check again", referenceId = "note_9"),
         )
 
-        assertEquals(1, state.progressFor("proc_001").item("item_001").notes.size)
+        assertEquals(1, state.run("proc_001").item("item_001").notes.size)
     }
 
     @Test
     fun `flagging and resolving move the flag and its reason together`() {
         var state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.ItemFlagged, 1_000, detail = "seized"))
-        assertTrue(state.progressFor("proc_001").item("item_001").flagged)
-        assertEquals("seized", state.progressFor("proc_001").item("item_001").flagReason)
+        assertTrue(state.run("proc_001").item("item_001").flagged)
+        assertEquals("seized", state.run("proc_001").item("item_001").flagReason)
 
         state = applyEvent(state, event("e2", ChecklistEventType.FlagResolved, 2_000, detail = "freed"))
-        assertFalse(state.progressFor("proc_001").item("item_001").flagged)
-        assertEquals("", state.progressFor("proc_001").item("item_001").flagReason)
+        assertFalse(state.run("proc_001").item("item_001").flagged)
+        assertEquals("", state.run("proc_001").item("item_001").flagReason)
     }
 
     @Test
@@ -177,7 +177,7 @@ class ChecklistReducerTest {
             items = mapOf("item_001" to ItemProgress(status = ItemStatus.Pending)),
         )
 
-        val merged = applySnapshot(state, behind).progressFor("proc_001")
+        val merged = applySnapshot(state, behind).run("proc_001")
         assertEquals(ItemStatus.Completed, merged.item("item_001").status)
         assertEquals(ItemStatus.Completed, merged.item("item_002").status)
         // The hint does not go backwards either: `max`, so a peer's lower count cannot make local
@@ -199,7 +199,7 @@ class ChecklistReducerTest {
             ),
         )
 
-        val progress = merged.progressFor("proc_001")
+        val progress = merged.run("proc_001")
         assertEquals(ItemStatus.Completed, progress.item("item_001").status)
         assertEquals(ItemStatus.Completed, progress.item("item_002").status)
         assertEquals(9, progress.eventCount)
@@ -209,7 +209,7 @@ class ChecklistReducerTest {
     fun `an unknown event type is a no-op rather than a crash`() {
         val state = applyEvent(ChecklistState(), event("e1", ChecklistEventType.Unknown, 1_000))
 
-        assertEquals(ItemStatus.Pending, state.progressFor("proc_001").item("item_001").status)
+        assertEquals(ItemStatus.Pending, state.run("proc_001").item("item_001").status)
         assertTrue(state.timeline.isEmpty())
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import se.rise.logline.checklist.ChecklistLink
 import se.rise.logline.checklist.ChecklistUiState
 import se.rise.logline.checklist.Procedure
+import se.rise.logline.checklist.ProcedureProgress
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
@@ -226,7 +227,8 @@ private fun ProcedureRow(
     state: ChecklistUiState,
     onOpen: (String) -> Unit,
 ) {
-    val progress = state.state.progressFor(procedure.procedureId)
+    // See `ChecklistScreen` — progress is keyed on the run; this row summarises the current one.
+    val progress = state.state.openRunOf(procedure.procedureId) ?: ProcedureProgress()
     val done = progress.completedCount()
     val flagged = progress.flaggedCount()
     Card(

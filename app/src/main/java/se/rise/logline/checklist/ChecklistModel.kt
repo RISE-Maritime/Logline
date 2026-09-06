@@ -319,4 +319,8 @@ data class RemotePresence(
     val activeItemId: String,
     val cursor: CursorState,
     val seenAtEpochMillis: Long,
+    /** Which run they are looking at — a procedure id cannot say, once one has several runs. */
+    val activeRunId: String = "",
+    /** Every run they have open, not only the focused one. Empty from a publisher predating it. */
+    val openRunIds: List<String> = emptyList(),
 )

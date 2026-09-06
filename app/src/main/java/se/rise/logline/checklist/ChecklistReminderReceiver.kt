@@ -54,7 +54,16 @@ class ChecklistReminderReceiver : BroadcastReceiver() {
             .firstOrNull { it.procedureId == procedureId && it.itemId == itemId } ?: return
 
         val procedure = stored.procedures.firstOrNull { it.procedureId == procedureId }
-        val done = stored.progress[procedureId]?.item(itemId)?.status == ItemStatus.Completed
+        // Reminders stay keyed on the *procedure* — they are phone-local and about the template, not
+        // about one execution of it — so the run is resolved here, at the moment the alarm fires,
+        // rather than pinned when it was set. A reminder set before a run started still finds it.
+        val run = stored.progress.values
+            .filter { it.procedureId == procedureId || it.runId == procedureId }
+            .let { runs ->
+                runs.filterNot { it.isTerminal() }.maxByOrNull { it.createdAtEpochMillis ?: 0L }
+                    ?: runs.maxByOrNull { it.createdAtEpochMillis ?: 0L }
+            }
+        val done = run?.item(itemId)?.status == ItemStatus.Completed
 
         // An alarm for something already ticked is the fastest way to teach somebody to swipe alarms
         // away without reading them. It is dropped rather than repeated, whatever its interval says.

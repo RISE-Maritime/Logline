@@ -9,6 +9,7 @@ import se.rise.logline.checklist.ChecklistState
 import se.rise.logline.checklist.ItemProgress
 import se.rise.logline.checklist.ItemStatus
 import se.rise.logline.checklist.RunStatus
+import se.rise.logline.checklist.ProcedureSnapshot
 import se.rise.logline.checklist.applySnapshot
 import se.rise.logline.keelson.enclose
 import java.time.Instant
@@ -109,8 +110,8 @@ class ChecklistRunFieldsTest {
         val afterFirst = applySnapshot(ChecklistState(), withTitle)
         val afterSecond = applySnapshot(afterFirst, withoutTitle)
 
-        assertEquals("Departure checks", afterSecond.progressFor("proc-departure").title)
-        assertEquals(RunStatus.Active, afterSecond.progressFor("proc-departure").status)
+        assertEquals("Departure checks", afterSecond.run("proc-departure").title)
+        assertEquals(RunStatus.Active, afterSecond.run("proc-departure").status)
     }
 
     /**
@@ -128,7 +129,7 @@ class ChecklistRunFieldsTest {
             ),
         )!!
         val state = applySnapshot(ChecklistState(), decoded)
-        val progress = state.progressFor("proc-unknown-here")
+        val progress = state.run("proc-unknown-here")
 
         assertEquals(2, progress.completedCount())
         assertEquals(5, progress.items.size)
@@ -151,6 +152,52 @@ class ChecklistRunFieldsTest {
         )
 
         assertEquals("item_042", state.itemTitle("proc-x", "item_042"))
-        assertEquals(ItemProgress(), state.state.progressFor("proc-x").item("item_999"))
+        assertEquals(ItemProgress(), state.state.run("proc-x").item("item_999"))
+    }
+
+    /**
+     * **Two runs of one procedure are two rows.** This is what the re-key bought.
+     *
+     * Keyed on the procedure they collapsed into a single row — one run's ticks landing on the
+     * other's — and that was not hypothetical: the live bus had five concurrent runs while this was
+     * being looked at. §7.3 makes `checklist_state/{run_id}` one key per run for the same reason.
+     */
+    @Test
+    fun `two runs of one procedure no longer collapse into one`() {
+        val first = ProcedureSnapshot(
+            procedureId = "proc-departure",
+            runId = "run_a",
+            eventCount = 0,
+            items = mapOf("item_001" to ItemProgress(status = ItemStatus.Completed, completedAtEpochMillis = 1)),
+        )
+        val second = ProcedureSnapshot(
+            procedureId = "proc-departure",
+            runId = "run_b",
+            eventCount = 0,
+            items = mapOf("item_001" to ItemProgress(status = ItemStatus.Pending)),
+        )
+
+        val state = applySnapshot(applySnapshot(ChecklistState(), first), second)
+
+        assertEquals(2, state.progress.size)
+        assertEquals(ItemStatus.Completed, state.run("run_a").item("item_001").status)
+        assertEquals(ItemStatus.Pending, state.run("run_b").item("item_001").status)
+        assertEquals(setOf("run_a", "run_b"), state.runsOf("proc-departure").map { it.runId }.toSet())
+    }
+
+    /**
+     * A record with no run id is filed under the procedure id rather than dropped — which is both
+     * what upstream instructs for a publisher predating the run model, and what makes this phone's
+     * own records from before the re-key keep working with no migration to run.
+     */
+    @Test
+    fun `a run-less snapshot is adopted under the procedure id`() {
+        val state = applySnapshot(
+            ChecklistState(),
+            ProcedureSnapshot(procedureId = "proc-departure", eventCount = 0, items = emptyMap()),
+        )
+
+        assertEquals(listOf("proc-departure"), state.progress.keys.toList())
+        assertEquals("proc-departure", state.run("proc-departure").procedureId)
     }
 }

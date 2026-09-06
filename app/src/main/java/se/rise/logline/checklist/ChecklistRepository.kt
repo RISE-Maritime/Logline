@@ -43,9 +43,31 @@ class ChecklistRepository(private val context: Context) {
     val stored: Flow<StoredChecklist> = context.checklistStore.data.map { prefs ->
         StoredChecklist(
             procedures = prefs[Keys.PROCEDURES].decodeLines(ChecklistCodec::decodeProcedure),
+            // Keyed on the run, like everything else now. A record written before the re-key
+            // carries no run id and `decodeSnapshot` resolves it to the procedure id, so it lands
+            // exactly where it always did — the migration is the fallback, and there is nothing to
+            // run. Named arguments deliberately: this was a positional two-argument call, which is
+            // the shape that keeps compiling while quietly meaning something else once fields move.
             progress = prefs[Keys.PROGRESS]
                 .decodeLines(ChecklistCodec::decodeSnapshot)
-                .associate { it.procedureId to ProcedureProgress(it.items, it.eventCount) },
+                .associate {
+                    it.runId to ProcedureProgress(
+                        items = it.items,
+                        eventCount = it.eventCount,
+                        runId = it.runId,
+                        procedureId = it.procedureId,
+                        title = it.procedureTitle,
+                        status = it.status,
+                        startedAtEpochMillis = it.startedAtEpochMillis,
+                        completedAtEpochMillis = it.completedAtEpochMillis,
+                        scheduledForEpochMillis = it.scheduledForEpochMillis,
+                        abandonReason = it.abandonReason,
+                        createdBy = it.createdBy,
+                        createdBySite = it.createdBySite,
+                        createdAtEpochMillis = it.createdAtEpochMillis,
+                        itemsSnapshot = it.itemsSnapshot,
+                    )
+                },
             reminders = prefs[Keys.REMINDERS].orEmpty()
                 .lineSequence()
                 .mapNotNull(::parseChecklistReminder)
@@ -62,8 +84,9 @@ class ChecklistRepository(private val context: Context) {
 
     suspend fun saveProgress(progress: Map<String, ProcedureProgress>, operator: Operator) {
         context.checklistStore.edit { prefs ->
-            prefs[Keys.PROGRESS] = progress.entries.encodeLines { (procedureId, procedure) ->
-                ChecklistCodec.encodeSnapshot(procedureId, procedure, operator)
+            prefs[Keys.PROGRESS] = progress.entries.encodeLines { (_, run) ->
+                // The run's own procedure id, not the map key — the key is the run now.
+                ChecklistCodec.encodeSnapshot(run.procedureId, run, operator)
             }
         }
     }
