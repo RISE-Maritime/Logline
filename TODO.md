@@ -101,11 +101,25 @@ completes, and that is not something app code can fix.
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
       turn the feature on. Done in db09694.
 
-- [ ] **The three checklist QoS assignments cannot be observed from here.** `checklist_event` is
-      `elevated`, `checklist_presence` `transient` and `checklist_state` `background` as of
-      `0.6.0-pre.15`, and `policyQosForSubject` now says so. What is pinned is the policy table; the
-      delivered priority is not checkable without a subscriber, and there is none while
-      `SUBSCRIPTIONS_SAFE` is false. Worth a Python subscriber's confirmation when it lifts.
+- [ ] **The three checklist QoS assignments are unobserved, and the reason is that nothing publishes
+      them — not that nothing can listen.** `checklist_event` is `elevated`, `checklist_presence`
+      `transient` and `checklist_state` `background` as of `0.6.0-pre.15`, and `policyQosForSubject`
+      now says so. `QosTest` pins the policy table; what no test can reach is the priority a router
+      actually sees.
+      **An earlier wording of this item blamed the absence of a subscriber, and that was wrong twice.**
+      The blocker is the *publisher*: `Routes.shouldSyncChecklists` gates on `CHECKLISTS_AVAILABLE`
+      and is the only caller of `checklist.start()`, so with the gate false `ChecklistSync` never
+      opens a session and never puts any of the five checklist subjects on the wire at all. And
+      `SUBSCRIPTIONS_SAFE` is about *this app* subscribing; a Python subscriber on the fleet bus needs
+      nothing from the phone and works today — it is how the 15 053-sample timestamping measurement in
+      `keelson/ZenohBinding.kt` was taken, with the app gated exactly as it is now.
+      So the check is a minute's work the moment the gate lifts, and needs no new tooling:
+      `zenoh-python`'s `Sample` carries `priority`, `congestion_control` and `express`, so subscribing
+      to `rise/@v0/roc1/pubsub/checklist_*/**` and printing them settles it.
+      Worth knowing meanwhile: the *mechanism* is not in doubt. `qosForSubject` →
+      `declarePublisher` is the same path every sensor subject takes, and `location_fix` arriving as
+      `DATA_HIGH` is observable on the bus today. What is unconfirmed is only that these three
+      subjects travel that path, which is a much smaller claim than the old wording implied.
 
 - [ ] **`ChecklistProcedure.Item.parent_item_id` is vendored and unused, so sub-items render flat.**
       The one part of the current checklist protocol this app still does not speak. Not a bug — a
@@ -141,20 +155,6 @@ completes, and that is not something app code can fix.
       evidence and run controls, so the overlap is larger than it was — but the note and reminder
       dialogs still live only in the old pair.
 
-- [x] **Checklist progress is keyed on the procedure, not the run.** Two runs of one procedure live at
-      the same time collapse into a single row, and the live bus had five concurrent runs during this
-      investigation. The snapshot's `run_id` is read and shown, but re-keying the map touches 22 call
-      sites across the reducer, both older screens, the reminder receiver and persistence — and
-      `ChecklistEvent` would have to be re-vendored and re-keyed with it, or snapshots and events would
-      write to different keys in one map, which is worse than either choice. Only worth doing if the
-      feature is ever enabled.
-      The estimate of 22 call sites was about right — 13 in `main`, the rest in tests. `ChecklistEvent`
-      was re-vendored with it, as this item said it would have to be. The part that turned out easier
-      than feared: there is **no migration**, because `runIdOf()` resolves an empty run id to the
-      procedure id, which is both what upstream instructs for a pre-run-model publisher and what
-      `decodeSnapshot` was already doing — so persisted records land exactly where they were.
-      Done in 5515e49.
-
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
       Two independent faults, both found by running it:
       `WHEPResponse(res.text)` raises `TypeError: No positional arguments allowed` — protobuf requires
@@ -168,43 +168,4 @@ completes, and that is not something app code can fix.
       gets video and no sound. The source has to publish Opus. Not an app problem, but it is the first
       thing to check when a feed has no audio.
 
-
-- [x] **BLOKED by Kotlin Zheno - The checklist protocol has grown a run model and photo evidence, and this app knows neither.**
-  Looked at properly at `0.6.0-pre.12`, against crowsnest at `origin/main`.
-  **`checklist_evidence` is `foxglove.CompressedImage`, one key per `evidence_id`** — deliberately
-  its own subject rather than a field on the snapshot, because that snapshot is republished every
-  30 s per active run and photos in it would be megabytes on the wire twice a minute into a durable
-  store. The *metadata* that names the key rides inside `checklist_event.evidence` (13) and
-  `ChecklistState.ItemState.evidence`, and is fetched lazily one key at a time.
-  **Crowsnest uses it fully**: `checklistEvidence.js` (fetch by RPC, delete), `checklistEvidenceModel.js`,
-  `evidenceKeyExpr` in `checklistWire.js`, and `imageDownscale.js` on the way in.
-  **Nothing is broken, and that took checking twice.** A first pass suggested `ChecklistState` had
-  been *renumbered* — `status` 2→8, `started_at` 3→9 — which would have been a wire break of the
-  exact kind `ChecklistWireTest` exists to catch. It was an artefact of comparing fields across
-  nested messages: `ItemState.status = 2` here against `ChecklistState.status = 8` upstream are
-  different messages. Compared per message, **every upstream change is additive** and the shared
-  fields keep their numbers, so messages still decode correctly in both directions.
-  **The key shape did change and crowsnest already tolerates it.** `checklist_state` is now keyed on
-  `run_id` rather than `procedure_id` — a procedure is a template and each execution is a run, so
-  two runs of one procedure used to overwrite each other. This app still keys on the procedure id,
-  and `runIdFor()` in `checklistWire.js` falls back to `procedureId` precisely to tolerate
-  "publishers that predate the run model", so its snapshots are accepted rather than dropped.
-  So this is a *degraded but tolerated* participant, not a fault. What it cannot do: see or attach
-  photo evidence; know a run was planned, abandoned or had a timestamp corrected
-  (`EVENT_TYPE_RUN_PLANNED`/`RUN_ABANDONED`/`EVIDENCE_ATTACHED`/`TIME_SET`); render sub-items
-  (`ChecklistProcedure.Item.parent_item_id`); or say which runs it has open
-  (`active_run_id`, `open_run_ids`). Adopting it means re-vendoring five protos —/pl `ChecklistEvidence.proto`
-  is not vendored at all — and reworking `ChecklistSync`/`ChecklistStore` around runs. A product
-  decision, not a bug fix, and the checklist feature is off by default meanwhile.
-  **Moot until the JNI crash is fixed**: tested on the live bus, turning checklists on crashes the
-  app on the bootstrap query's reply before any of this matters — see the `EntityGlobalId` item.
-  Adopted in full against `0.6.0-pre.15`, in five commits: QoS (4a77ff9), the proto re-vendor
-  (1f15a2a), §7.2's merge rules and the new event types (016efc0), the run re-key and snapshot
-  publishing (5515e49), and evidence (a60492d).
-  **Two claims above were already stale when this was ticked**, and are left standing rather than
-  edited so the record shows what was believed at the time: `ChecklistEvidence.proto` *is* vendored,
-  and the five protos are no longer JS-SDK-only reconstructions but released files in a tag. What it
-  got right and is worth keeping: every upstream change really was additive, per message, and the
-  renumbering scare really was an artefact of comparing fields across nested messages.
-  Still not adopted: `ChecklistProcedure.Item.parent_item_id`, so sub-items render flat.
-  Done in a60492d.
+  
