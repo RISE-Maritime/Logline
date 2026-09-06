@@ -101,6 +101,53 @@ completes, and that is not something app code can fix.
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
       turn the feature on. Done in db09694.
 
+- [ ] **An interrupted recording surfaces only when the next run starts, which is the wrong moment.**
+      `publishOrphans()` is called from `Recorder.start()` (`Recorder.kt:187`). After a flat battery
+      that means charging the phone and opening the app shows **nothing** — the file is in
+      `filesDir/recordings`, invisible to the Files tab and to any file manager, until somebody
+      presses Start on another run. It reads exactly like the app having lost the recording, and the
+      instinct (open the app and look) is the one thing that does not work.
+      The fix is a line — sweep at app launch as well — but it is a behaviour change worth thinking
+      about first, because the stop path and the orphan sweep can already meet on one file:
+      `publish()` treats a vanished file as somebody else's success precisely for that race, and a
+      launch-time sweep adds a third party to it. Measured: nothing. This was found by reading, and
+      the read is the only evidence.
+
+- [ ] **Nothing is ever `fsync`ed, so a real power cut loses more than the chunk bound implies.**
+      `sink.flush()` appears once, in `McapWriter.finish()`; during a run the 64 kB
+      `BufferedOutputStream` drains only when it fills, and what reaches the OS sits in the page
+      cache on the kernel's own 5–30 s writeback schedule. A process kill is fine — the page cache
+      survives an orderly shutdown, which is why killing the app 25 s in recovered 24.7 s. A genuine
+      cut (a protection circuit tripping under load in the cold, a hardware fault) is not.
+      A sync after each `flushChunk()` would bound it to the 2 s the chunk already bounds. The cost
+      has to be measured before it is worth having: it lands on the drain coroutine, the one thing in
+      this app that must not fall behind, and `DRAIN_GRACE_MILLIS` and the queue depth are both sized
+      on the assumption that writing is cheap.
+      **Reasoned, not measured.** The hard-cut case has never been reproduced here, and modern phones
+      do not make it easy to try.
+
+- [ ] **`McapRecovery` cannot tell a tail of zeros from data.** Its walk reads an opcode and a length
+      and accepts any record that fits the file, so a zero-filled tail — which is what ext4's delayed
+      allocation can leave after a power cut, as against a simple truncation — parses as a chain of
+      zero-length records with opcode `0x00`. That is not a valid MCAP opcode, but nothing checks, so
+      the trim lands past the real data and a run of junk records gets a footer appended after it.
+      The messages before it are unaffected and still readable; the file is wrong at the edge, and a
+      strict reader may object to the opcode. Checking the opcode against the known set would cut in
+      the right place. Only reachable through the hard-cut case above, so unreproduced here too.
+
+- [ ] **Storage ends a run; the battery does not.** `openSession()` refuses below `MIN_FREE_BYTES`
+      and sets an error, so a full disk stops the recording rather than corrupting it. There is no
+      counterpart for charge — no threshold anywhere, and no receiver for `ACTION_BATTERY_LOW` or
+      `ACTION_SHUTDOWN`. Both tanks are measured by the same `RuntimeEstimator` and only one of them
+      acts; the battery half produces a foreground-only `StatusLine` under thirty minutes and a
+      `PRIORITY_LOW`, `setOnlyAlertOnce(true)` notification line that will not alert.
+      Closing and publishing the current file at a charge threshold would put the bulk of a run in
+      Downloads — finalised, indexed, openable — while there is still power, instead of leaving all
+      of it to `McapRecovery` and to the sweep that does not run until next time. Whether the run
+      should also *stop* there is a product decision: on a boat, carrying on into a fresh file until
+      the phone dies may well be what somebody wants. This is the only one of these four that
+      addresses the scenario rather than its aftermath.
+
 - [ ] **The three checklist QoS assignments are unobserved, and the reason is that nothing publishes
       them — not that nothing can listen.** `checklist_event` is `elevated`, `checklist_presence`
       `transient` and `checklist_state` `background` as of `0.6.0-pre.15`, and `policyQosForSubject`

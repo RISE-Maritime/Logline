@@ -58,10 +58,21 @@ smaller than the data it contains, where before compression the same payload cos
 framing. Recording stops rather than filling the disk if free space drops below 256 MB.
 
 Files are written to app-private storage first and moved to Downloads when closed, so a crash cannot
-lose one to a half-finished MediaStore entry. **A recording interrupted by a kill is repaired on the
-next start**: the app trims it to the last complete record and appends a footer, because a file without
-one has all its messages present and none of them reachable — readers seek to the footer first. The
-repaired file has no statistics, so readers scan it; the messages are intact.
+lose one to a half-finished MediaStore entry. **A recording interrupted by a kill is repaired when the
+next run starts**: the app trims it to the last complete record and appends a footer, because a file
+without one has all its messages present and none of them reachable — readers seek to the footer
+first. The repaired file has no statistics, so readers scan it; the messages are intact.
+
+**If the phone's battery goes flat mid-run, the recording is not lost — but it is not finished, and
+it will not appear on its own.** Charging the phone and opening the app shows nothing in Files: the
+repair and the move to Downloads both happen when the *next run starts*, so **press Start once** and
+the interrupted recording appears alongside, labelled "incomplete, never closed". Until then it is in
+app-private storage where no file manager can reach it. A few seconds at the end of the run are gone
+— what was still in memory when the power went — and everything before that is intact.
+
+Nothing stops a run because the battery is low. The Session screen warns under half an hour and the
+notification carries the same figure, but neither ends the recording the way running out of disk
+does, so a run left going will be ended by the phone rather than by the app.
 
 Compression costs something here, and it is bounded deliberately. A killed process loses whatever is
 still buffered in the open chunk, where before it lost only a partial message — so chunks are flushed

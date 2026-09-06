@@ -1443,8 +1443,11 @@ simply never finds anything on the bus.
   Measured rather than assumed — deleting a file behind the app's back and returning to the tab takes
   the count from 7 to 6, so navigation genuinely re-reads. What does explain it: a run **in progress** is
   deliberately absent, living in app-private storage until it closes; a run that was **interrupted**
-  rather than stopped only reaches Downloads at the *next* app launch, through `publishOrphans`, and
-  arrives labelled "incomplete, never closed"; and a run that ends **while the Files tab is on screen**
+  rather than stopped only reaches Downloads when the **next run starts** — `publishOrphans()` is
+  called from `Recorder.start()`, not from app launch, which is the distinction that matters when a
+  phone has just come back from a flat battery: charging it and opening the app shows nothing, and
+  the file sits in `filesDir/recordings` where no file manager can see it either, until somebody
+  presses Start again. It then arrives labelled "incomplete, never closed"; and a run that ends **while the Files tab is on screen**
   — which only the notification's stop action can do — used to need a trip away and back, since the
   listing is otherwise read once per composition and after a delete. That last one is now handled by
   bumping the revision when `recording.recording` goes false.
@@ -1662,6 +1665,39 @@ simply never finds anything on the bus.
   killing the app 25 s in: 87 193 messages covering 24.7 s came back. `McapRecovery` needed no change —
   a Chunk is a length-prefixed record, so a truncated one is already its incomplete-record branch — and
   `readMcapSummary` needed none either, because MCAP keeps summary records *outside* chunks.
+- **What an abrupt end costs, and the chunk bound is only half of it.** The bullet above bounds the
+  *open chunk*; there are four buffers between a sample and the disk, and a flat battery or a kill
+  takes a different set of them. At the measured 241 MB/h default (~67 kB/s of file):
+  the `Recorder` channel (~45 s of capacity, but drained continuously, so normally near-empty); the
+  **open zstd chunk**, 256 kB uncompressed or 2 s; the **64 kB `BufferedOutputStream`** in
+  `RecordingSession`, which is about **one second** at that rate; and the **OS page cache**, which is
+  unbounded here because **nothing ever calls `fsync`** — `sink.flush()` appears exactly once, in
+  `McapWriter.finish()`, so during a run the buffer drains only when it fills.
+  **A process kill loses the first three, roughly 1–3 s**, and the page cache survives because an
+  orderly shutdown flushes it. That is consistent with the one real measurement — 25 s in, 87 193
+  messages covering 24.7 s came back, so ~0.3 s. **A genuine power cut loses the page cache too**,
+  which is whatever the kernel had not yet written on its own 5–30 s schedule: bounded by the
+  platform rather than by anything here. That second case has never been reproduced on this phone and
+  is reasoning from documented behaviour, not a measurement — say so before quoting it at anybody.
+  Either way the file is left with **no DataEnd, no summary and no footer**, which is unreadable
+  rather than merely lossy: a reader seeks to the footer first, so every message is present and none
+  is reachable until `McapRecovery.finalise()` has walked it. See the Files-tab gotcha above for
+  *when* that happens, which is later than anybody expects.
+- **`PublisherService.onDestroy()` closes the file, and must not be relied on to.** It reaches
+  `RecordingSession.close()` through `stopPublishing()`, so an ordinary teardown finalises the
+  recording properly. A shutdown kill does not call it, and even when it is called `Recorder.stop()`
+  is deliberately fire-and-forget with a grace timeout — returning from it does not mean the file was
+  closed. Anything that needs a *closed* file has to go through the orphan sweep instead.
+- **Storage ends a run; the battery does not.** `openSession()` refuses below `MIN_FREE_BYTES` and
+  sets an error, so a full disk stops the recording rather than corrupting it. There is no
+  counterpart for charge: no threshold anywhere, and no receiver for `ACTION_BATTERY_LOW` or
+  `ACTION_SHUTDOWN` — the whole receiver list is two `BOOT_COMPLETED` entries, `MODE_CHANGED_ACTION`
+  in `LocationProvider`, and a *null-receiver sticky read* of `ACTION_BATTERY_CHANGED` in
+  `BatteryProvider`, which subscribes to nothing. `RuntimeEstimator` measures both tanks with the
+  same code and only one of them acts. What the battery half produces is a `StatusLine` under thirty
+  minutes, visible only in the foreground, and the same string in a `PRIORITY_LOW` notification with
+  `setOnlyAlertOnce(true)` — so it will not alert. Worth knowing before assuming a run ends tidily
+  when the phone dies: it ends the way a kill ends it.
 - **The recording carries no index, and that is a measured trade rather than an omission.** Readers
   scan the data section to open a file. Legal MCAP, and what happened before an index was tried.
   It *was* tried, and both findings are expensive enough to rediscover that they are kept here.
