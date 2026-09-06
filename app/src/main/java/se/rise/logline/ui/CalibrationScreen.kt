@@ -435,17 +435,25 @@ fun CalibrationScreen(
                         onOpenMap = { picking = true },
                     )
                     CaptureRow(capture)
+                    // **One word each, and each of them is the method's own name.** Three equal
+                    // thirds of a 411dp screen leave about 73dp of text, so "Capture position" and
+                    // "Pick on map" both wrapped while "Type" sat on one line — three buttons of the
+                    // same width reading as three different shapes.
+                    //
+                    // The words are not shortened arbitrarily: they are what `CaptureMethod` already
+                    // calls these, and what the card above prints back. Set the zero from the map and
+                    // it reads `Map · 41.8 m altitude`, so the button that did it says `Map`.
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
                             onClick = onCaptureZero,
                             enabled = capture !is CaptureState.Running,
                             modifier = Modifier.weight(1f),
-                        ) { Text("Capture position") }
+                        ) { Text("Capture", maxLines = 1) }
                         OutlinedButton(onClick = { picking = true }, modifier = Modifier.weight(1f)) {
-                            Text("Pick on map")
+                            Text("Map", maxLines = 1)
                         }
                         OutlinedButton(onClick = { typedPosition = true }, modifier = Modifier.weight(1f)) {
-                            Text("Type")
+                            Text("Type", maxLines = 1)
                         }
                     }
                 }
