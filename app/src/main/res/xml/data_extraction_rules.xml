@@ -37,6 +37,12 @@
     And one thing that deliberately **does** travel, noted here because it is a directory of images in
     `filesDir` and therefore looks like the next thing to exclude:
 
+    * `checklist-evidence` — checklist photographs this phone has taken. Excluded, and the contrast
+      with `platforms` below is the whole reason: a platform photograph is configuration nothing can
+      rebuild, while this is a local copy of bytes the router already holds durably on
+      `checklist_evidence/{evidence_id}`. A run's worth of them would push a backup past the 25 MB
+      quota, and a file over it fails the *whole* backup — taking the settings with it.
+
     * `platforms` — a photograph per platform. It is configuration rather than a cache: nothing can
       rebuild it, and a phone swap that lost it would need somebody to walk back down to the boat.
       It is safe against the 25 MB quota by construction rather than by luck — `importPlatformPhoto`
@@ -53,11 +59,13 @@
         <exclude domain="file" path="recordings" />
         <exclude domain="file" path="osmdroid" />
         <exclude domain="file" path="tracks" />
+        <exclude domain="file" path="checklist-evidence" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="tls" />
         <exclude domain="file" path="recordings" />
         <exclude domain="file" path="osmdroid" />
         <exclude domain="file" path="tracks" />
+        <exclude domain="file" path="checklist-evidence" />
     </device-transfer>
 </data-extraction-rules>

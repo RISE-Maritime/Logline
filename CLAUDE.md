@@ -610,8 +610,14 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   not rename anything, it makes them stop agreeing silently.
 - **The router needs storages, and the ones it had were for something else.**
   `../keelson-router/docker-compose.keelson-router-rise.yml` now covers
-  `crowsnest/@v0/*/pubsub/checklist_procedure/*` and `.../checklist_state/*`. The pre-existing
+  `rise/@v0/*/pubsub/checklist_procedure/*` and `.../checklist_state/*`. The pre-existing
   `rise/@v0/*/pubsub/checklist_{state,controller}` storages match nothing any client publishes.
+- **The tree moved on 2026-08-26: `crowsnest/@v0/checklist` → `rise/@v0/roc1`.** `crowsnest` is an
+  application, not a deployment; `roc1` is the operations centre's entity and names the TREE, not a
+  station — which site an operator sits at is already the source id. `DEFAULT_CHECKLIST_REALM` /
+  `DEFAULT_CHECKLIST_ENTITY` in `config/Settings.kt` follow it, but **a phone with a saved profile
+  carries the old values forward** and will talk to a tree nobody else is on, which looks exactly
+  like working. Check Settings on any phone that was configured before that date.
   Note that `command:` is a folded YAML scalar — a `#` line inside it is an argument, not a comment.
 - **`ChecklistSync` owns its own session**, opened when a checklist screen is up and closed when it is
   not, keyed on `route.startsWith("checklist")` so stepping between the list and a procedure does not

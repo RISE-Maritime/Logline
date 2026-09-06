@@ -16,4 +16,5 @@
     <exclude domain="file" path="recordings" />
     <exclude domain="file" path="osmdroid" />
     <exclude domain="file" path="tracks" />
+    <exclude domain="file" path="checklist-evidence" />
 </full-backup-content>

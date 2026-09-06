@@ -50,6 +50,9 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
     private val store = ChecklistStore()
     val state: StateFlow<ChecklistUiState> get() = store.state
 
+    /** This phone's own copy of the photographs it has attached. See [ChecklistEvidenceStore]. */
+    val evidenceStore = ChecklistEvidenceStore(appContext)
+
     private var scope: CoroutineScope? = null
     private var session: KeelsonSession? = null
     private var keys: ChecklistKeys? = null
@@ -332,6 +335,92 @@ class ChecklistSync(private val appContext: Context, private val repository: Che
         correctedTimeEpochMillis = atEpochMillis,
         correctedField = field,
     )
+
+    /**
+     * Attach a photograph to an item.
+     *
+     * **Bytes first, then the event**, and that ordering is the point: the event advertises a key,
+     * so publishing it before the bytes have been attempted would have every station render a tile
+     * for a photo that was never sent. It is not a guarantee — see below — but it is the difference
+     * between a failure that could happen and one that is built in.
+     *
+     * The bytes go to `checklist_evidence/{evidence_id}` as an enveloped `foxglove.CompressedImage`,
+     * one key per photo and immutable once written; the *metadata* rides on the event and, from
+     * then on, inside `ItemState.evidence` in every snapshot. They are deliberately not one message:
+     * a snapshot is republished every 30 s per active run into a durable store, and a photo in it
+     * would be megabytes on the wire twice a minute to restate a picture nobody has changed.
+     *
+     * Note `format` carries the **full media type** — `image/jpeg`, not the camera path's `"jpeg"` —
+     * because upstream requires it echoed there so a blob recovered on its own is self-describing.
+     * The two encoders in this app differ on that on purpose.
+     *
+     * **A lost evidence publish is unsolved, and this cannot detect one.** Every QoS profile is
+     * `DROP`, so a publish shed on a full egress queue is gone with no ack to notice it by and
+     * nothing ever republishes it — while the snapshot happily goes on rendering a tile for bytes
+     * that never landed. §7.4 records that as an accepted gap rather than a covered case, and the
+     * UI must not imply otherwise.
+     */
+    fun attachEvidence(
+        procedureId: String,
+        itemId: String,
+        jpeg: ByteArray,
+        width: Int,
+        height: Int,
+        caption: String = "",
+        source: EvidenceSource = EvidenceSource.File,
+        runId: String = "",
+    ) {
+        val who = operator ?: return
+        val evidenceId = checklistId("ev")
+        val now = System.currentTimeMillis()
+        val metadata = ItemEvidence(
+            evidenceId = evidenceId,
+            caption = caption,
+            capturedAtEpochMillis = now,
+            author = who.username,
+            authorSite = who.rocSite,
+            mediaType = "image/jpeg",
+            byteSize = jpeg.size,
+            width = width,
+            height = height,
+            source = source,
+        )
+        // Kept locally whatever the bus does, so the person who took it can still see it.
+        evidenceStore.save(evidenceId, jpeg)
+
+        val open = session
+        val checklistKeys = keys
+        val runScope = scope
+        if (open != null && checklistKeys != null && runScope != null) {
+            runScope.launch {
+                open.put(
+                    checklistKeys.evidence(evidenceId),
+                    encodeEvidenceImage(jpeg, now),
+                    qosForSubject(Subjects.CHECKLIST_EVIDENCE),
+                )
+                emit(
+                    ChecklistEventType.EvidenceAttached,
+                    procedureId,
+                    itemId,
+                    referenceId = evidenceId,
+                    runId = runId,
+                    evidence = metadata,
+                )
+            }
+        } else {
+            // No session: the event queues like any other and the bytes are on disk. The photo is
+            // not lost, but its key was never written — see the note above about what nothing here
+            // can detect.
+            emit(
+                ChecklistEventType.EvidenceAttached,
+                procedureId,
+                itemId,
+                referenceId = evidenceId,
+                runId = runId,
+                evidence = metadata,
+            )
+        }
+    }
 
     fun setReminders(reminders: List<ChecklistReminder>) {
         store.setReminders(reminders)

@@ -2,6 +2,7 @@ package se.rise.logline.checklist
 
 import com.google.protobuf.Timestamp
 import core.EnvelopeOuterClass.Envelope
+import foxglove.CompressedImageOuterClass.CompressedImage
 import keelson.ChecklistEventOuterClass.ChecklistEvent
 import keelson.ChecklistEvidence.ChecklistItemEvidence
 import keelson.ChecklistPresenceOuterClass.ChecklistPresence
@@ -467,4 +468,24 @@ private fun ChecklistPresence.CursorState.toModel(): CursorState = when (this) {
     ChecklistPresence.CursorState.CURSOR_STATE_VIEWING -> CursorState.Viewing
     ChecklistPresence.CursorState.CURSOR_STATE_EDITING_NOTE -> CursorState.EditingNote
     else -> CursorState.Idle
+}
+
+/**
+ * One evidence photograph, as the bytes that travel on `checklist_evidence/{evidence_id}`.
+ *
+ * `foxglove.CompressedImage`, the same payload the time-lapse uses — with one deliberate difference:
+ * `format` is the **full media type**, because `ChecklistEvidence.proto` requires the media type
+ * echoed here so a blob recovered on its own says what it is. The camera path writes `"jpeg"`, which
+ * is right for a stream whose format is declared elsewhere and wrong for a one-shot safety record.
+ *
+ * Enveloped like everything else this app puts on the wire.
+ */
+fun encodeEvidenceImage(jpeg: ByteArray, atEpochMillis: Long): ByteArray {
+    val at = Instant.ofEpochMilli(atEpochMillis)
+    val message = CompressedImage.newBuilder()
+        .setTimestamp(protoTimestamp(at))
+        .setFormat("image/jpeg")
+        .setData(com.google.protobuf.ByteString.copyFrom(jpeg))
+        .build()
+    return enclose(message.toByteArray(), at)
 }

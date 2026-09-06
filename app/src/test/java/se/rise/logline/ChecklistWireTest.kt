@@ -2,6 +2,7 @@ package se.rise.logline
 
 import core.EnvelopeOuterClass.Envelope
 import se.rise.logline.checklist.ChecklistCodec
+import se.rise.logline.checklist.encodeEvidenceImage
 import se.rise.logline.checklist.ChecklistEventRecord
 import se.rise.logline.checklist.ChecklistEventType
 import se.rise.logline.checklist.CursorState
@@ -368,6 +369,24 @@ class ChecklistWireTest {
         assertEquals(1_754_000_000_000L, decoded.createdAtEpochMillis)
         assertEquals(1_754_500_000_000L, decoded.scheduledForEpochMillis)
         assertEquals(at.toEpochMilli(), decoded.timestampEpochMillis)
+    }
+
+    /**
+     * The evidence bytes, on their own key.
+     *
+     * `format` is the **full media type** rather than the camera path's `"jpeg"`, because a blob
+     * recovered on its own has nothing else to say what it is. The two encoders in this app differ
+     * on that deliberately, so it is pinned rather than left to look like an inconsistency.
+     */
+    @Test
+    fun `an evidence image travels enveloped with its full media type`() {
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0x00, 0x01)
+
+        val payload = encodeEvidenceImage(jpeg, at.toEpochMilli()).payload()
+        val image = foxglove.CompressedImageOuterClass.CompressedImage.parseFrom(payload)
+
+        assertEquals("image/jpeg", image.format)
+        assertArrayEquals(jpeg, image.data.toByteArray())
     }
 
     /**

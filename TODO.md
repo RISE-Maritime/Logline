@@ -12,14 +12,6 @@ the section they belong to.
 Released as `1.0`. The guides and the release path landed with it; what is listed below is what V1
 knowingly ships without, not what was forgotten.
 
-- [x] **V1 has no operator guide, no deployment guide and no licence.** `README.md` is 1 483 lines of
-      Gradle, key expressions and protobuf — nothing written for the person handed the phone, and no
-      answer to "how do I get it onto a second one". Added `docs/user-guide.md` (six task-shaped
-      sections, quoting what the screens actually say), `docs/deploying.md` (build, sign, distribute,
-      provision), `CHANGELOG.md`, Apache-2.0 to match `keelson` and `crowsnest`, and
-      `.github/workflows/release.yml` so a `v*` tag builds a signed APK and attaches it to a Release —
-      no hosting, no files to chase. Done in 085393a.
-
 - [ ] **The release workflow has never run.** It parses, its tag trigger and permissions are right, and
       one real bug was caught by reading the parsed YAML rather than by running it: the keystore step's
       `if` referenced `env.` for a variable defined in its own `env:` block, which is evaluated too
@@ -37,28 +29,6 @@ knowingly ships without, not what was forgotten.
 
 ## Future long therm 
 
-
-## Shared platform library (2026-08-24)
-
-- [x] **Crowsnest's half of the platform library is written — and untracked.** The old item said
-      crowsnest does not publish its overlay, so sharing was one-way. **It does now.**
-      `services/platformLibrarySync.js`, `hooks/usePlatformLibrarySync.js`, `jotai/platformLibraryAtoms.js`
-      and `scripts/checks/platformLibrary.mjs` all exist in `../crowsnest-dev`, the hook is mounted in
-      `BasePage.jsx`, and the check is already in `npm run check`. The key builders are
-      character-identical to `PlatformRegistry.key()`, `platforms` entity default included.
-      **All of it is untracked in a 139-file WIP tree** — written, not shipped, the same trap the
-      `os_config` item warned about. Not this repo's to commit.
-      Verified rather than read: `PlatformLibraryInteropTest` decodes the literal output of crowsnest's
-      `encodeLibrary()` over its own `sf18` registry entry — sensors, offsets and a negative camera yaw
-      all intact — and fails if the transforms array is renamed. Neither project had a
-      cross-implementation test for this document before, and a renamed field is the failure that makes
-      both sides work perfectly and never meet. Done in 4b53b16.
-
-- [ ] **Neither live direction of the library exchange has been tested on a bus.** Phone → crowsnest is
-      testable today, since publishing is unaffected by the binding fault, but it needs a platform in the
-      phone's library and this phone has none. Crowsnest → phone **cannot** be tested until
-      eclipse-zenoh/zenoh-flat-jni#49 lands: receiving a library means subscribing, which aborts. The
-      fixture test covers the shape; it cannot cover the wire.
 
 ## Blocked on the Zenoh Android binding
 

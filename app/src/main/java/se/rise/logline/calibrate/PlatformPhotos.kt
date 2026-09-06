@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.util.Log
+import se.rise.logline.sensors.ScaledJpeg
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
@@ -179,7 +180,18 @@ fun photoSampleSize(width: Int, height: Int, maxEdge: Int): Int {
  * this device cannot decode, or a panorama that will not fit in memory, and none of those is worth
  * more than a line on the screen.
  */
-fun importPlatformPhoto(context: Context, uri: Uri): ByteArray? = runCatching {
+fun importPlatformPhoto(context: Context, uri: Uri): ByteArray? = importPhoto(context, uri)?.jpeg
+
+/**
+ * [importPlatformPhoto]'s working half, which also says how large the result came out.
+ *
+ * A platform photograph never needed the dimensions — it is displayed from the file. Checklist
+ * evidence does: the metadata travels on a different subject from the bytes, so a station that has
+ * not fetched a photo still has to lay out a tile for it, and `ChecklistItemEvidence` carries
+ * `width`/`height` for exactly that. One scale-rotate-re-encode path either way, which is the rule
+ * this file already states.
+ */
+fun importPhoto(context: Context, uri: Uri): ScaledJpeg? = runCatching {
     val source = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
     val rotation = context.contentResolver.openInputStream(uri)?.use { stream ->
         photoRotationDegrees(ExifInterface(stream).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1))
@@ -206,9 +218,13 @@ fun importPlatformPhoto(context: Context, uri: Uri): ByteArray? = runCatching {
             Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
         }
         try {
-            ByteArrayOutputStream()
-                .also { out.compress(Bitmap.CompressFormat.JPEG, PHOTO_QUALITY, it) }
-                .toByteArray()
+            ScaledJpeg(
+                jpeg = ByteArrayOutputStream()
+                    .also { out.compress(Bitmap.CompressFormat.JPEG, PHOTO_QUALITY, it) }
+                    .toByteArray(),
+                width = out.width,
+                height = out.height,
+            )
         } finally {
             if (out !== decoded) out.recycle()
         }

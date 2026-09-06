@@ -74,6 +74,7 @@ import se.rise.logline.calibrate.enuOffsetMetres
 import se.rise.logline.calibrate.exportCalibration
 import se.rise.logline.calibrate.exportPlatformRegistry
 import se.rise.logline.calibrate.importCandidates
+import se.rise.logline.calibrate.importPhoto
 import se.rise.logline.calibrate.importPlatformPhoto
 import se.rise.logline.calibrate.importPlatforms
 import se.rise.logline.calibrate.initialBearingDegrees
@@ -1628,17 +1629,65 @@ private fun App(
             // is what had checklists switched off entirely. They are still in the tree; nothing routes
             // to them, and whether they come back is a decision filed in TODO.md rather than one made
             // by deleting somebody's working feature as a side effect.
+
+            // Which item a picked photograph belongs to. Held beside the launcher rather than passed
+            // through it, because `PickVisualMedia` hands back a Uri and nothing else.
+            var evidenceTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+            var evidenceMessage by remember { mutableStateOf<String?>(null) }
+            val evidencePicker = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.PickVisualMedia()
+            ) { uri ->
+                val target = evidenceTarget
+                evidenceTarget = null
+                if (uri == null || target == null) return@rememberLauncherForActivityResult
+                scope.launch {
+                    // Decode, rotate and re-encode off the main thread — the source is a phone
+                    // camera's several megapixels whatever the stored copy ends up as. The same
+                    // `importPhoto` the platform editor uses, so there is one such path in the app.
+                    val photo = withContext(Dispatchers.IO) { importPhoto(context, uri) }
+                    if (photo == null) {
+                        evidenceMessage = "That image could not be read."
+                    } else {
+                        evidenceMessage = null
+                        app.checklist.attachEvidence(
+                            procedureId = target.second,
+                            itemId = target.third,
+                            jpeg = photo.jpeg,
+                            width = photo.width,
+                            height = photo.height,
+                            runId = target.first,
+                        )
+                    }
+                }
+            }
+
             ChecklistRunsScreen(
                 state = checklistState,
                 canTick = current.hasChecklistIdentity(),
                 onSetIdentity = { nav.navigate(Routes.SETTINGS) },
-                onToggleItem = { procedureId, itemId, done ->
+                onToggleItem = { runId, procedureId, itemId, done ->
                     if (done) {
-                        app.checklist.revertItem(procedureId, itemId)
+                        app.checklist.revertItem(procedureId, itemId, runId = runId)
                     } else {
-                        app.checklist.completeItem(procedureId, itemId)
+                        app.checklist.completeItem(procedureId, itemId, runId = runId)
                     }
                 },
+                onFlagItem = { runId, procedureId, itemId, reason ->
+                    app.checklist.flagItem(procedureId, itemId, reason, runId = runId)
+                },
+                onResolveFlag = { runId, procedureId, itemId, resolution ->
+                    app.checklist.resolveFlag(procedureId, itemId, resolution, runId = runId)
+                },
+                onAttachPhoto = { runId, procedureId, itemId ->
+                    evidenceTarget = Triple(runId, procedureId, itemId)
+                    evidencePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                onAbandonRun = { runId, procedureId, reason ->
+                    app.checklist.abandonRun(procedureId, reason, runId = runId)
+                },
+                message = evidenceMessage,
                 onBack = { nav.popBackStack() },
             )
         }
