@@ -70,25 +70,6 @@ completes, and that is not something app code can fix.
 
 ## Other 
 
-
-
-
-- [x] **`McapRecovery` cannot tell a tail of zeros from data.** Its walk reads an opcode and a length
-      and accepts any record that fits the file, so a zero-filled tail — which is what ext4's delayed
-      allocation can leave after a power cut, as against a simple truncation — parses as a chain of
-      zero-length records with opcode `0x00`. That is not a valid MCAP opcode, but nothing checks, so
-      the trim lands past the real data and a run of junk records gets a footer appended after it.
-      The messages before it are unaffected and still readable; the file is wrong at the edge, and a
-      strict reader may object to the opcode. Checking the opcode against the known set would cut in
-      the right place. Only reachable through the hard-cut case above, so unreproduced here too.
-      Reproduced after all — not the power cut, but the shape it leaves, by appending zeros to a
-      real unfinished file. Worse than filed: **one byte trimmed out of a 4 kB tail**, the walk
-      having accepted 455 phantom records. An undefined `0x7F` opcode went the same way. Fixed by
-      checking the opcode against the spec's `0x01`-`0x0F` before trusting the length, which costs a
-      genuine orphan nothing — checked against the real 1 540 716-byte one from this phone, trim 0
-      before and after. Done in the commit below.
-
-
 - [ ] **The three checklist QoS assignments are unobserved, and the reason is that nothing publishes
       them — not that nothing can listen.** `checklist_event` is `elevated`, `checklist_presence`
       `transient` and `checklist_state` `background` as of `0.6.0-pre.15`, and `policyQosForSubject`

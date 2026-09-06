@@ -70,6 +70,7 @@ import se.rise.logline.calibrate.HeadingSource
 import se.rise.logline.calibrate.ImportDisposition
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.PlatformZero
+import se.rise.logline.calibrate.zeroFromFix
 import se.rise.logline.calibrate.bodyOffsetMetres
 import se.rise.logline.calibrate.enuOffsetMetres
 import se.rise.logline.calibrate.exportCalibration
@@ -1900,21 +1901,11 @@ private fun App(
                 capture = capture,
                 onCaptureZero = {
                     captureFix("Averaging the zero point") { fix ->
-                        // The heading is kept: it is established separately and a re-capture of the
-                        // position is not a reason to forget which way the platform points.
-                        val previous = draft.zero
                         calibrationDraft = draft.copy(
-                            zero = PlatformZero(
-                                latitude = fix.point.latitude,
-                                longitude = fix.point.longitude,
-                                altitudeM = fix.point.altitudeM.takeIf { fix.hasAltitude },
-                                accuracyM = fix.accuracyM,
-                                scatterM = fix.scatterM,
-                                headingDeg = previous?.headingDeg ?: 0.0,
-                                headingSource = previous?.headingSource ?: HeadingSource.MANUAL,
-                                capture = CaptureMethod.GNSS_AVERAGE,
-                                samples = fix.samples,
-                                capturedAtEpochMillis = System.currentTimeMillis(),
+                            zero = zeroFromFix(
+                                fix = fix,
+                                previous = draft.zero,
+                                atEpochMillis = System.currentTimeMillis(),
                             )
                         )
                     }

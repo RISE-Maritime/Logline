@@ -157,6 +157,39 @@ data class SensorMount(
 }
 
 /** Upstream's `platform_type` vocabulary, verbatim. */
+/**
+ * Turn an averaged fix into a zero point, keeping what the previous one established.
+ *
+ * **A function rather than four lines at the call site, because the call site is a Compose lambda
+ * and nothing there can be tested.** The bug this exists to prevent already happened once:
+ * [AveragedFix.verticalAccuracyM] was computed, stored, serialised and *required* by the covariance
+ * on the wire, and the construction simply never assigned it — so no captured zero ever carried a
+ * covariance, silently, because the missing branch just does not fire. Field-by-field copying is
+ * exactly the shape that goes wrong quietly, and `ZeroFromFixTest` now walks every field.
+ *
+ * **The heading and its source survive a re-capture.** Which way the platform points is established
+ * separately, in its own wizard step, and moving the position is not a reason to forget it.
+ */
+fun zeroFromFix(
+    fix: AveragedFix,
+    previous: PlatformZero?,
+    atEpochMillis: Long,
+): PlatformZero = PlatformZero(
+    latitude = fix.point.latitude,
+    longitude = fix.point.longitude,
+    // Only where the fix actually carried one: `LatLonAlt` defaults its altitude to 0, and a zero
+    // metres that means "not reported" is the kind of confident wrong number this codebase keeps out.
+    altitudeM = fix.point.altitudeM.takeIf { fix.hasAltitude },
+    accuracyM = fix.accuracyM,
+    verticalAccuracyM = fix.verticalAccuracyM,
+    scatterM = fix.scatterM,
+    headingDeg = previous?.headingDeg ?: 0.0,
+    headingSource = previous?.headingSource ?: HeadingSource.MANUAL,
+    capture = CaptureMethod.GNSS_AVERAGE,
+    samples = fix.samples,
+    capturedAtEpochMillis = atEpochMillis,
+)
+
 enum class PlatformType(val wire: String) {
     VESSEL("vessel"),
     LANDKRABBA("landkrabba"),
