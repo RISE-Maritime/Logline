@@ -101,12 +101,25 @@ object Subjects {
     // *sensor* publishing set, and every derived thing — sampling rates, `SensorManager` types, MCAP
     // channels, live-view rings, the main screen's rows, the per-subject switches — reads it. A
     // checklist subject there would grow a phantom sensor card with a rate control for a thing a
-    // person taps. These four are published and subscribed by `checklist/ChecklistSync`, which owns
+    // person taps. These five are published and subscribed by `checklist/ChecklistSync`, which owns
     // its own session and its own lifetime.
     const val CHECKLIST_EVENT = "checklist_event"
     const val CHECKLIST_STATE = "checklist_state"
     const val CHECKLIST_PRESENCE = "checklist_presence"
     const val CHECKLIST_PROCEDURE = "checklist_procedure"
+
+    /**
+     * The image bytes for one piece of checklist evidence, one key per `evidence_id`.
+     *
+     * `foxglove.CompressedImage`, the same payload as [IMAGE_COMPRESSED] and deliberately a
+     * different subject: `checklist_state` is republished every 30 s into a durable store, so a
+     * photo inlined there would be megabytes on the wire twice a minute to restate a picture that
+     * has not changed. The *metadata* that names this key travels inside the snapshot and the event
+     * as `keelson.ChecklistItemEvidence`; the bytes are fetched lazily, one key at a time.
+     *
+     * See `policyQosForSubject` for why it is not `transient` alongside the camera frames.
+     */
+    const val CHECKLIST_EVIDENCE = "checklist_evidence"
 }
 
 /** The fixed source ids for the radio links, which are hardware facts rather than user settings. */

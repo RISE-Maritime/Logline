@@ -87,6 +87,41 @@ class QosTest {
     }
 
     /**
+     * The checklist subjects, assigned upstream in `0.6.0-pre.15` and unlisted in every release
+     * before it. Three different profiles for four subjects on one feature, which is the tell that
+     * they were assigned individually rather than as a group.
+     *
+     * They need their own test because [`every other published subject inherits default`] iterates
+     * `PublishedSubject`, and the checklist subjects are deliberately absent from that registry —
+     * so nothing else in this file would notice any of them drifting.
+     */
+    @Test
+    fun `the checklist subjects take the three profiles upstream assigns them`() {
+        assertSame(QosProfile.ELEVATED, policyQosForSubject(Subjects.CHECKLIST_EVENT))
+        assertSame(QosProfile.TRANSIENT, policyQosForSubject(Subjects.CHECKLIST_PRESENCE))
+        assertSame(QosProfile.BACKGROUND, policyQosForSubject(Subjects.CHECKLIST_STATE))
+    }
+
+    /**
+     * And the two `qos.yaml` names explicitly as `default` — by decision, not by omission.
+     *
+     * `checklist_evidence` is the one that matters, because it carries the same
+     * `foxglove.CompressedImage` as `image_compressed`, which is `transient` three tests up. The
+     * payload is identical and the stance is opposite: a camera frame is corrected by the next one,
+     * an evidence photo is a one-shot write of a safety record nothing will ever republish. Reading
+     * the payload type and grouping the two is the mistake this pins.
+     */
+    @Test
+    fun `checklist_procedure and checklist_evidence are default by decision`() {
+        assertSame(QosProfile.DEFAULT, policyQosForSubject(Subjects.CHECKLIST_PROCEDURE))
+        assertSame(QosProfile.DEFAULT, policyQosForSubject(Subjects.CHECKLIST_EVIDENCE))
+        assertNotSame(
+            policyQosForSubject(Subjects.IMAGE_COMPRESSED),
+            policyQosForSubject(Subjects.CHECKLIST_EVIDENCE),
+        )
+    }
+
+    /**
      * Everything else this app publishes is unlisted in `qos.yaml` and inherits `default`. Promoting
      * one locally would make the same subject travel differently from this phone than from any other
      * connector, which is the whole thing the policy file exists to prevent.
@@ -126,14 +161,47 @@ class QosTest {
         assertProfile(QosProfile.ELEVATED, Priority.DATA_HIGH, Reliability.RELIABLE, express = false)
         assertProfile(QosProfile.DEFAULT, Priority.DATA, Reliability.RELIABLE, express = false)
         assertProfile(QosProfile.BACKGROUND, Priority.DATA_LOW, Reliability.RELIABLE, express = false)
+        assertProfile(QosProfile.NO_DROP, Priority.DATA_HIGH, Reliability.RELIABLE, express = true)
     }
 
-    /** Every profile in qos.yaml drops rather than blocks — blocking would stall a sensor thread. */
+    /**
+     * Nothing this app publishes blocks the producer, which is the invariant that matters — every
+     * publish here happens on a sensor collector, and BLOCK stalls the publishing thread.
+     *
+     * This used to assert `DROP` across every entry of the enum, which was the same statement while
+     * `qos.yaml` had no blocking profile. `0.6.0-pre.15` added one (`no_drop`, for
+     * `scenario_tick_ack`), and the enum transcribes upstream whether or not this app uses a
+     * profile — so the assertion moved from the table to the subjects, which is where the hazard
+     * actually lives.
+     */
     @Test
-    fun `no profile blocks the producer`() {
-        QosProfile.entries.forEach {
-            assertEquals(CongestionControl.DROP, it.congestionControl)
+    fun `nothing this app publishes blocks the producer`() {
+        val published = PublishedSubject.entries.map { it.subject } + listOf(
+            Subjects.CHECKLIST_EVENT,
+            Subjects.CHECKLIST_STATE,
+            Subjects.CHECKLIST_PRESENCE,
+            Subjects.CHECKLIST_PROCEDURE,
+            Subjects.CHECKLIST_EVIDENCE,
+        )
+        published.forEach {
+            assertEquals(
+                "$it must not block a collector thread",
+                CongestionControl.DROP,
+                policyQosForSubject(it).congestionControl,
+            )
         }
+    }
+
+    /**
+     * And `no_drop` is the only blocking profile in the table, so a `BLOCK` appearing on any other
+     * one — which would silently change the stance of everything assigned to it — still fails here.
+     */
+    @Test
+    fun `no_drop is the only blocking profile`() {
+        assertEquals(
+            listOf(QosProfile.NO_DROP),
+            QosProfile.entries.filter { it.congestionControl == CongestionControl.BLOCK },
+        )
     }
 
     /** The whole on-the-wire change for this app: location_fix outranks the routine telemetry. */
