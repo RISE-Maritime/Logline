@@ -189,6 +189,18 @@ class SensorPublisher(private val appContext: Context) {
      */
     fun recordingLoad(): QueueLoad = recorder.queueLoad
 
+    /**
+     * Rescue any recording an interrupted run left in app-private storage.
+     *
+     * Exposed because the Activity calls it at launch, which is the moment somebody who has just
+     * charged a phone that died mid-run goes looking for the file. Before that the sweep ran only
+     * when a *new* run started, so the recording stayed invisible until somebody pressed Start —
+     * which reads exactly like the app having lost it.
+     *
+     * Safe whether or not a run is going; the guards are `Recorder.publishOrphanRecordings`'s.
+     */
+    suspend fun publishOrphanRecordings() = recorder.publishOrphanRecordings()
+
     private var scope: CoroutineScope? = null
     private var session: KeelsonSession? = null
     /** The key each entry publishes on, so the recorder can use it as the MCAP channel topic. */

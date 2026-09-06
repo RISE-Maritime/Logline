@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -289,6 +290,20 @@ class MainActivity : ComponentActivity() {
                 runCatching { app.settingsRepository.settings.first().theme }.getOrNull()
             }
         }
+
+        // **Rescue an interrupted recording now, not when somebody next presses Start.**
+        //
+        // A phone that dies mid-run leaves its file in app-private storage, unfinalised and invisible
+        // — the Files tab does not list it and no file manager can reach it. The sweep used to run
+        // only from `Recorder.start()`, so the recording appeared only once another run began, which
+        // is both an odd thing to ask of somebody and indistinguishable from the app having lost it.
+        // Measured on the dev phone: a 1.5 MB recording, every record intact, sitting invisible.
+        //
+        // On the Activity rather than in `LoglineApp.onCreate`, because this is about the moment a
+        // person opens the app and looks — a `START_STICKY` service restart brings the process up
+        // with no UI and nobody waiting on a file. Cheap when there is nothing to do (one directory
+        // listing) and self-limiting when there is, since a published orphan is deleted.
+        lifecycleScope.launch { app.publisher.publishOrphanRecordings() }
 
         setContent {
             // Collected here rather than inside `App()` because the theme *wraps* it — the scheme has
@@ -1172,6 +1187,15 @@ private fun App(
                 folderGranted,
             ) {
                 value = withContext(Dispatchers.IO) {
+                    // **Sweep before listing, not beside it.** The launch sweep runs on its own
+                    // coroutine, so landing on this tab a second later could read the folder while a
+                    // rescued recording was still being copied — and the answer would be an
+                    // authoritative-looking list with the file missing, which is the very thing this
+                    // whole change exists to stop. Awaiting it means the tab shows its loading state
+                    // for as long as the copy takes, which is honest: the file is genuinely not there
+                    // yet. Idempotent and guarded, so this is a directory listing when there is
+                    // nothing to rescue, and waits behind the launch sweep rather than skipping it.
+                    app.publisher.publishOrphanRecordings()
                     savedRecordings(context, current.recordingsFolderUri)
                 }
             }

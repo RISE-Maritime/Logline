@@ -7,39 +7,6 @@ gotchas in [CLAUDE.md](CLAUDE.md) and [README.md](README.md), which is where som
 go looking — so a ticked item can be deleted without reading it. New findings are added to the end of
 the section they belong to.
 
-## V1 (2026-08-25)
-
-Released as `1.0`. The guides and the release path landed with it; what is listed below is what V1
-knowingly ships without, not what was forgotten.
-
-- [ ] **The release workflow has never run.** It parses, its tag trigger and permissions are right, and
-      one real bug was caught by reading the parsed YAML rather than by running it: the keystore step's
-      `if` referenced `env.` for a variable defined in its own `env:` block, which is evaluated too
-      late — every release would have come out quietly unsigned. That class of mistake is why the CI
-      history in CLAUDE.md records three red runs. **It cannot be proven from here**: it needs a push
-      and a tag. Until then the honest status is "written and reviewed", not "working".
-
-- [ ] **The signing keystore does not exist yet.** `docs/deploying.md` has the one `keytool` command,
-      and the four GitHub secrets the workflow reads. Deliberately not generated here — a signing key
-      outlives the app, and whoever holds it can ship builds that install over yours. Until it exists,
-      a release APK is unsigned and cannot install over a signed build.
-
-- [ ] **`main` is 40+ commits ahead of `origin/main`.** Nothing above reaches CI, and no tag can build,
-      until that is pushed. Pushing stays the owner's call.
-
-## Future long therm 
-
-
-## Blocked on the Zenoh Android binding
-
-Everything under here waits on the same fault: `zenoh-flat-jni` builds callback arguments with
-`FindClass` on one of Zenoh's own threads, where JNI cannot see app classes. Four classes have been
-seen to trigger it — `ZenohId` (scout), `EntityGlobalId` (a query reply), `Timestamp` and `SourceInfo`
-(any subscribed sample) — and a router timestamps every sample it forwards, so **no subscription works
-at all**. Filed as
-[eclipse-zenoh/zenoh-flat-jni#49](https://github.com/eclipse-zenoh/zenoh-flat-jni/issues/49);
-`keelson/ZenohBinding.kt` owns the diagnosis and `SUBSCRIPTIONS_SAFE` is the one boolean that lifts it.
-1.10.0 is the newest release, so no version bump escapes it.
 
 ## Live camera over WHEP — blocked in the Zenoh binding (2026-08-22)
 
@@ -101,7 +68,9 @@ completes, and that is not something app code can fix.
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
       turn the feature on. Done in db09694.
 
-- [ ] **An interrupted recording surfaces only when the next run starts, which is the wrong moment.**
+## Other 
+
+- [x] **An interrupted recording surfaces only when the next run starts, which is the wrong moment.**
       `publishOrphans()` is called from `Recorder.start()` (`Recorder.kt:187`). After a flat battery
       that means charging the phone and opening the app shows **nothing** — the file is in
       `filesDir/recordings`, invisible to the Files tab and to any file manager, until somebody
@@ -112,6 +81,16 @@ completes, and that is not something app code can fix.
       `publish()` treats a vanished file as somebody else's success precisely for that race, and a
       launch-time sweep adds a third party to it. Measured: nothing. This was found by reading, and
       the read is the only evidence.
+      **Then it was reproduced, within the hour**: a recording interrupted by shutting the phone off
+      sat invisible in `filesDir/recordings`, 1.5 MB with every record intact, while the Files tab
+      reported nothing. The race turned out to be worse than filed — `start()` launches the sweep
+      alongside the drain's first `openSession()`, so a sweep could already finalise the file of the
+      run that had just begun, truncating it under its own writer. `Recorder.owned` now tracks every
+      file the drain is responsible for, a set rather than one file so a rotation's in-flight copy is
+      covered too, and the sweep skips them. Sweeps are serialised with a `Mutex` rather than a
+      skip-if-busy flag, because the Files route awaits one before listing and a caller that skipped
+      would list mid-copy. Verified end to end on the dev phone: opening the app moved the orphan to
+      Downloads, every original byte preserved and 50 appended. Done in the commit below.
 
 - [ ] **Nothing is ever `fsync`ed, so a real power cut loses more than the chunk bound implies.**
       `sink.flush()` appears once, in `McapWriter.finish()`; during a run the 64 kB

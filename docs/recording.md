@@ -58,17 +58,16 @@ smaller than the data it contains, where before compression the same payload cos
 framing. Recording stops rather than filling the disk if free space drops below 256 MB.
 
 Files are written to app-private storage first and moved to Downloads when closed, so a crash cannot
-lose one to a half-finished MediaStore entry. **A recording interrupted by a kill is repaired when the
-next run starts**: the app trims it to the last complete record and appends a footer, because a file
+lose one to a half-finished MediaStore entry. **A recording interrupted by a kill is repaired the next time the app is opened**: the app trims it to the last complete record and appends a footer, because a file
 without one has all its messages present and none of them reachable — readers seek to the footer
 first. The repaired file has no statistics, so readers scan it; the messages are intact.
 
-**If the phone's battery goes flat mid-run, the recording is not lost — but it is not finished, and
-it will not appear on its own.** Charging the phone and opening the app shows nothing in Files: the
-repair and the move to Downloads both happen when the *next run starts*, so **press Start once** and
-the interrupted recording appears alongside, labelled "incomplete, never closed". Until then it is in
-app-private storage where no file manager can reach it. A few seconds at the end of the run are gone
-— what was still in memory when the power went — and everything before that is intact.
+**If the phone's battery goes flat mid-run, the recording is not lost.** Charge the phone and open
+the app: the interrupted recording is repaired and moved to Downloads on launch, and appears in Files
+labelled "incomplete, never closed". It opens and replays normally; only its summary figures are
+missing, so a reader scans it rather than seeking. At most a few seconds at the end are gone — what
+was still in memory when the power went — and on a real one measured here nothing was: the last
+chunk had already been written, and the repair added 50 bytes without removing any.
 
 Nothing stops a run because the battery is low. The Session screen warns under half an hour and the
 notification carries the same figure, but neither ends the recording the way running out of disk

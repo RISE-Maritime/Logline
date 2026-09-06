@@ -1443,11 +1443,14 @@ simply never finds anything on the bus.
   Measured rather than assumed — deleting a file behind the app's back and returning to the tab takes
   the count from 7 to 6, so navigation genuinely re-reads. What does explain it: a run **in progress** is
   deliberately absent, living in app-private storage until it closes; a run that was **interrupted**
-  rather than stopped only reaches Downloads when the **next run starts** — `publishOrphans()` is
-  called from `Recorder.start()`, not from app launch, which is the distinction that matters when a
-  phone has just come back from a flat battery: charging it and opening the app shows nothing, and
-  the file sits in `filesDir/recordings` where no file manager can see it either, until somebody
-  presses Start again. It then arrives labelled "incomplete, never closed"; and a run that ends **while the Files tab is on screen**
+  rather than stopped reaches Downloads **when the app is opened**, and the Files tab awaits that
+  sweep before it lists, so the answer it gives is never one taken mid-rescue. It arrives labelled
+  "incomplete, never closed". That used to happen only when the **next run started** —
+  `publishOrphans()` was called from `Recorder.start()` alone — which meant a phone back from a flat
+  battery showed an empty Files tab, with the recording sitting in `filesDir/recordings` where no
+  file manager can see it either, until somebody happened to press Start. Reproduced on the dev
+  phone: a 1.5 MB recording, every record intact, invisible. Fixed by sweeping from
+  `MainActivity.onCreate` and from the Files route as well; and a run that ends **while the Files tab is on screen**
   — which only the notification's stop action can do — used to need a trip away and back, since the
   listing is otherwise read once per composition and after a delete. That last one is now handled by
   bumping the revision when `recording.recording` goes false.
@@ -1681,8 +1684,29 @@ simply never finds anything on the bus.
   is reasoning from documented behaviour, not a measurement — say so before quoting it at anybody.
   Either way the file is left with **no DataEnd, no summary and no footer**, which is unreadable
   rather than merely lossy: a reader seeks to the footer first, so every message is present and none
-  is reachable until `McapRecovery.finalise()` has walked it. See the Files-tab gotcha above for
-  *when* that happens, which is later than anybody expects.
+  is reachable until `McapRecovery.finalise()` has walked it — which now happens when the app is
+  opened. Measured on the real thing: an orphan of 1 540 716 bytes came back as 1 540 766, every
+  original byte preserved verbatim and **50 appended** — a DataEnd, a footer and the closing magic —
+  with all 15 chunks, 12 schemas and 50 channels intact across the 20.5 s it had recorded. Nothing
+  was trimmed, because the last chunk had flushed before the phone went down.
+- **The orphan sweep must never touch a file the drain owns**, and `Recorder.owned` is what stops it.
+  `McapRecovery.finalise()` truncates to the last complete record and appends a footer; run against a
+  live file that leaves the writer positioned past the new end, so everything it writes afterwards
+  lands beyond the footer and a reader silently stops at it. `publish()` would then copy a partial
+  file and delete it, and the run would carry on writing to an unlinked inode.
+  It is a **set**, not the one live file, because a rotation hands the finished file to its own
+  coroutine and opens the next immediately — so for the length of a 512 MB copy the drain owns two,
+  and tracking only the live one would let a sweep race the rotation for the other. Claimed *before*
+  the file is created, released only once its copy has been attempted.
+  This hazard predates the launch sweep: `start()` has always launched the sweep alongside the
+  drain's first `openSession()`, so the window existed and was microseconds wide. Making the sweep
+  reachable from an Activity widened it to most of a run, which is what turned a latent race into one
+  worth closing. `McapRecoveryTest` pins the destructive behaviour itself rather than the guard,
+  since the guard needs a `Context` — the point being that skipping is a rule, not a courtesy.
+- **Sweeps are serialised by a `Mutex`, and a second caller waits rather than skipping.** The Files
+  route awaits a sweep before it lists, so a caller that returned early on finding one in flight
+  would go on to read the folder mid-copy and answer with an authoritative-looking list that is
+  missing the file — the exact failure the sweep exists to prevent, reintroduced one layer up.
 - **`PublisherService.onDestroy()` closes the file, and must not be relied on to.** It reaches
   `RecordingSession.close()` through `stopPublishing()`, so an ordinary teardown finalises the
   recording properly. A shutdown kill does not call it, and even when it is called `Recorder.stop()`

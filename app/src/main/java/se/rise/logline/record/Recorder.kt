@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import se.rise.logline.publish.RuntimeEstimate
 import se.rise.logline.publish.RuntimeEstimator
@@ -141,6 +144,45 @@ class Recorder(private val appContext: Context) {
     private val recordingsDir: File get() = recordingsDir(appContext)
 
     /**
+     * Every file the drain still owns: the one being written, plus any rotated file whose copy to
+     * Downloads has not finished yet.
+     *
+     * **The orphan sweep must never touch these.** `McapRecovery.finalise()` truncates a file to its
+     * last complete record and appends a footer, which is exactly right for a file nobody owns and
+     * catastrophic for one a `RecordingSession` is still writing into: the writer holds a buffered
+     * stream at an offset the truncation has just invalidated, and `publish()` would then copy a
+     * partial file and delete it out from under the run, which carries on writing to an unlinked
+     * inode and produces nothing at all.
+     *
+     * A **set** rather than a single file, because a rotation hands the finished file to its own
+     * coroutine and opens the next one immediately — so for the length of a 512 MB copy the drain
+     * owns two. Tracking only the live one would leave the rotated file unclaimed and let a sweep
+     * race the rotation for it; both would survive it (`finalise()` no-ops on a closed file, and
+     * `publish()` treats a vanished one as somebody else's success) but they would copy half a
+     * gigabyte twice to find that out.
+     *
+     * Claimed *before* the file is created, so there is no window where a session's file exists and
+     * is unclaimed. Released only once its copy has been attempted.
+     */
+    private val owned: MutableSet<File> =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
+
+    /**
+     * Serialises sweeps. Two at once would race on `finalise()`, which is a read-modify-truncate on
+     * a shared file.
+     *
+     * **A mutex rather than a "already running, skip" flag**, and the difference is the whole
+     * guarantee: the Files tab awaits a sweep before it lists, so a caller that skipped an in-flight
+     * one would go on to read the folder while a rescued recording was still being copied into it —
+     * and answer with an authoritative-looking list that is missing the file. Queuing costs a caller
+     * the length of a copy it was going to wait for anyway.
+     *
+     * Reachable now that the Activity sweeps as well as a run start: opening the app while a run
+     * begins, or an Activity recreation landing on top of an earlier sweep.
+     */
+    private val sweepLock = Mutex()
+
+    /**
      * Offer a sample. Never blocks and never throws — it is called from the publish path, where a
      * throw would be swallowed into a subject failure and kill that collector.
      */
@@ -184,7 +226,7 @@ class Recorder(private val appContext: Context) {
         // drain meant a 212 MB orphan blocked the loop for the length of a copy, and every sample
         // offered meanwhile was counted as dropped: measured at 20 000 lost in the first half-minute
         // of a run, with the file still showing zero messages.
-        newScope.launch { publishOrphans() }
+        newScope.launch { sweepOrphans() }
         // Its own coroutine for the same reason: a `statvfs` is cheap but it is still I/O, and the
         // drain loop is what must never wait.
         newScope.launch { trackFreeSpace() }
@@ -283,8 +325,14 @@ class Recorder(private val appContext: Context) {
                     // publish whichever file it happened to name by the time it ran.
                     val finished = session.path
                     runScope.launch {
-                        if (publish(finished)) {
-                            _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+                        try {
+                            if (publish(finished)) {
+                                _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+                            }
+                        } finally {
+                            // Held until the copy is done, not merely until the next file opens —
+                            // see [owned] for what a sweep would otherwise duplicate.
+                            owned.remove(finished)
                         }
                     }
                     session = openSession(descriptor, maxBytes) ?: return
@@ -321,6 +369,8 @@ class Recorder(private val appContext: Context) {
             if (session.messageCount > 0) pushFileStatus(session, force = true)
             val saved = runCatching { publish(session.path) }.getOrDefault(false)
             if (saved) _status.update { it.copy(filesCompleted = it.filesCompleted + 1) }
+            // Released once its copy has been attempted. Until then a sweep leaves it alone.
+            owned.remove(session.path)
             // Only the count. `fileName`, `messagesWritten` and `bytesWritten` describe the last file
             // that actually took a sample, and after a rotation the final session can be empty — so
             // restating them here would replace a real file's figures with an empty one's zeroes.
@@ -342,7 +392,11 @@ class Recorder(private val appContext: Context) {
             return null
         }
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HHmmss", Locale.US).format(Date())
-        return RecordingSession(File(recordingsDir, "logline-$stamp.mcap"), descriptor, maxBytes)
+        val file = File(recordingsDir, "logline-$stamp.mcap")
+        // Claimed *before* the session constructs it, so the sweep can never see an unclaimed file
+        // that a writer is about to open. See [owned].
+        owned.add(file)
+        return RecordingSession(file, descriptor, maxBytes)
     }
 
     /**
@@ -456,15 +510,48 @@ class Recorder(private val appContext: Context) {
         }
     }
 
-    private fun publishOrphans() {
-        recordingsDir.listFiles { f -> f.isFile && f.name.endsWith(".mcap") }?.forEach { orphan ->
-            // Finalise before publishing: a killed process leaves a file with no footer, and readers
-            // seek to the footer first — so every message is present and none of them is reachable.
-            val trimmed = runCatching { McapRecovery.finalise(orphan) }
-                .onFailure { Log.w(TAG, "could not finalise ${orphan.name}", it) }
-                .getOrNull()
-            Log.i(TAG, "publishing orphaned recording ${orphan.name} (trimmed ${trimmed ?: 0} bytes)")
-            publish(orphan)
+    /**
+     * Rescue anything an interrupted run left behind: finalise it, copy it to Downloads, delete it.
+     *
+     * **Called at app launch as well as at run start**, and the launch call is the one that matters
+     * to anybody. A phone that dies mid-run leaves its recording in app-private storage where no
+     * file manager can see it and the Files tab does not list it — so before this, charging the
+     * phone and opening the app showed nothing, and the recording only appeared once somebody
+     * happened to start *another* run. Measured on the dev phone: a 1.5 MB recording, fully intact,
+     * sat invisible while the app reported an empty Files tab.
+     *
+     * Safe to call at any time and from anywhere:
+     *
+     * - **It skips every file in [owned].** Finalising a file a session is writing into would
+     *   truncate it under the writer and then delete it out from under the run. That hazard is not
+     *   new — the run-start call has always raced the drain's first `openSession()` — but it was a
+     *   microsecond window nobody had hit, and making this reachable from app launch would have
+     *   widened it to the whole time an Activity can be created, which is most of a run.
+     * - **Only one runs at a time, and a second caller waits rather than skipping.** `finalise()` is
+     *   a read-modify-truncate, so two sweeps meeting on one file would corrupt exactly the recording
+     *   they exist to rescue — and a caller that skipped an in-flight sweep would list the folder
+     *   mid-copy and report the file still missing.
+     *
+     * A properly closed file that has not been published yet — a rotation's copy still in flight —
+     * is handled without a guard of its own: `finalise()` returns null on a file whose tail is
+     * already the closing magic, and `publish()` treats a vanished file as somebody else's success.
+     */
+    suspend fun publishOrphanRecordings() = withContext(Dispatchers.IO) { sweepOrphans() }
+
+    private suspend fun sweepOrphans() {
+        sweepLock.withLock {
+            recordingsDir.listFiles { f -> f.isFile && f.name.endsWith(".mcap") }
+                ?.filter { it !in owned }
+                ?.forEach { orphan ->
+                    // Finalise before publishing: a killed process leaves a file with no footer, and
+                    // readers seek to the footer first — so every message is present and none of them
+                    // is reachable.
+                    val trimmed = runCatching { McapRecovery.finalise(orphan) }
+                        .onFailure { Log.w(TAG, "could not finalise ${orphan.name}", it) }
+                        .getOrNull()
+                    Log.i(TAG, "publishing orphaned recording ${orphan.name} (trimmed ${trimmed ?: 0} bytes)")
+                    publish(orphan)
+                }
         }
     }
 
