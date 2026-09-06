@@ -29,7 +29,21 @@ import java.io.OutputStream
  * Deliberately free of Android types so the format can be tested on the JVM, where the assertions can
  * be about bytes rather than about what a screenshot looks like.
  */
-class McapWriter(private val sink: OutputStream) {
+class McapWriter(
+    private val sink: OutputStream,
+    /**
+     * Called once a chunk record has been written to [sink], for a caller that wants the bytes
+     * committed rather than merely handed over.
+     *
+     * A hook rather than the writer doing it, because this class deliberately knows nothing about
+     * files — it takes an `OutputStream` and its tests write to a buffer. What "commit" means belongs
+     * to whoever owns the file; see `RecordingSession`.
+     *
+     * Fires from [finish]'s flush too, which costs one extra commit on a file that is about to be
+     * closed and is not worth a second code path to avoid.
+     */
+    private val onChunkWritten: () -> Unit = {},
+) {
 
     private var bytes = 0L
     private var messages = 0L
@@ -210,6 +224,7 @@ class McapWriter(private val sink: OutputStream) {
             putRaw(compressed)
         }
         chunks++
+        onChunkWritten()
         chunk.reset()
         chunkMessages = 0
         chunkEarliest = Long.MAX_VALUE

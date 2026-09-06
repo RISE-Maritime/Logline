@@ -34,11 +34,48 @@ class RecordingSession(
     private val descriptorSet: ByteArray,
     private val maxBytes: Long,
 ) {
-    private val stream: OutputStream = BufferedOutputStream(file.outputStream(), BUFFER_BYTES)
-    private val writer = McapWriter(stream)
+    private val fileStream = file.outputStream()
+    private val stream: OutputStream = BufferedOutputStream(fileStream, BUFFER_BYTES)
+    private val writer = McapWriter(stream, onChunkWritten = ::commit)
+
     private val schemaIds = mutableMapOf<String, Int>()
     private val channelIds = mutableMapOf<String, Int>()
     private val sequences = mutableMapOf<Int, Int>()
+
+    /**
+     * Get the chunk that was just written all the way onto the disk.
+     *
+     * Two steps, and both are load-bearing. `flush()` drains the 64 kB [BUFFER_BYTES] buffer, which
+     * is app memory and dies with the process — about a second of file at the measured 241 MB/h, on
+     * top of whatever the open chunk holds. `sync()` then commits what the OS has, which otherwise
+     * sits in the page cache on the kernel's own 5-30 s writeback schedule.
+     *
+     * **The two failures are different and only one of them was already covered.** A process kill —
+     * Android's low-battery shutdown, an LMK, a crash — loses app memory and keeps the page cache,
+     * because an orderly shutdown flushes it: that is why killing the app 25 s into a run recovered
+     * 24.7 s. A *hard* cut loses the page cache too, and without this the bound on that was the
+     * kernel's schedule rather than anything this app controls. With it, both failures cost the same
+     * thing: the open chunk, which `CHUNK_MAX_AGE_NANOS` already bounds at two seconds.
+     *
+     * Done per chunk rather than per message on purpose, and the cost was measured rather than
+     * assumed, because this runs on the drain — the one coroutine in this app that must not fall
+     * behind. On a Pixel 6 at 336 samples/s across 50 streams: **1.65 ms mean** over 71 commits
+     * (1.29-1.99 ms), one every **~1.4 s**, so **about 0.12% of the drain's wall time**. Nothing was
+     * dropped and the run wrote 39 016 samples in 1:56.
+     *
+     * Note the interval is set by the 256 kB size bound rather than the 2 s time bound at these
+     * rates — a chunk compresses to about 84 kB, so the file grows at roughly 61 kB/s and fills a
+     * chunk in well under two seconds. A slower run syncs less often, not more, and the 2 s bound is
+     * what keeps the worst case bounded when almost nothing is being recorded.
+     *
+     * A sync *per message* would be a different proposition entirely: at 336 samples/s the same
+     * 1.65 ms would be more than half the drain's time, and at the 800/s this app has been measured
+     * at it would not keep up at all.
+     */
+    private fun commit() {
+        stream.flush()
+        fileStream.fd.sync()
+    }
 
     init {
         writer.start()

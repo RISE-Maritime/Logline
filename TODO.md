@@ -70,29 +70,8 @@ completes, and that is not something app code can fix.
 
 ## Other 
 
-- [x] **An interrupted recording surfaces only when the next run starts, which is the wrong moment.**
-      `publishOrphans()` is called from `Recorder.start()` (`Recorder.kt:187`). After a flat battery
-      that means charging the phone and opening the app shows **nothing** — the file is in
-      `filesDir/recordings`, invisible to the Files tab and to any file manager, until somebody
-      presses Start on another run. It reads exactly like the app having lost the recording, and the
-      instinct (open the app and look) is the one thing that does not work.
-      The fix is a line — sweep at app launch as well — but it is a behaviour change worth thinking
-      about first, because the stop path and the orphan sweep can already meet on one file:
-      `publish()` treats a vanished file as somebody else's success precisely for that race, and a
-      launch-time sweep adds a third party to it. Measured: nothing. This was found by reading, and
-      the read is the only evidence.
-      **Then it was reproduced, within the hour**: a recording interrupted by shutting the phone off
-      sat invisible in `filesDir/recordings`, 1.5 MB with every record intact, while the Files tab
-      reported nothing. The race turned out to be worse than filed — `start()` launches the sweep
-      alongside the drain's first `openSession()`, so a sweep could already finalise the file of the
-      run that had just begun, truncating it under its own writer. `Recorder.owned` now tracks every
-      file the drain is responsible for, a set rather than one file so a rotation's in-flight copy is
-      covered too, and the sweep skips them. Sweeps are serialised with a `Mutex` rather than a
-      skip-if-busy flag, because the Files route awaits one before listing and a caller that skipped
-      would list mid-copy. Verified end to end on the dev phone: opening the app moved the orphan to
-      Downloads, every original byte preserved and 50 appended. Done in the commit below.
 
-- [ ] **Nothing is ever `fsync`ed, so a real power cut loses more than the chunk bound implies.**
+- [x] **Nothing is ever `fsync`ed, so a real power cut loses more than the chunk bound implies.**
       `sink.flush()` appears once, in `McapWriter.finish()`; during a run the 64 kB
       `BufferedOutputStream` drains only when it fills, and what reaches the OS sits in the page
       cache on the kernel's own 5–30 s writeback schedule. A process kill is fine — the page cache
@@ -104,6 +83,13 @@ completes, and that is not something app code can fix.
       on the assumption that writing is cheap.
       **Reasoned, not measured.** The hard-cut case has never been reproduced here, and modern phones
       do not make it easy to try.
+      Done: `RecordingSession.commit()` flushes and syncs after each chunk, so a kill and a hard cut
+      now cost the same bounded thing. The cost was the open question and it is answered — **1.65 ms
+      mean over 71 commits on a Pixel 6, one every ~1.4 s, 0.12% of the drain's wall time**, nothing
+      dropped at 336 samples/s across 50 streams. Cheaper than feared because the interval is set by
+      the 256 kB size bound, so a slower run syncs *less* often. Note what is still true: the
+      hard-cut case remains unreproduced, so this bounds a failure nobody here has seen. Done in the
+      commit below.
 
 - [ ] **`McapRecovery` cannot tell a tail of zeros from data.** Its walk reads an opcode and a length
       and accepts any record that fits the file, so a zero-filled tail — which is what ext4's delayed

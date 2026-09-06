@@ -1673,15 +1673,21 @@ simply never finds anything on the bus.
   takes a different set of them. At the measured 241 MB/h default (~67 kB/s of file):
   the `Recorder` channel (~45 s of capacity, but drained continuously, so normally near-empty); the
   **open zstd chunk**, 256 kB uncompressed or 2 s; the **64 kB `BufferedOutputStream`** in
-  `RecordingSession`, which is about **one second** at that rate; and the **OS page cache**, which is
-  unbounded here because **nothing ever calls `fsync`** — `sink.flush()` appears exactly once, in
-  `McapWriter.finish()`, so during a run the buffer drains only when it fills.
-  **A process kill loses the first three, roughly 1–3 s**, and the page cache survives because an
-  orderly shutdown flushes it. That is consistent with the one real measurement — 25 s in, 87 193
-  messages covering 24.7 s came back, so ~0.3 s. **A genuine power cut loses the page cache too**,
-  which is whatever the kernel had not yet written on its own 5–30 s schedule: bounded by the
-  platform rather than by anything here. That second case has never been reproduced on this phone and
-  is reasoning from documented behaviour, not a measurement — say so before quoting it at anybody.
+  `RecordingSession`; and the **OS page cache**.
+  **`RecordingSession.commit()` collapses the bottom two into the chunk bound.** After each chunk it
+  flushes the buffer and calls `fd.sync()`, so the only thing in flight is the open chunk — which
+  means a process kill and a hard power cut now cost the *same* thing, at most two seconds, where
+  before the cut was bounded by the kernel's 5–30 s writeback schedule rather than by anything this
+  app controls. It used to be that `sink.flush()` appeared exactly once, in `McapWriter.finish()`.
+  **The cost was measured, because it lands on the drain**: a Pixel 6 at 336 samples/s across 50
+  streams took **1.65 ms mean** over 71 commits (1.29–1.99 ms), one every **~1.4 s**, i.e. **0.12% of
+  the drain's wall time**, with nothing dropped. The interval is set by the 256 kB size bound rather
+  than the 2 s time bound at those rates, so a *slower* run syncs less often, not more. A sync per
+  message would be a different proposition entirely — the same 1.65 ms would be over half the drain's
+  time at 336/s and would not keep up at the 800/s this app has been measured at.
+  The one real end-to-end measurement of a kill still stands: 25 s in, 87 193 messages covering
+  24.7 s came back, ~0.3 s lost. **The hard-cut case has still never been reproduced on this phone** —
+  what changed is the bound, not the evidence — so say so before quoting it at anybody.
   Either way the file is left with **no DataEnd, no summary and no footer**, which is unreadable
   rather than merely lossy: a reader seeks to the footer first, so every message is present and none
   is reachable until `McapRecovery.finalise()` has walked it — which now happens when the app is
