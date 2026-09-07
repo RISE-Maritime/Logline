@@ -2259,6 +2259,28 @@ simply never finds anything on the bus.
   answering from two identical points dressed as a measurement. Below the floor it shows the
   existing heading marked `· unchanged` and disables Use, so confirming an untouched screen cannot
   silently rewrite a compass heading as a typed one.
+- **A sensor offset can be pointed at on a chart too, and it is a *relative* measurement — which is
+  what makes it worth having.** The offset is the difference between the zero and the sensor, and a
+  chart's dominant error is the imagery's georeferencing, which is largely a uniform local shift —
+  and a uniform shift cancels out of a difference. The same argument as the map baseline, applied one
+  level down. So on a large platform this can beat walking there with the phone, whose fix accuracy
+  this app already warns is often larger than the offset being measured.
+  It changes **neither height nor rotation**. A chart is flat, so `z` is kept from whatever was
+  there; and a phone beside a radar can measure where the radar *is* but not where it is *looking*,
+  which is why rotation is always typed and a map changes nothing about that.
+  `enuFromBodyOffset` and `pointFromEnuOffset` are the two inverses this needed. The second uses the
+  origin's latitude for the radii where the forward direction uses the mean of both ends, and the
+  cost is **measured rather than claimed**: sub-millimetre within about a hundred metres, about three
+  centimetres at five hundred. The first version of that comment said sub-millimetre "out to a few
+  hundred metres" and `GeodesyInverseTest` disagreed, which is why the figure is a measurement.
+- **osmdroid's map centre comes back quantised, and it is not a measurement.** `setCenter` fires the
+  scroll listener, and what `mapCenter` then reports is not the point that went in — measured on a
+  Pixel 6 at about **11 cm at zoom 18**. Harmless as a view; not harmless as a measurement. Before
+  `MOVED_THRESHOLD_M`, opening the sensor picker and confirming without touching anything moved an
+  offset of 23.699 m to 23.81 m and recorded it as a fresh measurement. `PositionPickerMap` now
+  reports nothing until the centre has genuinely left where it was put, after which it reports
+  everything — including a pan back to the start, which is a decision where the opening report never
+  was. Every picker seeds its own readout from what it already holds, so nothing is blank without it.
 - **The picker is the first map in this app that is read as well as written**, and it is full screen
   for the reason `RecordingChart` records: an interactive map inside a `verticalScroll` loses every
   drag to the page. `PositionPickerMap` reports its centre through an `onCentre` lambda fed by

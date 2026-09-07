@@ -63,9 +63,9 @@ fun ForwardAxisPicker(
     var typed by remember { mutableStateOf<String?>(null) }
 
     // **Only once the crosshair is far enough from the zero to mean anything.** The map opens
-    // centred on the zero, so without this the screen's first frame reports a zero-length baseline —
-    // a bearing `atan2` returns from two identical points, dressed up as a measurement, beside an
-    // uncertainty of eighty-odd degrees. Seen on the phone: `324° true · 0 m from the zero`.
+    // centred on the zero, so without this the first pan of a few pixels reports a baseline of
+    // centimetres — a bearing `atan2` all but invents, beside an uncertainty of eighty-odd degrees.
+    // Seen on the phone before the map stopped reporting its opening centre: `324° true · 0 m`.
     val fromMap = centre
         ?.let { headingFromBaseline(anchor, it) }
         ?.takeIf { it.lengthM >= MIN_BASELINE_M }

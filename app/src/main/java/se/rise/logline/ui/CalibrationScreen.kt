@@ -915,8 +915,12 @@ private fun ZeroPositionPicker(
     // Seeded from the existing zero so the readout says something before the first drag, and so
     // opening the picker on an already-placed zero and confirming immediately is a no-op rather than
     // a move to wherever the map happened to open.
+    // Seeded from the zero as it stands, and **only changed by an actual pan**: the map does not
+    // report where it opened, because osmdroid's centre comes back quantised and confirming an
+    // untouched screen would then record that rounding as a new measurement.
     var latitude by remember { mutableStateOf(existing?.latitude) }
     var longitude by remember { mutableStateOf(existing?.longitude) }
+    var moved by remember { mutableStateOf(false) }
     var accuracy by rememberSaveable { mutableStateOf("") }
 
     val typedAccuracy = accuracy.trim().toDoubleOrNull()
@@ -933,14 +937,25 @@ private fun ZeroPositionPicker(
                     val lon = longitude
                     if (lat != null && lon != null) onPick(lat, lon, typedAccuracy)
                 },
-                saveEnabled = latitude != null && longitude != null && accuracyValid,
+                // An untouched screen has nothing to save: the position it shows is the one
+                // already stored, and re-recording it would relabel a surveyed fix as a map pick.
+                saveEnabled = moved && latitude != null && longitude != null && accuracyValid,
                 onCancel = onCancel,
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                map(existing, existing, { lat, lon -> latitude = lat; longitude = lon }, Modifier.fillMaxSize())
+                map(
+                    existing,
+                    existing,
+                    { lat, lon ->
+                        latitude = lat
+                        longitude = lon
+                        moved = true
+                    },
+                    Modifier.fillMaxSize(),
+                )
                 // Screen space, not a map overlay: the crosshair is fixed to the middle of the view
                 // and needs no projection to know where that is.
                 Icon(

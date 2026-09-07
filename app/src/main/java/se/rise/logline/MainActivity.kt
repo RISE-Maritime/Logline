@@ -71,6 +71,9 @@ import se.rise.logline.calibrate.ImportDisposition
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.calibrate.PlatformZero
 import se.rise.logline.calibrate.headingFromBaseline
+import se.rise.logline.calibrate.pointFromEnuOffset
+import se.rise.logline.calibrate.enuFromBodyOffset
+import se.rise.logline.ui.SensorOffsetPicker
 import se.rise.logline.calibrate.zeroFromFix
 import org.osmdroid.util.GeoPoint
 import se.rise.logline.ui.PositionPickerMap
@@ -2187,6 +2190,41 @@ private fun App(
                         }
                     }
                 },
+                // Null unless there is something to place it against. A zero gives the origin and
+                // the heading gives the frame — an offset is forward/starboard, and without a bow
+                // direction there is no forward. The button greys out and the info says why.
+                offsetPicker = draft.zero
+                    ?.takeIf { it.hasPosition }
+                    ?.let { zero ->
+                        { offset, onPick, onCancelPick ->
+                            SensorOffsetPicker(
+                                label = existing?.label.orEmpty(),
+                                zero = zero.point(),
+                                headingDeg = zero.headingDeg,
+                                current = offset,
+                                sensorPoint = { at ->
+                                    pointFromEnuOffset(
+                                        zero.point(),
+                                        enuFromBodyOffset(at, zero.headingDeg),
+                                    )
+                                },
+                                map = { anchor, sensor, onCentre, m ->
+                                    PositionPickerMap(
+                                        start = GeoPoint(sensor.latitude, sensor.longitude),
+                                        existing = GeoPoint(sensor.latitude, sensor.longitude),
+                                        anchor = GeoPoint(anchor.latitude, anchor.longitude),
+                                        onCentre = onCentre,
+                                        layer = liveLayer,
+                                        offlineOnly = current.offlineTilesOnly,
+                                        mapTilerKey = current.mapTilerKey,
+                                        modifier = m,
+                                    )
+                                },
+                                onCancel = onCancelPick,
+                                onPick = onPick,
+                            )
+                        }
+                    },
                 onCapture = {
                     captureFix("Averaging this sensor's position") { fix ->
                         val zero = draft.zero ?: return@captureFix

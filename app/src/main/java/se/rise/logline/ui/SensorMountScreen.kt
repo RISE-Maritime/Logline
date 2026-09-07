@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -104,6 +105,16 @@ fun SensorMountScreen(
     capture: CaptureState,
     captured: CapturedOffset?,
     onCapture: () -> Unit,
+    /**
+     * The map for placing this sensor, supplied by `MainActivity`, and null when there is nothing to
+     * place it against — no zero point, or no heading, since an offset is expressed in the platform
+     * frame and without a heading there is no frame to express it in.
+     */
+    offsetPicker: (@Composable (
+        at: Vec3M,
+        onPick: (Vec3M) -> Unit,
+        onCancel: () -> Unit,
+    ) -> Unit)?,
     /** A measured rotation that has landed, replacing the three angle fields and nothing else. */
     capturedRotation: CapturedRotation?,
     onCaptureRotation: () -> Unit,
@@ -212,6 +223,30 @@ fun SensorMountScreen(
     BackHandler(enabled = true) { leave() }
 
     var info by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Full screen while it is open, the same shape the zero and the forward axis use, and for the
+    // same reason: this screen is a scrolling form and a map inside one loses its drags to the page.
+    var placing by rememberSaveable { mutableStateOf(false) }
+
+    if (placing && offsetPicker != null) {
+        offsetPicker(
+            translation,
+            { picked ->
+                placing = false
+                // Straight into the fields, so the map and the numbers are one value rather than two.
+                // `.fmt()` and not `String.format`: on a Swedish phone the latter writes `0,220`,
+                // which `toDoubleOrNull()` rejects and Save then stores as 0.0 — the bug this screen
+                // shipped once and `SensorMountFieldsTest` exists to stop coming back.
+                x = "%.3f".fmt(picked.x)
+                y = "%.3f".fmt(picked.y)
+                z = "%.3f".fmt(picked.z)
+                method = CaptureMethod.MAP
+                accuracyM = null
+                capturedAt = System.currentTimeMillis()
+            },
+            { placing = false },
+        )
+        return
+    }
 
     info?.let { (title, body) ->
         InfoDialog(title = title, body = body, onDismiss = { info = null })
@@ -283,8 +318,11 @@ fun SensorMountScreen(
                     info = "Where it is" to
                         "Metres from the platform's zero point: x forward, y to starboard, z DOWN — " +
                         "maritime convention, not robotics.\n\n" +
-                        "Capture measures the offset by walking to the sensor, which needs a zero " +
-                        "point first. A tape measure beats a phone at decimetre scale."
+                        "Walk to it measures the offset by standing at the sensor, which needs a " +
+                        "zero point first. Map points at it on a chart instead — a difference " +
+                        "between two points on one image, so the chart's own offset cancels and " +
+                        "what is left is how well you pointed.\n\n" +
+                        "A tape measure beats both at decimetre scale."
                 },
             )
             // Kept: the field labels carry the directions, but nothing else carries the *sign*.
@@ -299,11 +337,18 @@ fun SensorMountScreen(
                 NumberField("Down (z)", z, { z = it }, Modifier.weight(1f))
             }
             CaptureRow(capture)
-            OutlinedButton(
-                onClick = onCapture,
-                enabled = hasZero && capture !is CaptureState.Running,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Capture from where I am standing") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onCapture,
+                    enabled = hasZero && capture !is CaptureState.Running,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Walk to it", maxLines = 1) }
+                OutlinedButton(
+                    onClick = { placing = true },
+                    enabled = offsetPicker != null,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Map", maxLines = 1) }
+            }
             if (!hasZero) {
                 StatusLine(
                     text = "No zero point yet",

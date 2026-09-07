@@ -79,6 +79,9 @@ fun PositionPickerMap(
     // Guards the opening centre. Setting it on every update would haul the map back under the
     // crosshair each time the layer changed, which is the one thing a picker must never do.
     val opened = remember { mutableRefOf<Boolean>() }
+    // Whether the person has actually moved the map, as against osmdroid telling us where it put
+    // itself. See [MOVED_THRESHOLD_M].
+    val moved = remember { mutableRefOf<Boolean>() }
 
     AndroidView(
         modifier = modifier.clipToBounds(),
@@ -104,15 +107,32 @@ fun PositionPickerMap(
                 // are needed — a zoom moves the ground under a fixed centre just as a scroll moves
                 // the centre over fixed ground, and a picker that only listened to one would show a
                 // stale position after the other.
+                val report = {
+                    val here = GeoPoint(mapCenter.latitude, mapCenter.longitude)
+                    // **Programmatic centring fires this listener too**, and what comes back is not
+                    // the point that went in: osmdroid quantises its centre to its own fixed-point
+                    // projection, measured on a Pixel 6 at about 11 cm at zoom 18. Harmless as a
+                    // view, and not harmless as a measurement — before this latch, opening a sensor
+                    // picker and confirming without touching anything moved an offset of 23.699 m to
+                    // 23.81 m and recorded it as a fresh measurement.
+                    //
+                    // So nothing is reported until the centre has genuinely left where it was put.
+                    // After that everything is, including a pan back to the start: that is a
+                    // decision, where the opening report never was.
+                    if (moved.value == true || here.distanceToAsDouble(start ?: HOME_CENTRE) > MOVED_THRESHOLD_M) {
+                        moved.value = true
+                        onCentre(here.latitude, here.longitude)
+                    }
+                }
                 addMapListener(
                     object : MapListener {
                         override fun onScroll(event: ScrollEvent?): Boolean {
-                            mapCenter.let { onCentre(it.latitude, it.longitude) }
+                            report()
                             return false
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
-                            mapCenter.let { onCentre(it.latitude, it.longitude) }
+                            report()
                             return false
                         }
                     }
@@ -133,6 +153,7 @@ fun PositionPickerMap(
             marker.inkColor = chartInk(layer)
             axis.from = anchor
             axis.bearingDeg = bearingDeg
+            marker.origin = anchor?.takeIf { it != existing }
 
             if (opened.value != true) {
                 opened.value = true
@@ -144,9 +165,16 @@ fun PositionPickerMap(
                 } else {
                     map.addOnFirstLayoutListener { _, _, _, _, _ -> map.controller.setCenter(centre) }
                 }
-                // Report the opening position too, or the readout under the crosshair is blank until
-                // the first drag — which reads as a broken map rather than as an untouched one.
-                onCentre(centre.latitude, centre.longitude)
+                // **The opening position is deliberately not reported.** osmdroid quantises its
+                // centre to its own fixed-point projection, so what it hands back after `setCenter`
+                // is not the point it was given — measured on a Pixel 6 at about **11 cm** at zoom
+                // 18, which is a tenth of a metre appearing from nowhere.
+                //
+                // That is harmless as a *view* and not harmless as a *measurement*: with it, opening
+                // a picker and confirming without touching anything moved a sensor offset of 23.699
+                // m to 23.81 m and recorded it as a fresh measurement. Every caller seeds its own
+                // readout from what it already holds, so nothing is blank without this — and
+                // "nothing has been chosen yet" is now a state the screens can actually detect.
             }
             map.invalidate()
         },
@@ -174,6 +202,7 @@ private fun <T> mutableRefOf() = Ref<T>()
 private class ExistingZeroOverlay : Overlay() {
 
     var at: GeoPoint? = null
+    var origin: GeoPoint? = null
     var inkColor: Int = Color.WHITE
 
     private val fill = Paint().apply {
@@ -190,6 +219,13 @@ private class ExistingZeroOverlay : Overlay() {
 
     override fun draw(canvas: Canvas, map: MapView, shadow: Boolean) {
         if (shadow) return
+        // The point a measurement is taken *from*, when there is one and it is not the same thing.
+        // A ring rather than a dot: it is a reference, not the value being chosen, and the two must
+        // be tellable apart on a screen where both may be visible at once.
+        origin?.let {
+            val screen = map.projection.toPixels(it, null)
+            canvas.drawCircle(screen.x.toFloat(), screen.y.toFloat(), MARKER_PX, edge)
+        }
         val point = at ?: return
         val screen = map.projection.toPixels(point, null)
         canvas.drawCircle(screen.x.toFloat(), screen.y.toFloat(), MARKER_PX, fill)
@@ -259,3 +295,13 @@ private class ForwardAxisOverlay : Overlay() {
  * around it, where this one is aiming at a specific corner of a specific quay.
  */
 private const val PICK_ZOOM = 18.0
+
+/**
+ * How far the centre has to leave its opening point before a report counts as a decision.
+ *
+ * Comfortably above osmdroid's own quantisation — about 11 cm at zoom 18 on a Pixel 6 — and
+ * comfortably below anything somebody would place deliberately. A metre is also below the precision
+ * any of these screens claims for itself: the sensor picker says a tape measure beats it at
+ * decimetre scale, and the forward axis will not accept a baseline under five metres.
+ */
+private const val MOVED_THRESHOLD_M = 1.0

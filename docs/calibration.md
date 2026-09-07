@@ -87,9 +87,16 @@ Reference Point — sits at that origin unless `ccrp_m` says otherwise.
      north plus a declination that depends on where you are; without one the app reports the magnetic
      reading and refuses to pass it off as true.
    - **Type** — from a drawing or a surveyed heading.
-4. **Add each sensor.** Name it, pick its type, then either type the offsets or *Capture from where I
-   am standing* — stand the phone at the sensor and the offset falls out of the two positions and the
-   heading.
+4. **Add each sensor.** Name it, pick its type, then type the offsets, *Walk to it* — stand the
+   phone at the sensor and the offset falls out of the two positions and the heading — or *Map*,
+   which points at it on a chart.
+
+   The map is a **relative** measurement, between the zero and the sensor on one image, so the
+   chart's own offset cancels and what is left is how well you pointed. On a large platform that
+   beats walking there: the phone's fix accuracy is often larger than the offset being measured, and
+   the app says so when it is. It changes neither height nor rotation — a chart is flat, and it
+   cannot see which way a radar is looking. A tape measure still beats all three at decimetre
+   scale.
 
    **Rotation can be measured or typed.** *Measure with the phone* lays it flat against the sensor's
    mounting face, screen up, top edge the way the sensor faces, and reads its attitude for four

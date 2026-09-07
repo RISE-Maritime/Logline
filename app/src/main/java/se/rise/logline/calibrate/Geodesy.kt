@@ -155,6 +155,49 @@ fun bodyOffsetMetres(enu: Enu, platformHeadingDeg: Double): Vec3M {
 }
 
 /**
+ * The inverse of [bodyOffsetMetres]: where a platform-frame offset lands in local ENU.
+ *
+ * Needed to draw a sensor that has already been measured — the model stores forward/starboard/down,
+ * and a map needs a latitude and a longitude. Rotation by −h, and the same sign flip on Z:
+ *
+ * ```
+ * n = x·cos h − y·sin h
+ * e = x·sin h + y·cos h
+ * u = −z
+ * ```
+ */
+fun enuFromBodyOffset(body: Vec3M, platformHeadingDeg: Double): Enu {
+    val h = Math.toRadians(platformHeadingDeg)
+    return Enu(
+        eastM = body.x * sin(h) + body.y * cos(h),
+        northM = body.x * cos(h) - body.y * sin(h),
+        upM = -body.z,
+    )
+}
+
+/**
+ * The inverse of [enuOffsetMetres]: the point a local ENU offset reaches from [from].
+ *
+ * **Uses [from]'s own latitude for the radii rather than the mean of the two**, which the forward
+ * direction can compute because it knows both ends. The cost grows with distance and is measured
+ * rather than asserted: **sub-millimetre within about a hundred metres, and about three centimetres
+ * at five hundred** (`GeodesyInverseTest`). Platform-scale offsets are the first of those, and three
+ * centimetres is well inside what the offset itself is known to.
+ *
+ * The first draft of this comment claimed sub-millimetre out to "a few hundred metres" and the round
+ * trip disagreed, which is the reason the figure here is a measurement.
+ */
+fun pointFromEnuOffset(from: LatLonAlt, enu: Enu): LatLonAlt {
+    val lat = Math.toRadians(from.latitude)
+    return LatLonAlt(
+        latitude = from.latitude + Math.toDegrees(enu.northM / meridianRadiusM(from.latitude)),
+        longitude = from.longitude +
+            Math.toDegrees(enu.eastM / (primeVerticalRadiusM(from.latitude) * cos(lat))),
+        altitudeM = from.altitudeM + enu.upM,
+    )
+}
+
+/**
  * The mean of a set of headings, degrees in `[0, 360)`.
  *
  * A plain average is wrong at north and wrong in a way that looks right: 359° and 1° average to 180°,
