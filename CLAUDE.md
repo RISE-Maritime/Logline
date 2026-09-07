@@ -2273,6 +2273,12 @@ simply never finds anything on the bus.
   cost is **measured rather than claimed**: sub-millimetre within about a hundred metres, about three
   centimetres at five hundred. The first version of that comment said sub-millimetre "out to a few
   hundred metres" and `GeodesyInverseTest` disagreed, which is why the figure is a measurement.
+- **A `MapView` swallows taps whatever its gesture settings say**, so a `clickable` on the
+  `AndroidView`'s own modifier never fires. Both calibration cards had one and neither worked — found
+  by tapping a preview on the phone and watching nothing happen. `PreviewMapButton` puts a
+  transparent box over the map instead. Gestures stay off on the map as well: the overlay stops taps
+  reaching it, not drags, and a preview that pans inside a scrolling column is the fight the
+  full-screen pickers exist to avoid.
 - **osmdroid's map centre comes back quantised, and it is not a measurement.** `setCenter` fires the
   scroll listener, and what `mapCenter` then reports is not the point that went in — measured on a
   Pixel 6 at about **11 cm at zoom 18**. Harmless as a view; not harmless as a measurement. Before

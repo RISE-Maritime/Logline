@@ -68,7 +68,22 @@ completes, and that is not something app code can fix.
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
       turn the feature on. Done in db09694.
 
-## Other 
+- [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
+  Two independent faults, both found by running it:
+  `WHEPResponse(res.text)` raises `TypeError: No positional arguments allowed` — protobuf requires
+  keyword arguments, and the repo source has `WHEPResponse(sdp=res.text)`, so it is fixed upstream
+  and unreleased. And it declares the **legacy** key
+  `rise/@v0/{entity}/@rpc/whep_signal/{responder}` with no interface or version chunk, where the
+  repo source and crowsnest both use `.../@rpc/whep_proxy/v1/whep_signal/{responder}`.
+  So crowsnest's camera feature cannot be working against `latest` either. Worth telling RISE.
+
+- [ ] **MediaMTX silently drops AAC for WebRTC.** `skipping track 2 (MPEG-4 Audio)` — a WHEP viewer
+  gets video and no sound. The source has to publish Opus. Not an app problem, but it is the first
+  thing to check when a feed has no audio.
+
+
+
+## Checklist
 
 - [ ] **The three checklist QoS assignments are unobserved, and the reason is that nothing publishes
       them — not that nothing can listen.** `checklist_event` is `elevated`, `checklist_presence`
@@ -136,17 +151,11 @@ completes, and that is not something app code can fix.
       evidence and run controls, so the overlap is larger than it was — but the note and reminder
       dialogs still live only in the old pair.
 
-- [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
-      Two independent faults, both found by running it:
-      `WHEPResponse(res.text)` raises `TypeError: No positional arguments allowed` — protobuf requires
-      keyword arguments, and the repo source has `WHEPResponse(sdp=res.text)`, so it is fixed upstream
-      and unreleased. And it declares the **legacy** key
-      `rise/@v0/{entity}/@rpc/whep_signal/{responder}` with no interface or version chunk, where the
-      repo source and crowsnest both use `.../@rpc/whep_proxy/v1/whep_signal/{responder}`.
-      So crowsnest's camera feature cannot be working against `latest` either. Worth telling RISE.
+## Calibration 
 
-- [ ] **MediaMTX silently drops AAC for WebRTC.** `skipping track 2 (MPEG-4 Audio)` — a WHEP viewer
-      gets video and no sound. The source has to publish Opus. Not an app problem, but it is the first
-      thing to check when a feed has no audio.
-
-  
+- [x] Calibration proces forward display a small map as a pre-view similar as zero
+      Done, and it found that neither preview was tappable: a `MapView` consumes touches in
+      `onTouchEvent` whatever its gesture settings say, so the `clickable` on the zero card's map had
+      never fired either. The tap target is a transparent box over the map now.
+      The Forward step also had no `CaptureRow`, so Baseline and Compass ran their 20 s and 4 s
+      captures with no progress shown anywhere. Both fixed in the commit below.  

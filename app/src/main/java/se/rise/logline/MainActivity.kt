@@ -2118,10 +2118,15 @@ private fun App(
                         modifier = m,
                     )
                 },
-                previewMap = { at, m ->
+                previewMap = { at, bearingDeg, m ->
                     PositionPickerMap(
                         start = GeoPoint(at.latitude, at.longitude),
                         existing = GeoPoint(at.latitude, at.longitude),
+                        // The axis is drawn from the same point it is measured from, so the anchor
+                        // and the marker coincide — a dot inside its own ring, which is what the zero
+                        // looks like on every one of these maps.
+                        anchor = bearingDeg?.let { GeoPoint(at.latitude, at.longitude) },
+                        bearingDeg = bearingDeg,
                         // A preview reports nothing: it is not being panned, and the card has
                         // nowhere to put a moving coordinate anyway.
                         onCentre = { _, _ -> },

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.Color
+import se.rise.logline.calibrate.degreesPerMetreOfError
 import se.rise.logline.calibrate.zeroFromMap
 import se.rise.logline.calibrate.LatLonAlt
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -165,8 +166,13 @@ fun CalibrationScreen(
         onCentre: (Double, Double) -> Unit,
         Modifier,
     ) -> Unit,
-    /** The same map, still and untouchable, for the card. */
-    previewMap: @Composable (at: LatLonAlt, Modifier) -> Unit,
+    /**
+     * The same map, still and untouchable, for the cards.
+     *
+     * One lambda for both rather than two, because the only thing that differs is whether an axis is
+     * drawn from the point: the zero's card passes no bearing, the forward axis's passes its own.
+     */
+    previewMap: @Composable (at: LatLonAlt, bearingDeg: Double?, Modifier) -> Unit,
     /** The same map again, anchored at the zero and drawing the axis it is being pointed along. */
     forwardMap: @Composable (
         anchor: LatLonAlt,
@@ -512,6 +518,12 @@ fun CalibrationScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    ForwardCard(
+                        zero = calibration.zero,
+                        previewMap = previewMap,
+                        onOpenMap = { pickingAxis = true },
+                    )
+                    CaptureRow(capture)
                     // Two rows of two rather than four across: three already had to be shortened to
                     // one word each to stop them wrapping, and a fourth would take the width below
                     // what any of these words fit in. 2x2 is squarer than 3+1 besides.
@@ -762,10 +774,50 @@ private fun StepNav(step: Int, onStepChange: (Int) -> Unit) {
     }
 }
 
+/**
+ * Which way the platform points, drawn rather than only stated.
+ *
+ * The same argument as the zero's card: a bearing is a number nothing checks, and an axis running
+ * off the wrong end of a quay is obvious in a picture and invisible in `137°`. It needs the zero's
+ * position, because a direction has to be drawn *from* somewhere — which is the same thing Baseline
+ * and Map both need, and the line below the buttons already says so.
+ */
+@Composable
+private fun ForwardCard(
+    zero: PlatformZero?,
+    previewMap: @Composable (LatLonAlt, Double?, Modifier) -> Unit,
+    onOpenMap: () -> Unit,
+) {
+    if (zero == null || !zero.hasPosition) return
+    Card(Modifier.fillMaxWidth()) {
+        PreviewMapButton(onOpenMap) { m -> previewMap(zero.point(), zero.headingDeg, m) }
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "${formatBearing(zero.headingDeg.toFloat())}° true",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                buildString {
+                    append(zero.headingSource.label)
+                    // The length belongs with the angle wherever the angle appears: it is what says
+                    // how much the angle is worth, and a bearing shown without it invites trusting
+                    // one taken over two metres as much as one taken over fifty.
+                    zero.headingBaselineM?.let { length ->
+                        append(" · ${length.roundToInt()} m baseline")
+                        append(" · ±${"%.1f".fmt(degreesPerMetreOfError(length))}° per metre of error")
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun ZeroCard(
     zero: PlatformZero?,
-    previewMap: @Composable (LatLonAlt, Modifier) -> Unit,
+    previewMap: @Composable (LatLonAlt, Double?, Modifier) -> Unit,
     onOpenMap: () -> Unit,
 ) {
     // A heading typed before anything was captured is stored as a zero with no position — see
@@ -783,13 +835,9 @@ private fun ZeroCard(
         // Where it landed, which the three numbers below cannot show. Not interactive — it sits in a
         // scrolling column, and a map that fights the page for drags is worse than one that does not
         // try. Tapping opens the picker, which has the whole screen to pan in.
-        previewMap(
-            zero.point(),
-            Modifier
-                .fillMaxWidth()
-                .height(PREVIEW_HEIGHT)
-                .clickable(onClick = onOpenMap),
-        )
+        // No axis here: this card is about where the platform is, and the step that decides which
+        // way it points has a card of its own.
+        PreviewMapButton(onOpenMap) { m -> previewMap(zero.point(), null, m) }
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 formatPosition(zero.latitude, zero.longitude),
@@ -1014,3 +1062,23 @@ private fun ZeroPositionPicker(
  * same screenful. The card is a read-out with a picture, not a chart.
  */
 private val PREVIEW_HEIGHT = 140.dp
+
+/**
+ * A still map that opens its picker when tapped.
+ *
+ * **The tap target is a transparent box over the map, not the map's own modifier**, and that is not
+ * belt and braces: a `MapView` consumes touches in `onTouchEvent` whatever its gesture settings say,
+ * so a `clickable` on the `AndroidView` never fires. Both cards had one and neither worked —
+ * found on the phone by tapping a preview and watching nothing happen.
+ *
+ * Gestures stay off on the map itself as well. The overlay stops taps reaching it; it does not stop
+ * a drag, and a preview that pans a little inside a scrolling column is the fight the full-screen
+ * pickers exist to avoid.
+ */
+@Composable
+private fun PreviewMapButton(onClick: () -> Unit, map: @Composable (Modifier) -> Unit) {
+    Box(Modifier.fillMaxWidth().height(PREVIEW_HEIGHT)) {
+        map(Modifier.matchParentSize())
+        Box(Modifier.matchParentSize().clickable(onClick = onClick))
+    }
+}
