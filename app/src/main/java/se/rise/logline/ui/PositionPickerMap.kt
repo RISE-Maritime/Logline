@@ -69,6 +69,16 @@ fun PositionPickerMap(
     anchor: GeoPoint? = null,
     /** The heading to draw from [anchor], true degrees. Null draws no ray. */
     bearingDeg: Double? = null,
+    /**
+     * Where the value sat before this edit, drawn ghosted beside where it sits now.
+     *
+     * The distance between two dots and the angle between two rays are the two things a number
+     * cannot show, and this app's own precedent is that a picture wins exactly there — the
+     * recordings list grew a track thumbnail because "1843 positions" could not say whether the boat
+     * had moved. Null when nothing has changed, which is most of the time.
+     */
+    previous: GeoPoint? = null,
+    previousBearingDeg: Double? = null,
 ) {
     // Keyed, because `setTileSource` compares by identity — a fresh instance every recomposition
     // would swap the source and throw away its tile cache several times a second.
@@ -153,7 +163,9 @@ fun PositionPickerMap(
             marker.inkColor = chartInk(layer)
             axis.from = anchor
             axis.bearingDeg = bearingDeg
+            axis.previousBearingDeg = previousBearingDeg
             marker.origin = anchor?.takeIf { it != existing }
+            marker.previous = previous?.takeIf { it != existing }
 
             if (opened.value != true) {
                 opened.value = true
@@ -203,6 +215,7 @@ private class ExistingZeroOverlay : Overlay() {
 
     var at: GeoPoint? = null
     var origin: GeoPoint? = null
+    var previous: GeoPoint? = null
     var inkColor: Int = Color.WHITE
 
     private val fill = Paint().apply {
@@ -216,9 +229,38 @@ private class ExistingZeroOverlay : Overlay() {
         strokeWidth = 2f
         color = Color.WHITE
     }
+    private val ghost = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.argb(0xB0, 0xC0, 0xC0, 0xC0)
+    }
+    // The halo the coloured marks already carry, for the same reason: no single ink is legible on
+    // both pale map tiles and dark satellite imagery, so the contrast comes from the drawing.
+    private val ghostHalo = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        color = Color.argb(0x80, 0x00, 0x00, 0x00)
+    }
 
     override fun draw(canvas: Canvas, map: MapView, shadow: Boolean) {
         if (shadow) return
+        // Where it was, and the move itself. Muted rather than a second colour: this is history, not
+        // a second reading, and in an app where colour is a traffic light a coloured ghost would be
+        // making a claim about it. The line between the two *is* the "moved 12.4 m" on the card.
+        previous?.let { was ->
+            val from = map.projection.toPixels(was, null)
+            at?.let { now ->
+                val to = map.projection.toPixels(now, null)
+                canvas.drawLine(
+                    from.x.toFloat(), from.y.toFloat(), to.x.toFloat(), to.y.toFloat(), ghostHalo,
+                )
+                canvas.drawLine(from.x.toFloat(), from.y.toFloat(), to.x.toFloat(), to.y.toFloat(), ghost)
+            }
+            canvas.drawCircle(from.x.toFloat(), from.y.toFloat(), MARKER_PX, ghostHalo)
+            canvas.drawCircle(from.x.toFloat(), from.y.toFloat(), MARKER_PX, ghost)
+        }
         // The point a measurement is taken *from*, when there is one and it is not the same thing.
         // A ring rather than a dot: it is a reference, not the value being chosen, and the two must
         // be tellable apart on a screen where both may be visible at once.
@@ -254,6 +296,7 @@ private class ForwardAxisOverlay : Overlay() {
 
     var from: GeoPoint? = null
     var bearingDeg: Double? = null
+    var previousBearingDeg: Double? = null
 
     private val halo = Paint().apply {
         isAntiAlias = true
@@ -267,20 +310,39 @@ private class ForwardAxisOverlay : Overlay() {
         strokeWidth = AXIS_PX
         color = Color.rgb(0xE0, 0x6C, 0x2A)
     }
+    private val ghost = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.argb(0xB0, 0xC0, 0xC0, 0xC0)
+    }
+    private val ghostHalo = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        color = Color.argb(0x80, 0x00, 0x00, 0x00)
+    }
 
     override fun draw(canvas: Canvas, map: MapView, shadow: Boolean) {
         if (shadow) return
         val start = from ?: return
-        val bearing = bearingDeg ?: return
         val origin = map.projection.toPixels(start, null)
+        // The axis as it was, under the one being set. The angle between two rays is the whole of
+        // "turned 124° right" and is the thing the number cannot show.
+        previousBearingDeg?.let { ray(canvas, origin.x, origin.y, it, ghostHalo, ghost) }
+        val bearing = bearingDeg ?: return
+        ray(canvas, origin.x, origin.y, bearing, halo, line)
+    }
+
+    private fun ray(canvas: Canvas, ox: Int, oy: Int, bearing: Double, under: Paint, over: Paint) {
         // Long enough to leave the screen at any sensible zoom, so it reads as a ray rather than as a
         // line to somewhere in particular.
         val reach = hypot(canvas.width.toFloat(), canvas.height.toFloat())
         val radians = Math.toRadians(bearing)
-        val x = origin.x + reach * sin(radians).toFloat()
-        val y = origin.y - reach * cos(radians).toFloat()
-        canvas.drawLine(origin.x.toFloat(), origin.y.toFloat(), x, y, halo)
-        canvas.drawLine(origin.x.toFloat(), origin.y.toFloat(), x, y, line)
+        val x = ox + reach * sin(radians).toFloat()
+        val y = oy - reach * cos(radians).toFloat()
+        canvas.drawLine(ox.toFloat(), oy.toFloat(), x, y, under)
+        canvas.drawLine(ox.toFloat(), oy.toFloat(), x, y, over)
     }
 
     private companion object {

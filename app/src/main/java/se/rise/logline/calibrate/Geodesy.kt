@@ -198,6 +198,20 @@ fun pointFromEnuOffset(from: LatLonAlt, enu: Enu): LatLonAlt {
 }
 
 /**
+ * How far, and which way, one bearing is from another — **the short way round**.
+ *
+ * Positive is clockwise, i.e. to starboard. 350° to 10° is `+20`, not `-340`: the long way round is
+ * arithmetically true and is not what anybody means by "it turned", which is the same reason
+ * `circularMeanDegrees` exists a few lines down. Exactly ±180 is a reversal and comes back positive
+ * rather than arbitrarily; nothing downstream distinguishes the two and a sign that flipped on the
+ * last bit would be worse than one that is simply stated.
+ */
+fun turnDegrees(from: Double, to: Double): Double {
+    val delta = ((to - from) % 360.0 + 540.0) % 360.0 - 180.0
+    return if (delta == -180.0) 180.0 else delta
+}
+
+/**
  * The mean of a set of headings, degrees in `[0, 360)`.
  *
  * A plain average is wrong at north and wrong in a way that looks right: 359° and 1° average to 180°,

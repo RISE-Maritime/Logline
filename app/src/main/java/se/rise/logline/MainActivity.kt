@@ -1896,6 +1896,7 @@ private fun App(
             val draft = calibrationDraft ?: PlatformCalibration.forName("")
             CalibrationScreen(
                 calibration = draft,
+                saved = savedPlatform,
                 onChange = { calibrationDraft = it },
                 publishing = status.running,
                 transformKey = pubsubKey(
@@ -2096,6 +2097,9 @@ private fun App(
                     PositionPickerMap(
                         start = start?.let { GeoPoint(it.latitude, it.longitude) },
                         existing = existing?.let { GeoPoint(it.latitude, it.longitude) },
+                        previous = savedPlatform?.zero
+                            ?.takeIf { it.hasPosition && it.point() != start }
+                            ?.let { GeoPoint(it.latitude, it.longitude) },
                         onCentre = onCentre,
                         layer = liveLayer,
                         offlineOnly = current.offlineTilesOnly,
@@ -2111,6 +2115,9 @@ private fun App(
                         existing = GeoPoint(anchor.latitude, anchor.longitude),
                         anchor = GeoPoint(anchor.latitude, anchor.longitude),
                         bearingDeg = bearingDeg,
+                        previousBearingDeg = savedPlatform?.zero
+                            ?.headingDeg
+                            ?.takeIf { it != bearingDeg },
                         onCentre = onCentre,
                         layer = liveLayer,
                         offlineOnly = current.offlineTilesOnly,
@@ -2119,9 +2126,25 @@ private fun App(
                     )
                 },
                 previewMap = { at, bearingDeg, m ->
+                    // The saved value, ghosted beside the one being set. Only the half this card is
+                    // about: the zero's card draws where it was, the forward axis's draws which way
+                    // it pointed, and neither draws the other's history.
+                    val was = savedPlatform?.zero?.takeIf { it.hasPosition }
+                    val ghost = was
+                        ?.takeIf { bearingDeg == null && it.point() != at }
+                        ?.let { GeoPoint(it.latitude, it.longitude) }
                     PositionPickerMap(
-                        start = GeoPoint(at.latitude, at.longitude),
+                        // Centred between the two when there are two, or half the point of drawing
+                        // the old one is lost to the edge of a 140dp card — measured on a 46 m move,
+                        // which put the ghost within a few pixels of the top.
+                        start = ghost
+                            ?.let { GeoPoint((at.latitude + it.latitude) / 2, (at.longitude + it.longitude) / 2) }
+                            ?: GeoPoint(at.latitude, at.longitude),
                         existing = GeoPoint(at.latitude, at.longitude),
+                        previous = ghost,
+                        previousBearingDeg = was
+                            ?.headingDeg
+                            ?.takeIf { bearingDeg != null && it != bearingDeg },
                         // The axis is drawn from the same point it is measured from, so the anchor
                         // and the marker coincide — a dot inside its own ring, which is what the zero
                         // looks like on every one of these maps.

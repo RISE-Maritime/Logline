@@ -14,6 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.Color
+import se.rise.logline.calibrate.CalibrationChange
+import se.rise.logline.calibrate.ChangeArea
+import se.rise.logline.calibrate.calibrationChanges
+import se.rise.logline.calibrate.revertArea
 import se.rise.logline.calibrate.degreesPerMetreOfError
 import se.rise.logline.calibrate.zeroFromMap
 import se.rise.logline.calibrate.LatLonAlt
@@ -102,6 +106,13 @@ const val NEW_SENSOR = -1
 @Composable
 fun CalibrationScreen(
     calibration: PlatformCalibration,
+    /**
+     * The platform as it is stored, or null while one is being created.
+     *
+     * Here so each step can say what it is about to replace. It was already in scope in
+     * `MainActivity` and was collapsed to the `dirty` boolean before it reached this screen.
+     */
+    saved: PlatformCalibration?,
     onChange: (PlatformCalibration) -> Unit,
     /** True while a run is going, which is when these subjects actually publish. */
     publishing: Boolean,
@@ -187,6 +198,12 @@ fun CalibrationScreen(
     // map inside one loses every drag to the page, which is written down where the recording chart
     // made the same choice. `rememberSaveable` so a rotation does not drop somebody out of it.
     var picking by rememberSaveable { mutableStateOf(false) }
+    // What this edit replaces. Recomputed rather than remembered: it is a pure function of two
+    // values already in hand, and a stale copy would be worse than none.
+    val changes = calibrationChanges(saved, calibration)
+    val revert: (CalibrationChange) -> Unit = { change ->
+        saved?.let { onChange(revertArea(it, calibration, change.area, change.frameId)) }
+    }
     var pickingAxis by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var typedPosition by remember { mutableStateOf(false) }
@@ -472,6 +489,7 @@ fun CalibrationScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    ChangeRows(changes, ChangeArea.ZERO, revert)
                     ZeroCard(
                         zero = calibration.zero,
                         previewMap = previewMap,
@@ -518,6 +536,7 @@ fun CalibrationScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    ChangeRows(changes, ChangeArea.FORWARD, revert)
                     ForwardCard(
                         zero = calibration.zero,
                         previewMap = previewMap,
@@ -577,6 +596,14 @@ fun CalibrationScreen(
                     }
                 }
                 else -> {
+                    // Everything, in one place. The rail calls this step Review and it showed only
+                    // publish state and an export button — and Save sits in the bottom bar of every
+                    // step, so "what am I about to save" needed an answer somewhere that is not a
+                    // step you might not have revisited.
+                    if (changes.isNotEmpty()) {
+                        SectionHeader("Changes", trailing = "${changes.size}")
+                        ChangeRows(changes, null, revert)
+                    }
                     SectionHeader(
                         "On the bus",
                         onInfo = {
