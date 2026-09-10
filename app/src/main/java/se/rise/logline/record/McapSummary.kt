@@ -102,6 +102,16 @@ data class McapDetails(
     val topics: List<TopicCount>,
     /** What the operator had switched on when the file closed. Empty when it carries none. */
     val tags: Set<String> = emptySet(),
+    /**
+     * True when the run was interrupted and `McapRecovery` finished the file afterwards.
+     *
+     * A rescued recording is a proper MCAP file now — summary, footer and all — so nothing else about
+     * its bytes distinguishes it from a run somebody stopped. The distinction is worth keeping: it is
+     * a fact about the *run*, not about whether the file parses, and it is what the Files tab reads to
+     * say `incomplete, never closed`. A file rescued before recovery learned to write a summary has no
+     * summary at all, so it never reaches this flag and is caught one step earlier.
+     */
+    val rescued: Boolean = false,
 )
 
 fun readMcapDetails(channel: FileChannel): McapDetails? = try {
@@ -117,6 +127,7 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
     var counts: Map<Int, Long> = emptyMap()
     var summary: McapSummary? = null
     var tags: Set<String> = emptySet()
+    var rescued = false
 
     var offset = from
     while (offset + RECORD_HEADER_SIZE <= size) {
@@ -131,8 +142,14 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
             // The summary holds only an *index* to the metadata; the record itself lives in the data
             // section, one seek back. Cheap, and it keeps the tags out of the scan the track needs.
             McapWriter.OP_METADATA_INDEX -> {
-                channel.read(length.toInt(), body).readMetadataIndex()?.let { at ->
-                    tags = readTagsAt(channel, at, size)
+                channel.read(length.toInt(), body).readMetadataIndex()?.let { (name, at) ->
+                    when (name) {
+                        McapWriter.METADATA_TAGS -> tags = readTagsAt(channel, at, size)
+                        // The record's own content is not read: its presence is the fact. What the
+                        // rescue trimmed is in there for anyone reading the file directly, and this
+                        // app has nothing to do with the figure.
+                        McapWriter.METADATA_RECOVERY -> rescued = true
+                    }
                 }
             }
             McapWriter.OP_STATISTICS -> {
@@ -151,6 +168,7 @@ private fun detailsIn(channel: FileChannel, from: Long, size: Long): McapDetails
         topics = topics.map { (id, topic) -> TopicCount(id, topic, counts[id] ?: 0L) }
             .sortedByDescending { it.messages },
         tags = tags,
+        rescued = rescued,
     )
 }
 
@@ -254,15 +272,21 @@ private fun ByteBuffer.matchesMagic(): Boolean {
     return bytes.contentEquals(McapWriter.MAGIC)
 }
 
-/** A MetadataIndex's offset, if it names the record this app writes. */
-private fun ByteBuffer.readMetadataIndex(): Long? {
+/**
+ * A MetadataIndex's name and offset.
+ *
+ * It used to filter on `tags` and return the offset alone, which was right while that was the only
+ * Metadata record this app wrote. Recovery writes a second one, and a caller that cannot tell them
+ * apart would read the rescue note as a tag list.
+ */
+private fun ByteBuffer.readMetadataIndex(): Pair<String, Long>? {
     if (remaining() < 8 + 8 + 4) return null
     val offset = long
     long // record length, which is not needed: the record states its own
     val nameLength = int
     if (nameLength < 0 || nameLength > remaining()) return null
     val name = ByteArray(nameLength).also { get(it) }.toString(Charsets.UTF_8)
-    return offset.takeIf { name == McapWriter.METADATA_TAGS && it >= 0 }
+    return if (offset >= 0) name to offset else null
 }
 
 /**

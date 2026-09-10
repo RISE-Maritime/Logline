@@ -262,8 +262,25 @@ class RecordingsQueryTest {
         )
         assertEquals(
             "139 MB · incomplete, never closed",
-            // The real size of logline-2026-08-19T210534.mcap on the dev phone.
+            // The real size of logline-2026-08-19T210534.mcap on the dev phone. No summary at all:
+            // a recording rescued before recovery learned to rebuild one, or a file this app cannot
+            // walk. There are no figures to state, so the interruption is the whole line.
             recordingSubtitle(recording("x.mcap", size = 145_815_242L, durationMillis = null)),
+        )
+        // **A run that was interrupted still says what it holds.** Recovery finishes the file
+        // properly now, so the count and the span are known — and the row states them *and* the
+        // ending, because they answer different questions. Measured on the dev phone: a 30 s run
+        // killed mid-write came back with all 108 354 of its messages.
+        assertEquals(
+            "2 MB · 108\u202F354 messages over 00:00:29 · incomplete, never closed",
+            recordingSubtitle(
+                Fake(
+                    "logline-2026-09-10T082432.mcap",
+                    sizeBytes = 2_296_488L,
+                    durationMillis = 29_984L,
+                    isComplete = false,
+                ).copy(messagesOverride = 108_354L)
+            ),
         )
         assertEquals(
             "982 bytes · Settings profile",

@@ -2,6 +2,7 @@ package se.rise.logline
 
 import se.rise.logline.record.McapRecovery
 import se.rise.logline.record.McapWriter
+import se.rise.logline.record.readMcapDetails
 import se.rise.logline.record.readMcapSummary
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -40,6 +41,12 @@ class McapRecoveryTest {
     private fun summaryOf(file: File) =
         java.io.RandomAccessFile(file, "r").use { readMcapSummary(it.channel) }
 
+    private fun detailsOf(file: File) =
+        java.io.RandomAccessFile(file, "r").use { readMcapDetails(it.channel) }
+
+    /** A topic and its count, so a list of them compares by value in a failure message. */
+    private data class TopicAndCount(val topic: String, val messages: Long)
+
     private fun temp(name: String): File =
         File.createTempFile(name, ".mcap").apply { deleteOnExit() }
 
@@ -61,9 +68,13 @@ class McapRecoveryTest {
     }
 
     /**
-     * An interrupted one is repaired: trimmed to the last complete record, then given a DataEnd and
-     * a footer declaring no summary. `readMcapSummary` returns null for it, which is the signal the
-     * Files tab reads as "incomplete, never closed".
+     * An interrupted one is repaired: trimmed to the last complete record, then finished the way a
+     * proper close would have finished it.
+     *
+     * Nothing here reached a chunk — 50 tiny messages are far short of the 256 kB flush and the
+     * writer never got to `finish()` — so the summary honestly reports **no messages**. That the
+     * summary exists at all is the point: a file that states nothing is what left Foxglove opening a
+     * rescued recording on a timeline back to 1970.
      */
     @Test
     fun `an interrupted recording is made readable`() {
@@ -81,9 +92,187 @@ class McapRecoveryTest {
 
         assertNull("unreadable before repair", summaryOf(file))
         assertNotNull("repair should report what it trimmed", McapRecovery.finalise(file))
-        // Readable now, and openly summary-less rather than broken.
         assertTrue(file.readBytes().takeLast(8).toByteArray().contentEquals(McapWriter.MAGIC))
-        assertNull("a repaired file has no statistics", summaryOf(file))
+        val summary = summaryOf(file)
+        assertNotNull("a repaired file states a summary", summary)
+        assertEquals("nothing was flushed, so nothing survived", 0L, summary!!.messages)
+    }
+
+    /**
+     * **The bug this rebuild exists for: a rescued recording used to state no time range at all.**
+     *
+     * Recovery wrote `summary_start = 0`, the spec's "no summary", so nothing in the file said when
+     * it began — and a reader with no range to show has to invent one. Measured on a real file:
+     * Foxglove opened a rescued recording on a timeline running from **1970 to the afternoon it was
+     * made**, 46 years of nothing, while every message in it was minutes old; `mcap info` answered
+     * `channels: unknown`. Neither is a reader misbehaving.
+     *
+     * So the start must be the first surviving message's own log time, and never zero.
+     */
+    @Test
+    fun `a repaired recording states the range of the messages it kept`() {
+        val file = temp("range")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        val channel = writer.addChannel(TOPIC, schema, "protobuf")
+        // Wall clock is injectable precisely so a test need not sleep: three seconds per message
+        // passes the two-second bound, so every pair of messages lands in a flushed chunk rather
+        // than in the one the kill would take with it.
+        repeat(10) { i ->
+            writer.writeMessage(
+                channel,
+                i + 1,
+                logTime = FIRST_LOG_TIME + i,
+                publishTime = FIRST_LOG_TIME + i,
+                data = byteArrayOf(9, 9, 9, 9),
+                nowNanos = i * 3_000_000_000L,
+            )
+        }
+        out.flush()
+        out.close()
+
+        assertNotNull(McapRecovery.finalise(file))
+
+        val details = detailsOf(file)
+        assertNotNull("a repaired file states a summary", details)
+        assertEquals(10L, details!!.summary.messages)
+        assertEquals("the first message's own time, not zero", FIRST_LOG_TIME, details.summary.startNanos)
+        assertEquals(FIRST_LOG_TIME + 9, details.summary.endNanos)
+        assertEquals(listOf(TopicAndCount(TOPIC, 10L)), details.topics.map { TopicAndCount(it.topic, it.messages) })
+    }
+
+    /**
+     * Counts describe what survived the trim, not what the run wrote.
+     *
+     * A killed process leaves a partial record, so the last chunk goes — with the messages in it. A
+     * summary that reported the writer's own total would be a file claiming messages a reader cannot
+     * find, which is worse than the missing statistics this replaced.
+     */
+    @Test
+    fun `the figures describe what survived the trim`() {
+        val file = temp("trimmed")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        val schema = writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        val channel = writer.addChannel(TOPIC, schema, "protobuf")
+        repeat(10) { i ->
+            writer.writeMessage(
+                channel,
+                i + 1,
+                logTime = FIRST_LOG_TIME + i,
+                publishTime = FIRST_LOG_TIME + i,
+                data = byteArrayOf(9, 9, 9, 9),
+                nowNanos = i * 3_000_000_000L,
+            )
+        }
+        out.flush()
+        out.close()
+        // The kill lands mid-record: the last chunk no longer fits the file, so the walk stops before
+        // it and its two messages go with it.
+        java.io.RandomAccessFile(file, "rw").use { it.setLength(file.length() - 5) }
+
+        assertNotNull(McapRecovery.finalise(file))
+
+        val details = detailsOf(file)!!
+        assertEquals(8L, details.summary.messages)
+        assertEquals(FIRST_LOG_TIME, details.summary.startNanos)
+        assertEquals("the last surviving message, not the last written", FIRST_LOG_TIME + 7, details.summary.endNanos)
+    }
+
+    /**
+     * **A rescued file says so, in the file.**
+     *
+     * It is a proper MCAP now — summary, footer and all — so nothing else about its bytes tells a
+     * reader that the run was interrupted, and the Files tab used to learn that from the missing
+     * summary. `SavedRecording.isComplete` reads this, so without it every interrupted run would
+     * quietly become complete and drop out of the bulk delete.
+     */
+    @Test
+    fun `a repaired recording is marked as rescued`() {
+        val file = temp("marked")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        out.flush()
+        out.close()
+
+        McapRecovery.finalise(file)
+
+        assertTrue("the rescue is recorded in the file", detailsOf(file)!!.rescued)
+    }
+
+    /**
+     * A closed recording is not rescued, and its tags still come back.
+     *
+     * The rescue note is a second Metadata record, and the index that finds the tags used to filter
+     * on the one name it knew. A reader that could not tell the two apart would read the rescue note
+     * as a tag list.
+     */
+    @Test
+    fun `a closed recording keeps its tags and is not marked rescued`() {
+        val file = temp("tagged")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        writer.tags = setOf("quay trial", "engine run")
+        writer.finish()
+        out.close()
+
+        val details = detailsOf(file)!!
+        assertEquals(setOf("quay trial", "engine run"), details.tags)
+        assertTrue("a run somebody stopped was not rescued", !details.rescued)
+    }
+
+    /**
+     * **A summary that undercounts is worse than none.**
+     *
+     * A chunk this app cannot decompress means the walk does not know what the file holds, and
+     * figures somebody plans against must not be guesses. So the file still gets an ending it can be
+     * opened with, and states nothing about its contents — which is exactly what recovery produced
+     * for every file before it learned to rebuild a summary.
+     */
+    @Test
+    fun `an unreadable chunk falls back to declaring no summary`() {
+        val file = temp("badchunk")
+        val out = file.outputStream()
+        val writer = McapWriter(out)
+        writer.start()
+        writer.addSchema("keelson.TimestampedFloat", "protobuf", byteArrayOf(1, 2, 3))
+        out.flush()
+        out.close()
+
+        // A chunk in a compression this app does not read. Legal MCAP, and unreadable here.
+        val body = McapWriter.Buffer()
+        body.putUInt64(1_000L) // message start time
+        body.putUInt64(2_000L) // message end time
+        body.putUInt64(4L) // uncompressed size
+        body.putUInt32(0) // uncompressed CRC
+        body.putString("lz4")
+        body.putUInt64(4L)
+        body.putRaw(byteArrayOf(1, 2, 3, 4))
+        val payload = body.toByteArray()
+        val record = McapWriter.Buffer()
+        record.putUInt8(McapWriter.OP_CHUNK)
+        record.putUInt64(payload.size.toLong())
+        record.putRaw(payload)
+        file.appendBytes(record.toByteArray())
+
+        assertNotNull(McapRecovery.finalise(file))
+
+        assertTrue("still openable", file.readBytes().takeLast(8).toByteArray().contentEquals(McapWriter.MAGIC))
+        assertNull("and claims nothing about what it holds", summaryOf(file))
+    }
+
+    private companion object {
+        const val TOPIC = "rise/@v0/pixel_6/pubsub/air_pressure_pa/phone"
+
+        /** An ordinary epoch-nanosecond time, i.e. one that is nothing like zero. */
+        const val FIRST_LOG_TIME = 1_788_969_803_033_425_000L
     }
 
     /** Repairing twice is a no-op the second time, since the first pass leaves a closed file. */
@@ -172,6 +361,7 @@ class McapRecoveryTest {
         out.flush()
         out.close()
         val realBytes = file.length()
+        val before = file.readBytes()
 
         // The blocks the kernel never got round to writing.
         file.appendBytes(ByteArray(4096))
@@ -180,12 +370,14 @@ class McapRecoveryTest {
         val trimmed = McapRecovery.finalise(file)
 
         assertEquals("the whole zero tail should go", 4096L, trimmed)
-        // And what is left is the real data plus an ending, with nothing in between.
-        assertEquals(realBytes + FOOTER_BYTES, file.length())
+        // And what is left is the real data with an ending after it, and nothing in between. The
+        // ending is a whole summary section now, so its size is not a constant worth pinning — that
+        // the real bytes are untouched is the claim.
+        assertTrue("an ending was appended", file.length() > realBytes)
         assertTrue(file.readBytes().takeLast(8).toByteArray().contentEquals(McapWriter.MAGIC))
         assertArrayEquals(
             "every real byte kept",
-            file.readBytes().copyOfRange(0, realBytes.toInt()),
+            before,
             file.readBytes().copyOfRange(0, realBytes.toInt()),
         )
     }
@@ -209,11 +401,6 @@ class McapRecoveryTest {
         file.appendBytes(byteArrayOf(0x7F) + ByteArray(8) + ByteArray(16))
 
         assertEquals(25L, McapRecovery.finalise(file))
-        assertEquals(realBytes + FOOTER_BYTES, file.length())
-    }
-
-    private companion object {
-        /** DataEnd (9 + 4) + Footer (9 + 20) + the closing magic (8). */
-        const val FOOTER_BYTES = 50L
+        assertTrue("the real bytes kept, with an ending after them", file.length() > realBytes)
     }
 }

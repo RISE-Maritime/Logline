@@ -106,9 +106,17 @@ with size, message count and duration, and offers a share sheet and a delete.
 
 The count and duration come out of each file's own MCAP `Statistics` record, read through the footer:
 two seeks and about forty bytes, so a 74 MB recording costs what a small one does and nothing is
-scanned. A file that says **`no summary`** is not broken — it is a recording rescued from a killed
-process, where `McapRecovery` rebuilt the footer with no statistics section. Every message is there;
-the file simply does not carry a count any more.
+scanned.
+
+A row that ends **`incomplete, never closed`** is a run a killed process interrupted. It is not a
+broken file: `McapRecovery` walks it, trims it at the last complete record and finishes it the way an
+ordinary close would have, so it states its own message count and time range and opens anywhere. What
+it also states, in a `recovery` metadata record inside the file, is that the run ended that way —
+which is what the row is reading, and what travels with the recording when it is copied off the phone.
+
+A recording rescued *before* that was written carries no statistics at all, and says only
+`incomplete, never closed` with no figures beside it. Every message in one is still there and still
+readable; `mcap recover in.mcap -o out.mcap` rebuilds the summary on a desktop.
 
 The file being written right now is deliberately not in the list: it stays in app-private storage until
 it is closed, and the status card already reports it live.

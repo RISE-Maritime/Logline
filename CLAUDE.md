@@ -1622,12 +1622,14 @@ simply never finds anything on the bus.
   recording holding **1 843 fixes** report "Not enough positions — this recording holds 0". Note it read
   the whole 502 MB while finding nothing, because an 8 kB buffer faults the file in to satisfy the skips;
   a fast scan is not evidence it looked at anything.
-  **A scan with no channel list discovers the fix channel itself.** `McapRecovery.finalise` writes
-  `summary_start = 0` for every run a killed process interrupted, so `readMcapDetails` returns null and
-  there is no channel list to consult — and a missing *footer* says nothing whatever about GNSS.
-  Passing null now means "find it", which works because `McapWriter` keeps Schema and Channel records
+  **A scan with no channel list discovers the fix channel itself.** `McapRecovery.finalise` used to
+  write `summary_start = 0` for every run a killed process interrupted, so `readMcapDetails` returned
+  null and there was no channel list to consult — and a missing *footer* says nothing whatever about
+  GNSS. Passing null means "find it", which works because `McapWriter` keeps Schema and Channel records
   outside the chunks and ahead of the messages. Before this, a rescued 3 MB recording holding **47
-  fixes** said "GNSS was not publishing while this ran".
+  fixes** said "GNSS was not publishing while this ran". Recovery rebuilds the summary now, so a
+  freshly rescued file *does* hand over a channel list — but every file rescued before that still does
+  not, so the null branch is live and stays.
   **The walk stops at `OP_DATA_END`**, and that is what makes a short read unambiguous rather than
   merely tidy: everything past it is summary, so a well-formed file always reaches it, and running out
   of bytes first means the file was cut off mid-record. Hence `readExactly`/`skipExactly` throw where
@@ -1641,9 +1643,38 @@ simply never finds anything on the bus.
   them together.** It steps over four fields it does not want to reach the four it does, in the right
   widths, so a wrong width produces a plausible number rather than an error — `McapSummaryTest` writes
   a file with the writer and reads it back rather than anyone eyeballing offsets. It returns **null**
-  where the file has no summary section, which is not a corner case: `McapRecovery.finalise` writes
-  `summary_start = 0` for every recording rescued from a killed process, and one of those was already
-  sitting in Downloads on the dev phone. Zeroes there would report a 62 MB recording as empty.
+  where the file has no summary section, which is not a corner case: every recording rescued before
+  recovery learned to rebuild one has no statistics, and a file whose chunks cannot be decompressed
+  still gets none deliberately. Zeroes there would report a 62 MB recording as empty.
+- **A rescued recording is finished the way a closed one is, and the statistics are rebuilt rather
+  than abandoned.** `McapRecovery.finalise` used to trim the file and stamp a footer declaring
+  `summary_start = 0`, the spec's "no summary", on the argument that the statistics had never been
+  written. They had not, and they were still *derivable*: everything a summary states comes out of the
+  data section, which is where it came from in the first place.
+  What that cost was measured on the phone rather than argued about. A reader with no time range has
+  none to show, so **Foxglove opened a rescued recording on a timeline running from 1970 to the
+  afternoon it was made** — 46 years of nothing, with every message minutes old — and `mcap info`
+  answered `channels: unknown`. The writer was never at fault: `log_time` is `Instant.now()` at the
+  drain, every Chunk header carries a real range, and three closed files parsed record by record had
+  no zero anywhere.
+  So the walk that finds the trim point now also collects what the summary needs — the Schema and
+  Channel records **verbatim**, so nothing has to parse them; the per-channel counts and the log-time
+  range, which means decompressing every chunk; and any Metadata records, for the indexes. Then
+  `McapWriter.finishRescued` states it. The *layout* has one implementation, `writeSummary`, shared
+  with `finish()`: a second transcription of the summary offsets and the footer's two pointers is
+  exactly the thing that drifts and fails silently.
+  Three things are load-bearing. **A chunk that will not decompress falls back to `summary_start = 0`**
+  rather than to figures that undercount — the same argument `readMcapSummary` makes for returning
+  null, and a count somebody plans against must not be a guess. **No ChunkIndex and no MessageIndex**,
+  for the reason recorded below: a rescued file gets exactly what a closed one gets. And the file
+  carries a **`recovery` Metadata record** saying the run was interrupted, because a rescued file is
+  now a proper MCAP and nothing else about its bytes says so — `SavedRecording.isComplete` is
+  `summary != null && !rescued`, and without the second clause every interrupted run would quietly
+  become complete and drop out of the bulk delete.
+  Verified end to end on a Pixel 6: a 30 s run killed with `am force-stop`, swept at the next launch,
+  came back reporting **108 354 messages over 29.98 s** starting at the run's own first message — and
+  `mcap recover`, counting independently, agreed to the message. Files already rescued and sitting in
+  Downloads are *not* upgraded; `mcap recover in.mcap -o out.mcap` fixes those on a desktop.
 - **MCAP records the unwrapped payload, never the envelope.** keelson's replayer re-wraps with
   `enclose(payload=message.data, enclosed_at=message.publish_time)`, so writing envelopes produces
   doubly-wrapped messages that decode to garbage everywhere downstream. The channel topic is the full
@@ -1665,9 +1696,10 @@ simply never finds anything on the bus.
   **Chunks flush at 256 kB or after two seconds, whichever comes first, and the time bound is the point.**
   A killed process loses the open chunk, where before it lost a single partial message; without a time
   bound that loss would scale with the sample rate rather than the clock. Verified on a Pixel 6 by
-  killing the app 25 s in: 87 193 messages covering 24.7 s came back. `McapRecovery` needed no change —
-  a Chunk is a length-prefixed record, so a truncated one is already its incomplete-record branch — and
-  `readMcapSummary` needed none either, because MCAP keeps summary records *outside* chunks.
+  killing the app 25 s in: 87 193 messages covering 24.7 s came back. `McapRecovery` needed no change at
+  the time — a Chunk is a length-prefixed record, so a truncated one is already its incomplete-record
+  branch — and `readMcapSummary` needed none either, because MCAP keeps summary records *outside*
+  chunks. It reads inside them now, but only to rebuild a summary, and the trim is unchanged.
 - **What an abrupt end costs, and the chunk bound is only half of it.** The bullet above bounds the
   *open chunk*; there are four buffers between a sample and the disk, and a flat battery or a kill
   takes a different set of them. At the measured 241 MB/h default (~67 kB/s of file):
@@ -1694,7 +1726,9 @@ simply never finds anything on the bus.
   opened. Measured on the real thing: an orphan of 1 540 716 bytes came back as 1 540 766, every
   original byte preserved verbatim and **50 appended** — a DataEnd, a footer and the closing magic —
   with all 15 chunks, 12 schemas and 50 channels intact across the 20.5 s it had recorded. Nothing
-  was trimmed, because the last chunk had flushed before the phone went down.
+  was trimmed, because the last chunk had flushed before the phone went down. What gets appended is a
+  whole summary section now rather than those 50 bytes, so the figure is a record of the measurement
+  and not a constant to check against.
 - **`McapRecovery`'s walk validates the opcode, not just the length, and that is what stops a zero
   tail being read as data.** A *truncation* leaves a partial record that does not fit the file, which
   the length check alone catches. A *power cut* on a filesystem with delayed allocation leaves

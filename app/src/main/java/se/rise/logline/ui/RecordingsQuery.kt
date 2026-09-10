@@ -134,16 +134,24 @@ fun recordingSubtitle(file: RecordingFacts): String = buildString {
         RecordingKind.PlatformLibrary -> append("Platform library export")
         RecordingKind.Other -> append("Not a recording")
         RecordingKind.Recording -> {
+            // **The figures and the interruption are two separate facts**, and a rescued recording
+            // now has both. It used to have neither: recovery left the file with no summary at all,
+            // so `incomplete` was the only thing the row could say and it stood in for the count as
+            // well. Recovery rebuilds the summary now, so an interrupted run states what it holds and
+            // *then* says how it ended — which is the more useful half for somebody deciding whether
+            // to keep it. A file whose summary cannot be read still says only the second.
             val messages = file.messages
-            if (file.isComplete != true || messages == null) {
-                append("incomplete, never closed")
-            } else {
+            if (messages != null) {
                 append(formatCounted(messages, "message"))
                 val duration = file.durationMillis ?: 0L
                 if (duration >= 1_000L) {
                     append(" over ")
                     append(formatElapsed(duration))
                 }
+            }
+            if (file.isComplete != true) {
+                if (messages != null) append(" · ")
+                append("incomplete, never closed")
             }
         }
     }

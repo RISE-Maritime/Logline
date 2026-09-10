@@ -151,11 +151,13 @@ completes, and that is not something app code can fix.
       evidence and run controls, so the overlap is larger than it was — but the note and reminder
       dialogs still live only in the old pair.
 
-## Calibration 
 
-- [x] Calibration proces forward display a small map as a pre-view similar as zero
-      Done, and it found that neither preview was tappable: a `MapView` consumes touches in
-      `onTouchEvent` whatever its gesture settings say, so the `clickable` on the zero card's map had
-      never fired either. The tap target is a transparent box over the map now.
-      The Forward step also had no `CaptureRow`, so Baseline and Compass ran their 20 s and 4 s
-      captures with no progress shown anywhere. Both fixed in the commit below.  
+## Recording
+
+- [ ] **Recordings rescued before recovery rebuilt summaries are still summary-less, and nothing upgrades
+      them.** `McapRecovery.finalise` returns early on any file that already ends in the closing magic,
+      which every previously rescued file does — so the ones sitting in `Downloads/Logline` keep their
+      `summary_start = 0` and keep opening in Foxglove on a timeline back to 1970. There were two on the
+      dev phone. `mcap recover in.mcap -o out.mcap` fixes one on a desktop and was verified to; whether
+      the app should offer to re-finish them in place is a decision, not a cleanup, and it would mean
+      the sweep revisiting files it has already published.

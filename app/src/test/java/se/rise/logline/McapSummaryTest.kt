@@ -88,22 +88,30 @@ class McapSummaryTest {
     }
 
     /**
-     * The case that must not report zeroes: a recording rescued from a killed process.
+     * A recording rescued from a killed process reports the messages it kept.
      *
-     * `McapRecovery.finalise` rebuilds the footer with `summary_start = 0` — the spec's "no summary" —
-     * because the statistics were never written. Every message is still there. A row saying "0
-     * messages" about that file would be reporting a good recording as an empty one, which is the
-     * failure this whole return type exists for.
+     * **This used to assert the opposite** — `McapRecovery.finalise` rebuilt the footer with
+     * `summary_start = 0`, the spec's "no summary", on the argument that the statistics had never
+     * been written. They had not, and they were still derivable: everything a summary states comes
+     * out of the data section, which is where it came from in the first place. What the missing
+     * summary cost was a reader with no time range to show, and Foxglove opening a rescued file on a
+     * timeline back to 1970.
+     *
+     * Nullability is still load-bearing — an export in `Downloads/Logline` has no summary and neither
+     * has a file this app cannot walk — which the two tests either side of this one cover.
      */
     @Test
-    fun `a recovered file admits it does not know`() {
+    fun `a recovered file reports what survived`() {
         val file = File.createTempFile("logline-", ".mcap").apply { deleteOnExit() }
         recording(file, messages = 50, firstLogTime = 1_000_000_000L, step = 1_000_000L)
         // Cut the summary and footer off, as a kill would, then rescue it.
         RandomAccessFile(file, "rw").use { it.setLength(it.length() / 2) }
         assertNotNull("the fixture should need rescuing", McapRecovery.finalise(file))
 
-        assertNull("a rescued file has no statistics to report", summaryOf(file))
+        val summary = requireNotNull(summaryOf(file)) { "a rescued file states a summary" }
+        // Half a file of unflushed messages leaves nothing behind, which is the honest answer and
+        // not the same claim as saying nothing at all.
+        assertEquals(0L, summary.messages)
     }
 
     /** Anything that is not one of our files reads as "no summary" rather than throwing. */

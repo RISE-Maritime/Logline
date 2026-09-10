@@ -17,8 +17,9 @@ private const val TAG = "RecordingsLibrary"
  * One file this app has put in `Downloads/Logline`.
  *
  * [summary] is null for anything that is not a readable MCAP — the platform calibration's platform-geometry
- * export shares this folder, and so does a recording rescued from a killed process, which has no
- * statistics section. Both are listed; neither claims a message count.
+ * export shares this folder, and so does a recording rescued before recovery learned to rebuild a
+ * summary. Both are listed; neither claims a message count. A recording rescued *since* does have one,
+ * and says instead that the run was interrupted.
  */
 /**
  * The facts that ordering and searching a list of recordings need, and nothing else.
@@ -117,6 +118,8 @@ data class SavedRecording(
      */
     val fixChannelId: Int? = null,
     override val tags: Set<String> = emptySet(),
+    /** True when the run was interrupted and the file was finished afterwards — see [isComplete]. */
+    val rescued: Boolean = false,
 ) : RecordingFacts {
     val kind: RecordingKind get() = recordingKindOf(name)
     override val durationMillis: Long? get() = summary?.durationMillis
@@ -124,8 +127,15 @@ data class SavedRecording(
 
     // Only a recording can be complete or not. An export is neither, and saying so here is what keeps
     // it out of the Incomplete filter and therefore out of the bulk delete.
+    //
+    // **A rescued recording has a summary and is still not complete**, and both halves of that matter.
+    // `McapRecovery` finishes an interrupted file properly now, so "has a summary" stopped being the
+    // question — it says how many messages there are and when they were, exactly as a closed file
+    // does. What it cannot say is that the run ended the way anybody meant it to, which is what the
+    // rescue note in the file records and what this reads. Without the second clause every interrupted
+    // run would quietly become complete and drop out of the bulk delete.
     override val isComplete: Boolean?
-        get() = if (kind == RecordingKind.Recording) summary != null else null
+        get() = if (kind == RecordingKind.Recording) summary != null && !rescued else null
 }
 
 /**
@@ -207,6 +217,7 @@ private fun ownedRecordings(context: Context): List<SavedRecording> {
                             // a recording with no fix channel never starts a track scan at all.
                             fixChannelId = details?.topics
                                 ?.let(McapTrack::fixChannel)?.channelId,
+                            rescued = details?.rescued == true,
                             // From the file, so they travel with it: a recording copied to a laptop
                             // still says what it was.
                             tags = details?.tags.orEmpty(),
@@ -433,6 +444,7 @@ private fun recordingsInGrantedFolder(
                             summary = details?.summary,
                             fixChannelId = details?.topics?.let(McapTrack::fixChannel)?.channelId,
                             tags = details?.tags.orEmpty(),
+                            rescued = details?.rescued == true,
                         )
                     )
                 }

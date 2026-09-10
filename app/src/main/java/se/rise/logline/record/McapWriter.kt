@@ -43,9 +43,18 @@ class McapWriter(
      * closed and is not worth a second code path to avoid.
      */
     private val onChunkWritten: () -> Unit = {},
+    /**
+     * Where [sink] already sits in the file, so the summary's offsets are absolute.
+     *
+     * Zero for a file being written from the start, which is every ordinary run. `McapRecovery` opens
+     * one of these over an *existing* file to finish it, and every offset the summary states — the
+     * schema group, the statistics, the footer's two pointers — is measured from the beginning of the
+     * file rather than from where this writer started, so it has to be told.
+     */
+    startOffset: Long = 0L,
 ) {
 
-    private var bytes = 0L
+    private var bytes = startOffset
     private var messages = 0L
 
     /** Messages accumulate here until the chunk is flushed. Schemas and channels never do. */
@@ -68,6 +77,9 @@ class McapWriter(
     val bytesWritten: Long get() = bytes
 
     val messageCount: Long get() = messages
+
+    /** A Metadata record's name and where it sits, which is all a MetadataIndex states. */
+    internal data class MetadataAt(val name: String, val offset: Long, val length: Long)
 
     private data class SchemaRecord(val id: Int, val name: String, val encoding: String, val data: ByteArray)
     private data class ChannelRecord(val id: Int, val schemaId: Int, val topic: String, val encoding: String)
@@ -162,29 +174,129 @@ class McapWriter(
         // rotates gives each file the tags that were active as *it* closed rather than the run's final
         // set. A Metadata record lives in the data section by the spec; the summary gets a
         // MetadataIndex pointing at it, so a reader finds it in one seek rather than a scan.
-        val metadataOffset = bytes
-        val metadataLength = if (tags.isEmpty()) 0L else {
-            writeMetadata(tags)
-            bytes - metadataOffset
+        val metadata = mutableListOf<MetadataAt>()
+        if (tags.isNotEmpty()) {
+            metadata += writeMetadata(METADATA_TAGS, mapOf(METADATA_TAGS to tags.joinToString("\n")))
         }
 
+        writeSummary(
+            schemaRecords = schemas.map { schemaRecord(it) },
+            channelRecords = channels.map { channelRecord(it) },
+            messageCounts = messageCounts,
+            messages = messages,
+            chunks = chunks,
+            earliest = earliest,
+            latest = latest,
+            metadata = metadata,
+        )
+        sink.flush()
+    }
+
+    /**
+     * Finish a file somebody else wrote the data section of.
+     *
+     * `McapRecovery` walks an interrupted recording, trims it at the last complete record and then has
+     * everything a summary needs — the Schema and Channel records verbatim, the message counts, the
+     * range — but no writer to state it with. This is that writer: no header, no messages, just the
+     * closing half.
+     *
+     * It exists so the *layout* has one implementation. A rescued file and a closed one differ in what
+     * they can say, never in how they say it, and a second transcription of the summary offsets and
+     * the footer's two pointers is exactly the thing that drifts and fails silently.
+     */
+    internal fun finishRescued(
+        schemaRecords: List<ByteArray>,
+        channelRecords: List<ByteArray>,
+        messageCounts: Map<Int, Long>,
+        messages: Long,
+        chunks: Long,
+        earliest: Long,
+        latest: Long,
+        /** Metadata records already in the data section, found by the walk. */
+        existingMetadata: List<MetadataAt>,
+        /** Metadata to add before DataEnd — the rescue's own note. */
+        newMetadata: List<Pair<String, Map<String, String>>>,
+        /**
+         * False when the walk could not read the whole data section, and the figures above therefore
+         * describe less than the file holds.
+         *
+         * The file still gets its data end, footer and magic — it opens, and every message in it is
+         * reachable — but the footer declares `summary_start = 0`, the spec's "no summary", which is
+         * what recovery produced for every file before this. Stating nothing is a poor outcome;
+         * stating a message count somebody plans against and which is short is a worse one.
+         */
+        summarise: Boolean = true,
+    ) {
+        if (finished) return
+        finished = true
+        if (!summarise) {
+            writeRecord(OP_DATA_END) { putUInt32(0) }
+            writeRecord(OP_FOOTER) {
+                putUInt64(0) // summary_start = 0: no summary section
+                putUInt64(0) // summary_offset_start
+                putUInt32(0) // summary CRC
+            }
+            write(MAGIC)
+            sink.flush()
+            return
+        }
+        val metadata = existingMetadata + newMetadata.map { (name, entries) -> writeMetadata(name, entries) }
+        writeSummary(
+            schemaRecords = schemaRecords,
+            channelRecords = channelRecords,
+            messageCounts = messageCounts,
+            messages = messages,
+            chunks = chunks,
+            earliest = earliest,
+            latest = latest,
+            metadata = metadata,
+        )
+        sink.flush()
+    }
+
+    /**
+     * DataEnd, the summary section, the summary offsets, the footer and the closing magic.
+     *
+     * Everything after the data section, in one place, so [finish] and [finishRescued] cannot disagree
+     * about it. The arguments are what the two paths know differently; the order and the arithmetic are
+     * what they share.
+     */
+    private fun writeSummary(
+        schemaRecords: List<ByteArray>,
+        channelRecords: List<ByteArray>,
+        messageCounts: Map<Int, Long>,
+        messages: Long,
+        chunks: Long,
+        earliest: Long,
+        latest: Long,
+        metadata: List<MetadataAt>,
+    ) {
         writeRecord(OP_DATA_END) { putUInt32(0) } // 0 = CRC not computed
 
         val summaryStart = bytes
         val schemaOffset = bytes
-        schemas.forEach { writeSchema(it) }
+        schemaRecords.forEach { write(it) }
         val channelOffset = bytes
-        channels.forEach { writeChannel(it) }
+        channelRecords.forEach { write(it) }
         val statisticsOffset = bytes
-        writeStatistics()
+        writeStatistics(
+            messages = messages,
+            schemaCount = schemaRecords.size,
+            channelCount = channelRecords.size,
+            chunks = chunks,
+            metadataCount = metadata.size,
+            earliest = earliest,
+            latest = latest,
+            messageCounts = messageCounts,
+        )
         val metadataIndexOffset = bytes
-        if (metadataLength > 0L) writeMetadataIndex(metadataOffset, metadataLength)
+        metadata.forEach { writeMetadataIndex(it) }
 
         val summaryOffsetStart = bytes
         writeSummaryOffset(OP_SCHEMA, schemaOffset, channelOffset - schemaOffset)
         writeSummaryOffset(OP_CHANNEL, channelOffset, statisticsOffset - channelOffset)
         writeSummaryOffset(OP_STATISTICS, statisticsOffset, metadataIndexOffset - statisticsOffset)
-        if (metadataLength > 0L) {
+        if (metadata.isNotEmpty()) {
             writeSummaryOffset(
                 OP_METADATA_INDEX,
                 metadataIndexOffset,
@@ -198,7 +310,6 @@ class McapWriter(
             putUInt32(0) // summary CRC, 0 = not computed
         }
         write(MAGIC)
-        sink.flush()
     }
 
     /**
@@ -241,39 +352,57 @@ class McapWriter(
     var tags: Set<String> = emptySet()
 
     /**
-     * `metadata` with one entry, `tags`, holding them newline-separated.
+     * A Metadata record, and where it landed.
      *
-     * One entry rather than one per tag because the value is a plain string either way and a reader
-     * that knows nothing about this app still sees something legible. The separator is the same one
-     * `RecordingTags` uses, and `normaliseTag` guarantees no tag contains it.
+     * `tags` is written as one entry rather than one per tag because the value is a plain string
+     * either way and a reader that knows nothing about this app still sees something legible. The
+     * separator is the same one `RecordingTags` uses, and `normaliseTag` guarantees no tag contains it.
      */
-    private fun writeMetadata(tags: Set<String>) = writeRecord(OP_METADATA) {
-        putString(METADATA_TAGS)
-        // map<string, string>: a byte length, then the pairs.
-        val entries = Buffer()
-        entries.putString(METADATA_TAGS)
-        entries.putString(tags.joinToString("\n"))
-        // `putBytes` writes the uint32 length and then the bytes, which *is* the map's encoding — a
-        // separate `putUInt32` here wrote the length twice and the reader found nothing.
-        putBytes(entries.toByteArray())
+    private fun writeMetadata(name: String, entries: Map<String, String>): MetadataAt {
+        val at = bytes
+        writeRecord(OP_METADATA) {
+            putString(name)
+            // map<string, string>: a byte length, then the pairs.
+            val map = Buffer()
+            entries.forEach { (key, value) ->
+                map.putString(key)
+                map.putString(value)
+            }
+            // `putBytes` writes the uint32 length and then the bytes, which *is* the map's encoding — a
+            // separate `putUInt32` here wrote the length twice and the reader found nothing.
+            putBytes(map.toByteArray())
+        }
+        return MetadataAt(name, at, bytes - at)
     }
 
-    /** Offset and length of the Metadata record, so it is one seek from the summary. */
-    private fun writeMetadataIndex(offset: Long, length: Long) = writeRecord(OP_METADATA_INDEX) {
-        putUInt64(offset)
+    /** Offset and length of a Metadata record, so it is one seek from the summary. */
+    private fun writeMetadataIndex(at: MetadataAt) = writeRecord(OP_METADATA_INDEX) {
+        putUInt64(at.offset)
         // The spec counts the opcode and the length prefix in this, not just the body.
-        putUInt64(length)
-        putString(METADATA_TAGS)
+        putUInt64(at.length)
+        putString(at.name)
     }
 
-    private fun writeSchema(record: SchemaRecord) = writeRecord(OP_SCHEMA) {
+    private fun writeSchema(record: SchemaRecord) = write(schemaRecord(record))
+
+    private fun writeChannel(record: ChannelRecord) = write(channelRecord(record))
+
+    /**
+     * A whole Schema record — opcode, length and body.
+     *
+     * Serialised rather than written, because the same bytes go into the data section when the schema
+     * is declared and into the summary when the file closes. `McapRecovery` re-emits the records it
+     * walked past in this same form, which is what lets it rebuild a summary without parsing a single
+     * one of them.
+     */
+    private fun schemaRecord(record: SchemaRecord): ByteArray = recordBytes(OP_SCHEMA) {
         putUInt16(record.id)
         putString(record.name)
         putString(record.encoding)
         putBytes(record.data)
     }
 
-    private fun writeChannel(record: ChannelRecord) = writeRecord(OP_CHANNEL) {
+    private fun channelRecord(record: ChannelRecord): ByteArray = recordBytes(OP_CHANNEL) {
         putUInt16(record.id)
         putUInt16(record.schemaId)
         putString(record.topic)
@@ -281,12 +410,21 @@ class McapWriter(
         putUInt32(0) // metadata: empty map
     }
 
-    private fun writeStatistics() = writeRecord(OP_STATISTICS) {
+    private fun writeStatistics(
+        messages: Long,
+        schemaCount: Int,
+        channelCount: Int,
+        chunks: Long,
+        metadataCount: Int,
+        earliest: Long,
+        latest: Long,
+        messageCounts: Map<Int, Long>,
+    ) = writeRecord(OP_STATISTICS) {
         putUInt64(messages)
-        putUInt16(schemas.size)
-        putUInt32(channels.size.toLong())
+        putUInt16(schemaCount)
+        putUInt32(channelCount.toLong())
         putUInt32(0) // attachment count
-        putUInt32(if (tags.isEmpty()) 0L else 1L) // metadata count
+        putUInt32(metadataCount.toLong())
         putUInt32(chunks)
         putUInt64(if (messages == 0L) 0L else earliest)
         putUInt64(if (messages == 0L) 0L else latest)
@@ -305,15 +443,18 @@ class McapWriter(
             putUInt64(length)
         }
 
-    private inline fun writeRecord(opcode: Int, body: Buffer.() -> Unit) {
+    private inline fun writeRecord(opcode: Int, body: Buffer.() -> Unit) = write(recordBytes(opcode, body))
+
+    /** One framed record as bytes, for a caller that wants to hold it rather than emit it. */
+    private inline fun recordBytes(opcode: Int, body: Buffer.() -> Unit): ByteArray {
         val buffer = Buffer()
         buffer.body()
         val payload = buffer.toByteArray()
-        val head = Buffer()
-        head.putUInt8(opcode)
-        head.putUInt64(payload.size.toLong())
-        write(head.toByteArray())
-        write(payload)
+        val out = Buffer()
+        out.putUInt8(opcode)
+        out.putUInt64(payload.size.toLong())
+        out.putRaw(payload)
+        return out.toByteArray()
     }
 
     /** The same framing, into a buffer rather than the sink — a chunk holds whole records. */
@@ -400,6 +541,20 @@ class McapWriter(
 
         /** The Metadata record's name, and the key inside it. */
         const val METADATA_TAGS = "tags"
+
+        /**
+         * The Metadata record `McapRecovery` writes, saying the run was interrupted.
+         *
+         * It has to be in the *file*, not only in this app: a rescued recording is finished properly
+         * now, so nothing about its bytes says the run ended the way it did — and the first thing
+         * anybody does with a recording is copy it off the phone. It is also what keeps the Files tab
+         * able to say `incomplete, never closed`, which used to be carried by the missing summary.
+         */
+        const val METADATA_RECOVERY = "recovery"
+
+        /** Its keys: how many bytes the trim dropped, and the same fact in a word. */
+        const val METADATA_RESCUED = "rescued"
+        const val METADATA_TRIMMED_BYTES = "trimmed_bytes"
 
         /** One of MCAP's two well-known compressions. The other is lz4; `Deflater` is not legal here. */
         const val COMPRESSION_ZSTD = "zstd"
