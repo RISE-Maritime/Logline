@@ -40,6 +40,9 @@ object Routes {
     const val SETTINGS = "settings"
     const val SCAN_QR = "scan-qr"
 
+    /** What build this phone is holding. Collides with neither session prefix. */
+    const val ABOUT = "about"
+
     /** Argument is the [se.rise.logline.keelson.PublishedSubject] *enum name*, not the subject. */
     const val SUBJECT_QOS = "qos/{entry}"
 
@@ -78,7 +81,7 @@ object Routes {
      */
     val ALL = listOf(
         MAIN, SETUP, RECORDINGS, LIVE, SUBJECT_QOS, ANNOTATIONS, ANNOTATION_BUTTONS,
-        CHECKLISTS, CHECKLIST, PLATFORMS, PLATFORM, SENSOR_MOUNT, SCAN_QR, SETTINGS,
+        CHECKLISTS, CHECKLIST, PLATFORMS, PLATFORM, SENSOR_MOUNT, SCAN_QR, SETTINGS, ABOUT,
     )
 
     /**

@@ -147,8 +147,11 @@ import se.rise.logline.sensors.AudioProvider
 import se.rise.logline.sensors.achievedHz
 import se.rise.logline.sensors.sensorCapabilities
 import se.rise.logline.sensors.unavailableSubjects
+import se.rise.logline.ui.AboutScreen
 import se.rise.logline.ui.AnnotationButtonsScreen
 import se.rise.logline.ui.AnnotationScreen
+import se.rise.logline.ui.appBuildOf
+import se.rise.logline.ui.buildSummary
 import se.rise.logline.ui.CAPTURE_SECONDS
 import se.rise.logline.ui.CalibrationScreen
 import se.rise.logline.ui.CaptureState
@@ -598,6 +601,9 @@ private fun App(
     // `rateCeilings()`, which keeps the provenance so a soft number can be marked as one. Remembered
     // because none of it changes while the process lives.
     val ceilings = remember { rateCeilings(context) }
+    // Which build this is. `PackageManager`, once — the version is bumped by hand and nothing else on
+    // the phone can say which APK it holds. Resolved here for the same reason as the two above.
+    val appBuild = remember { appBuildOf(context) }
     // Switched off rather than missing — the distinction the subject rows draw. The user's own set,
     // plus audio and the camera, which are off until someone asks for them; `offSubjects()` is the one
     // place those two are folded together, and the publisher's gate reads the same function.
@@ -1174,9 +1180,11 @@ private fun App(
                 // a screen that can never sync. See `CHECKLISTS_AVAILABLE`.
                 checklistsEnabled = current.checklistEnabled && CHECKLISTS_AVAILABLE,
                 identity = "${current.realm}/${current.entityId}",
+                versionSummary = buildSummary(appBuild),
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenPlatforms = { nav.navigate(Routes.PLATFORMS) },
                 onOpenChecklists = { nav.navigate(Routes.CHECKLISTS) },
+                onOpenAbout = { nav.navigate(Routes.ABOUT) },
                 bottomBar = navBar,
             )
         }
@@ -2463,6 +2471,11 @@ private fun App(
                 },
                 onCancel = { nav.popBackStack() },
             )
+        }
+
+        // Read once and never operated, so it takes nothing but the build and a way back.
+        composable(Routes.ABOUT) {
+            AboutScreen(build = appBuild, onBack = { nav.popBackStack() })
         }
     }
     }

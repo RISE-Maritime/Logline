@@ -46,9 +46,12 @@ fun SetupScreen(
     checklistsEnabled: Boolean,
     /** Which bus this phone is on, shown so the commonest question needs no tap. */
     identity: String,
+    /** `1.0 (1) · debug build`, from `buildSummary`, so the version needs no tap either. */
+    versionSummary: String,
     onOpenSettings: () -> Unit,
     onOpenPlatforms: () -> Unit,
     onOpenChecklists: () -> Unit,
+    onOpenAbout: () -> Unit,
     bottomBar: @Composable () -> Unit = {},
 ) {
     ScreenScaffold(title = "Setup", bottomBar = bottomBar) { padding ->
@@ -97,6 +100,18 @@ fun SetupScreen(
                         onClick = onOpenChecklists,
                     )
                 }
+            }
+
+            // Last, because it is read once and never operated. The row states the build itself
+            // rather than the word "Version": the version *is* what the row is for, and a phone
+            // being asked which APK it holds should not need the tap to answer.
+            SectionHeader("About")
+            Card(Modifier.fillMaxWidth()) {
+                NavRow(
+                    title = "Logline",
+                    subtitle = versionSummary,
+                    onClick = onOpenAbout,
+                )
             }
         }
     }
