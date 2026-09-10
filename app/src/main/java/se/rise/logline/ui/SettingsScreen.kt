@@ -47,6 +47,7 @@ import se.rise.logline.sensors.toIntervalMillis
 import se.rise.logline.ui.components.ConfirmDialog
 import se.rise.logline.ui.components.FormActions
 import se.rise.logline.ui.components.InfoDialog
+import se.rise.logline.ui.components.NavRow
 import se.rise.logline.ui.components.ScreenScaffold
 import se.rise.logline.ui.components.SectionHeader
 import se.rise.logline.ui.components.StatusLine
@@ -77,6 +78,14 @@ fun SettingsScreen(
     /** Read from `PowerManager` on every resume — the system never announces a change to this. */
     batteryOptimised: Boolean,
     onRequestBatteryExemption: () -> Unit,
+    /**
+     * Where recordings are written, named the way a person would: `Downloads/Logline`.
+     *
+     * Not a field on this form. The picker is a system Activity and its answer is a permission grant,
+     * so it is stored as it arrives; this is only what the row says.
+     */
+    folderLabel: String,
+    onChooseFolder: () -> Unit,
     /** Tile archives already imported, largest first. */
     offlineMaps: List<OfflineMap>,
     onImportOfflineMap: () -> Unit,
@@ -538,11 +547,21 @@ fun SettingsScreen(
                 SectionHeader("Local recording")
                 SettingSwitch(
                     title = "Record to MCAP",
-                    description = "Writes every published sample to a file in Downloads/Logline. A Zenoh " +
+                    description = "Writes every published sample to a file. A Zenoh " +
                         "put succeeds even with no router, so the local file is the only complete record " +
                         "of a run — roughly 77 MB per hour, rolling to a new file at 512 MB.",
                     checked = recordingEnabled,
                     onCheckedChange = { recordingEnabled = it },
+                )
+                // **An action, not a field on this form.** The picker is a system Activity and its
+                // answer is a permission grant, so it is stored the moment it arrives rather than
+                // waiting for Save — the same rule the folder has always followed. Nothing about a
+                // destination needs the run restarted either: it is read when a file is published, so
+                // a change lands on the next file, including the one a rotation is about to open.
+                NavRow(
+                    title = "Recording folder",
+                    subtitle = folderLabel,
+                    onClick = onChooseFolder,
                 )
                 SettingSwitch(
                     title = "Fill in dropped links",

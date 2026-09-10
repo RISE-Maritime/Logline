@@ -425,6 +425,11 @@ private fun recordingsInGrantedFolder(
                     // recordings — the same exclusion the MediaStore query gets for free by matching
                     // the folder exactly rather than as a prefix.
                     if (cursor.getString(mime) == DocumentsContract.Document.MIME_TYPE_DIR) continue
+                    // A copy still in flight. `MediaStore` hides one with `IS_PENDING` and the
+                    // Storage Access Framework has no such flag, so a file being written into a
+                    // chosen folder wears a suffix instead — and a row for it would appear, claim to
+                    // be `Not a recording`, and vanish again a few seconds later.
+                    if (isPartialName(displayName)) continue
                     if (displayName in skip) continue
                     val id = cursor.getString(documentId) ?: continue
                     val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
@@ -467,7 +472,7 @@ private fun recordingsInGrantedFolder(
 internal fun documentCacheId(documentId: String): Long = -(documentId.hashCode().toLong() and 0xFFFFFFFFL) - 1
 
 /**
- * Every folder this app still holds a readable grant on.
+ * Every folder this app still holds a usable grant on — readable and writable both.
  *
  * **The stored string is not the permission.** A grant can be taken back in Android's settings at any
  * time and the preference knows nothing about it — so trusting the string would leave the Files list
@@ -482,5 +487,8 @@ internal fun documentCacheId(documentId: String): Long = -(documentId.hashCode()
  */
 fun persistedFolderGrants(context: Context): Set<String> =
     context.contentResolver.persistedUriPermissions
-        .filter { it.isReadPermission }
+        // **Both halves, because the folder is now written to as well as read from.** A grant that
+        // can only be read is not a destination, and a phone holding one should be asked to choose
+        // again rather than discover it at the end of a run, with the recording already made.
+        .filter { it.isReadPermission && it.isWritePermission }
         .mapTo(mutableSetOf()) { it.uri.toString() }

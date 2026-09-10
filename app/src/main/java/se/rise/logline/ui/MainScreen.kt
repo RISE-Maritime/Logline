@@ -118,6 +118,8 @@ fun MainScreen(
     recording: RecordingStatus,
     /** The newest value per subject, pulled on a ticker — never pushed from the publish path. */
     live: LiveLatest,
+    /** Where finished recordings go, named the way a person would. Resolved in `App()`. */
+    folderLabel: String,
     locationGranted: Boolean,
     /**
      * Free space on the volume the recordings go to, polled by the caller.
@@ -260,7 +262,8 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             StatusCard(
-                settings, status, recording, nowMillis, freeBytes, unavailableSubjects, disabledSubjects,
+                settings, status, recording, folderLabel, nowMillis, freeBytes, unavailableSubjects,
+                disabledSubjects,
                 load = load,
                 // Summed rather than per subject here: the card answers "is the phone keeping up", and
                 // which sensor is starved is what the Live view's breakdown is for.
@@ -445,6 +448,8 @@ private fun StatusCard(
     settings: Settings,
     status: PublisherStatus,
     recording: RecordingStatus,
+    /** Where finished recordings go, for the `Folder` row behind the tap. */
+    folderLabel: String,
     nowMillis: Long,
     freeBytes: Long,
     unavailableSubjects: Set<PublishedSubject>,
@@ -572,7 +577,7 @@ private fun StatusCard(
                     status.batteryCritical -> StatusLine(
                         text = "Battery low — recording secured",
                         tone = StatusTone.Warning,
-                        detail = "Everything up to this point is saved to Downloads. Recording " +
+                        detail = "Everything up to this point is saved. Recording " +
                             "continues into a new file; plug in to keep the run going.",
                     )
                     left != null && left.millis < LOW_RUNTIME_MILLIS -> StatusLine(
@@ -706,10 +711,12 @@ private fun StatusCard(
                     dot = connectionColor(status.running, status.connection),
                 )
                 if (recording.recording || finishedRecording) {
-                    // Not the folder. Every finished recording goes to the same one, and the Files
-                    // tab is now where they are read — a card repeating the path on every run was
-                    // answering a question nobody had twice.
                     Detail("File", recording.fileName ?: "starting…")
+                    // **The folder is worth a row now that it is a choice.** It was left out while
+                    // every recording went to the same place — a card repeating one fixed path on
+                    // every run answers a question nobody had. It can now be a folder somebody set
+                    // weeks ago, and this is the panel they are already looking at mid-run.
+                    Detail("Folder", folderLabel)
                     if (recording.startedAtEpochMillis > 0L) {
                         Detail("Started", formatClock(recording.startedAtEpochMillis))
                         // Frozen at Stop by `stoppedAtEpochMillis`: taking `now` for a finished
@@ -763,14 +770,14 @@ private fun StatusCard(
  *
  * `bytesWritten` is **per file, not per run** — it restarts at every 512 MB rotation — so a run that
  * rotated is counted in files rather than megabytes, where a size would silently describe the last
- * one. `filesCompleted` counts successful copies to Downloads only, which is what makes "in Downloads"
- * an answer to "did it save?" rather than a hope.
+ * one. `filesCompleted` counts successful copies into the chosen folder only, which is what makes
+ * "saved" an answer to "did it save?" rather than a hope.
  */
 private fun lastRecordingOf(recording: RecordingStatus, finished: Boolean): String? = when {
     !finished -> null
     recording.filesCompleted > 1 ->
         "${formatCounted(recording.filesCompleted.toLong(), "file")} saved"
-    // "saved" rather than "in Downloads", which wrapped the line onto a second row on a Pixel 6 —
+    // "saved" rather than naming the folder, which wrapped the line onto a second row on a Pixel 6 —
     // measured, not guessed. Where it went is the `Folder` row in the panel below.
     recording.filesCompleted == 1 -> "%.1f MB saved".fmt(recording.bytesWritten / 1_048_576.0)
     recording.messagesWritten > 0 -> "%.1f MB recorded".fmt(recording.bytesWritten / 1_048_576.0)

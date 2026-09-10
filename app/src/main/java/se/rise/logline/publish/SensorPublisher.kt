@@ -253,7 +253,8 @@ class SensorPublisher(private val appContext: Context) {
      *
      * Safe whether or not a run is going; the guards are `Recorder.publishOrphanRecordings`'s.
      */
-    suspend fun publishOrphanRecordings() = recorder.publishOrphanRecordings()
+    suspend fun publishOrphanRecordings(folderUri: String) =
+        recorder.publishOrphanRecordings(folderUri)
 
     private var scope: CoroutineScope? = null
     private var session: KeelsonSession? = null
@@ -322,6 +323,11 @@ class SensorPublisher(private val appContext: Context) {
     /** The tags a finished recording will carry. Pushed into the run, never a reason to restart it. */
     fun setTags(tags: Set<String>) {
         recorder.setTags(tags)
+    }
+
+    /** Where finished recordings are copied to. Pushed in the same way and for the same reason. */
+    fun setOutputFolder(uri: String) {
+        recorder.setOutputFolder(uri)
     }
 
     fun setOffSubjects(subjects: Set<PublishedSubject>) {
@@ -454,6 +460,7 @@ class SensorPublisher(private val appContext: Context) {
                 // registers its listener in the first place.
                 setOffSubjects(settings.offSubjects())
                 recorder.setTags(settings.activeTags)
+                recorder.setOutputFolder(settings.recordingsFolderUri)
                 if (settings.recordingEnabled) recorder.start()
 
                 // One publisher per registry entry, so adding a subject to PublishedSubject is all it

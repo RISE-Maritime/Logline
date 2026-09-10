@@ -131,7 +131,10 @@ import se.rise.logline.publish.isBatteryOptimised
 import se.rise.logline.publish.requestBatteryExemption
 import se.rise.logline.record.McapDetails
 import se.rise.logline.record.McapTrack
+import androidx.core.net.toUri
+import se.rise.logline.record.DEFAULT_FOLDER_LABEL
 import se.rise.logline.record.DOWNLOADS_FOLDER
+import se.rise.logline.record.folderLabel
 import se.rise.logline.record.SavedRecording
 import se.rise.logline.record.persistedFolderGrants
 import se.rise.logline.record.TrackCache
@@ -230,6 +233,21 @@ private val RECORDINGS_FOLDER_HINT: android.net.Uri = DocumentsContract.buildDoc
 )
 
 /**
+ * Where to open the picker: the folder already chosen, or [RECORDINGS_FOLDER_HINT] for a first one.
+ *
+ * Somebody changing a destination is far more likely to want its neighbour than `Download/Logline`,
+ * and the picker opening on a folder they left behind is the small wrongness that reads as the app
+ * not knowing what it is set to.
+ */
+private fun chooseFolderHint(current: String): android.net.Uri =
+    if (current.isBlank()) {
+        RECORDINGS_FOLDER_HINT
+    } else {
+        val tree = current.toUri()
+        DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+    }
+
+/**
  * Whether to draw the dark scheme, with `System` deferring to the phone.
  *
  * A null choice — settings not read yet — also defers, so the first frame matches the system rather
@@ -313,7 +331,13 @@ class MainActivity : ComponentActivity() {
         // person opens the app and looks — a `START_STICKY` service restart brings the process up
         // with no UI and nobody waiting on a file. Cheap when there is nothing to do (one directory
         // listing) and self-limiting when there is, since a published orphan is deleted.
-        lifecycleScope.launch { app.publisher.publishOrphanRecordings() }
+        lifecycleScope.launch {
+            // The destination has to be read before the sweep, not assumed: no run has started, so
+            // nothing has pushed one in, and a rescued recording landing somewhere other than the
+            // chosen folder is a split nobody would think to look for.
+            val folder = app.settingsRepository.settings.first().recordingsFolderUri
+            app.publisher.publishOrphanRecordings(folder)
+        }
 
         setContent {
             // Collected here rather than inside `App()` because the theme *wraps* it — the scheme has
@@ -664,6 +688,15 @@ private fun App(
     // coming straight back now shows the offer at once instead of on the next visit to the tab.
     val folderGranted = current.recordingsFolderUri.isNotBlank() &&
         current.recordingsFolderUri in grantedFolders
+
+    // What the folder is called on screen, in one place so the Files tab and Settings cannot name it
+    // differently. Blank means the default; a tree document id is `volume:path` and `folderLabelOf`
+    // turns that into something a person recognises.
+    // Remembered on the Uri: the fallback asks the provider what the folder is called, which is a
+    // content query and not something to do on every recomposition.
+    val folderLabel = remember(current.recordingsFolderUri, folderGranted) {
+        if (folderGranted) folderLabel(context, current.recordingsFolderUri) else DEFAULT_FOLDER_LABEL
+    }
 
     val recordingsFolderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -1074,6 +1107,7 @@ private fun App(
             }
             MainScreen(
                 settings = current,
+                folderLabel = folderLabel,
                 status = status,
                 recording = recording,
                 live = live,
@@ -1210,7 +1244,7 @@ private fun App(
                     // for as long as the copy takes, which is honest: the file is genuinely not there
                     // yet. Idempotent and guarded, so this is a directory listing when there is
                     // nothing to rescue, and waits behind the launch sweep rather than skipping it.
-                    app.publisher.publishOrphanRecordings()
+                    app.publisher.publishOrphanRecordings(current.recordingsFolderUri)
                     savedRecordings(context, current.recordingsFolderUri)
                 }
             }
@@ -1265,7 +1299,8 @@ private fun App(
                 },
                 loaded = recordings != null,
                 folderGranted = folderGranted,
-                onGrantFolder = { recordingsFolderPicker.launch(RECORDINGS_FOLDER_HINT) },
+                onChooseFolder = { recordingsFolderPicker.launch(chooseFolderHint(current.recordingsFolderUri)) },
+                folderLabel = folderLabel,
                 onShare = { context.startActivity(shareIntent(listOf(it))) },
                 onOpen = { file ->
                     nav.navigate(Routes.recordingDetail(Uri.encode(file.uri.toString())))
@@ -1813,9 +1848,16 @@ private fun App(
                 onExportRegistry = {
                     scope.launch {
                         libraryMessage = withContext(Dispatchers.IO) {
-                            runCatching { exportPlatformRegistry(context, current.platforms, current.realm) }
+                            runCatching {
+                                exportPlatformRegistry(
+                                    context,
+                                    current.platforms,
+                                    current.realm,
+                                    current.recordingsFolderUri,
+                                )
+                            }
                                 .fold(
-                                    onSuccess = { "Wrote $it to Downloads/Logline/config" },
+                                    onSuccess = { "Wrote $it to $folderLabel/config" },
                                     onFailure = {
                                         "Could not export: ${it.message ?: it::class.simpleName}"
                                     },
@@ -2017,8 +2059,8 @@ private fun App(
                 onExport = {
                     scope.launch {
                         exportMessage = withContext(Dispatchers.IO) {
-                            runCatching { exportCalibration(context, draft) }.fold(
-                                onSuccess = { "Wrote $it to Downloads/Logline/config" },
+                            runCatching { exportCalibration(context, draft, current.recordingsFolderUri) }.fold(
+                                onSuccess = { "Wrote $it to $folderLabel/config" },
                                 onFailure = { "Could not export: ${it.message ?: it::class.simpleName}" },
                             )
                         }
@@ -2403,11 +2445,15 @@ private fun App(
                 onRequestBatteryExemption = {
                     requestBatteryExemption(context) { batteryExemptionLauncher.launch(it) }
                 },
+                // The same lambda and the same label the Files tab uses — one control, two doors,
+                // rather than two things that drift.
+                folderLabel = folderLabel,
+                onChooseFolder = { recordingsFolderPicker.launch(chooseFolderHint(current.recordingsFolderUri)) },
                 onExportProfile = {
                     scope.launch {
                         profileMessage = withContext(Dispatchers.IO) {
                             runCatching { exportSettingsProfile(context, current) }.fold(
-                                onSuccess = { "Wrote $it to Downloads/Logline/config" },
+                                onSuccess = { "Wrote $it to $folderLabel/config" },
                                 onFailure = { "Could not export: ${it.message}" },
                             )
                         }

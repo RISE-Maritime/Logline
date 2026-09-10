@@ -161,3 +161,11 @@ completes, and that is not something app code can fix.
       dev phone. `mcap recover in.mcap -o out.mcap` fixes one on a desktop and was verified to; whether
       the app should offer to re-finish them in place is a decision, not a cleanup, and it would mean
       the sweep revisiting files it has already published.
+
+- [ ] **The free-space estimate measures the wrong volume once a folder is chosen.**
+      `Recorder.trackFreeSpace()` polls `filesDir`, which is right for what stops a run — every
+      recording is written to app-private storage and copied at the end — but the *destination* can
+      now be a card, a stick or a synced folder on another volume. That one can fill while the card
+      still says "about 16 days of recording", and the failure lands at the end of a run rather than
+      the start. Nothing is lost when it does: the file stays in app storage and the launch sweep
+      retries. A second estimator, or a copy that checks first, is a decision rather than a cleanup.

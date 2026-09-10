@@ -168,6 +168,7 @@ class PublisherService : Service() {
 
         watchOffSubjects()
         watchTags()
+        watchOutputFolder()
         refreshNotificationPeriodically()
     }
 
@@ -255,6 +256,22 @@ class PublisherService : Service() {
                 .map { it.activeTags }
                 .distinctUntilChanged()
                 .collect { app.publisher.setTags(it) }
+        }
+    }
+
+    /**
+     * Where finished recordings are copied to, pushed in as it is chosen.
+     *
+     * The same shape again. Nothing about a destination needs the publishers redeclared, and it is
+     * read when a file is published rather than when the run starts — so choosing a folder mid-run
+     * lands the next file there, including the one a rotation is about to open.
+     */
+    private fun watchOutputFolder() {
+        scope.launch {
+            app.settingsRepository.settings
+                .map { it.recordingsFolderUri }
+                .distinctUntilChanged()
+                .collect { app.publisher.setOutputFolder(it) }
         }
     }
 

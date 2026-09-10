@@ -1513,6 +1513,38 @@ simply never finds anything on the bus.
   version of its test — each track is scaled to **its own** extent, so the `cos(latitude)` correction
   has to be checked *within* one track; comparing two separate tracks gives a ratio of 1 whatever the
   projection does.
+- **Where recordings are written is one setting with two jobs, and that is deliberate.**
+  `Settings.recordingsFolderUri` began as a read-back grant — MediaStore ties a file to the install
+  that wrote it, so a reinstall leaves the app's own recordings invisible — and is now also the
+  destination, with the exports following into a `config` subfolder inside it. Blank means
+  `Downloads/Logline` and nothing about that path changed. Splitting the two would let a phone fill
+  one folder while listing another, which is a state nobody could diagnose from the screen.
+  **The picker already took the write flag**, so this needed no new permission path — only a new
+  consumer. `persistedFolderGrants` now requires `isWritePermission` as well as read: a grant that
+  cannot be written to is not a destination, and finding that out at the end of a run is too late.
+  `saveOutput` in `record/Downloads.kt` is the one entry point and branches on the Uri being blank.
+  The `MediaStore` arm is unchanged, `IS_PENDING` and all. The tree arm uses `DocumentsContract`
+  directly rather than `androidx.documentfile` — the listing beside it already speaks that — and gets
+  the pending guarantee from a **`.part` name renamed on success**, since SAF has no such flag; a
+  reader must never take a half-copied 512 MB file for a whole one, and `isPartialName` keeps those
+  out of the listing. The `config` folder is **found before it is created**, because `createDocument`
+  on an existing name makes `config (1)` and a phone exporting weekly would fill up with them.
+  **Read when a file is published, never when a run starts**, so choosing a folder mid-run lands the
+  next file — including the one a rotation is about to open — and it goes through `update()` rather
+  than `saveSettings()`, the rule the grant already followed. The **orphan sweep is passed the folder
+  explicitly** (`publishOrphanRecordings(folderUri)`): it runs at app launch with no run behind it, so
+  there is nothing to have pushed one in, and a rescued recording landing somewhere else is a split
+  nobody would look for.
+  **A document id is only a path on a storage volume.** `folderLabelOf` turns `primary:Download/Logline`
+  into `Download/Logline` and refuses ids whose first chunk is not `primary` or a `1234-5678` serial —
+  a Drive folder granted on the dev phone came back as `acc=1;doc=encoded=E0ykFiymkwJqjorOU52y7snEhi7…`,
+  which is not a name anybody would recognise. `folderLabel(context, uri)` falls back to asking the
+  provider for the display name, which gave `GPSLoggerPHONE_4`. Verified end to end against that Drive
+  folder: a run landed there, two consecutive exports both went to one `config` subfolder, and the
+  Files tab listed the recording and not the exports.
+  Note the free-space estimate still measures `filesDir`, which is what actually stops a run — the
+  file is written there and copied afterwards — so a destination on another volume can fill while the
+  estimate is happy. Recorded in TODO.md rather than solved.
 - **Exports go to `Downloads/Logline/config`, recordings to `Downloads/Logline`.** A subfolder, and that
   is what keeps a settings profile out of the Recordings tab: `savedRecordings()` matches
   `RELATIVE_PATH` for *exactly* `Download/Logline/`, so anything a level down is excluded by

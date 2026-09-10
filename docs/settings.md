@@ -17,6 +17,12 @@ Session is the dashboard and the start/stop control, Live is the map and the plo
 moment is marked, Files is what has been recorded, and Setup holds everything that is configured
 rather than operated: Settings, Platforms, the annotation buttons and (when enabled) Checklists.
 
+**Settings → Recording → Recording folder** chooses where finished recordings are written. The default
+is `Downloads/Logline`; any folder the system picker offers works, including a card or a synced one,
+and the exports follow into a `config` subfolder inside it. It is the same folder the Files tab lists
+from, and the same control appears there as **Change** — one destination, so the app cannot fill one
+place while listing another.
+
 Setup's last section is **About**, and its row states the installed build — `1.0 (1) · debug build` —
 so a phone can be asked which APK it is holding without anyone going back to the machine that built
 it. The screen behind it adds the install and update dates and the application id. The version is

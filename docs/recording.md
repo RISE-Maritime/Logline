@@ -15,6 +15,29 @@ Settings. Finished files land in **Downloads/Logline** on the phone, so they can
 USB, Drive or anything else — no adb, and no storage permission (an app always owns the media it
 creates, and `WRITE_EXTERNAL_STORAGE` is a no-op at minSdk 30).
 
+### Choosing where they land
+
+`Downloads/Logline` is the default, not the only choice. **Settings → Recording → Recording folder**,
+or **Change** on the Files tab, opens the system folder picker; both are the same control, and the
+Files tab states the current destination above the list. A card, a stick or a synced folder all work,
+because it is a Storage Access Framework grant rather than a path — verified on a Pixel 6 against a
+Google Drive folder, where a run landed in the folder and the tab listed it from there.
+
+Three things follow from choosing one.
+
+**Exports follow the recordings.** A settings profile, a platform's geometry and the platform library
+go into a `config` subfolder inside it, which is what keeps them out of the Recordings list — the same
+arrangement `Downloads/Logline/config` already had.
+
+**The Files tab lists the chosen folder**, which is the other half of the same grant: recordings
+written by an earlier install of the app are listed too, where MediaStore alone would hide them.
+
+**Nothing is written there until the run is over.** A run always writes into app-private storage and
+is copied at the end, or at each 512 MB rotation. If the folder has gone by then — a grant taken back
+in Android's settings, a card pulled out — the recording stays in app storage, the card says it could
+not be saved, and the next time the app is opened the sweep tries again. Choosing a folder mid-run is
+safe and takes effect at the next file.
+
 **The recording is the complete log; the bus is best-effort.** A Zenoh `put` succeeds even when the
 router is gone — measured here, ~9000 successful puts landed on an empty bus during a 26 s outage — so
 recording is deliberately *not* gated on publish success. The bytes go to disk when they are built.
@@ -122,7 +145,7 @@ The file being written right now is deliberately not in the list: it stays in ap
 it is closed, and the status card already reports it live.
 
 > Android ties a `Downloads` entry to the app that wrote it, so if this list is ever empty when you know
-> there are files, look in `Downloads/Logline` with a file manager before concluding anything is lost.
+> there are files, look in the folder with a file manager before concluding anything is lost.
 
 ## Background logging
 

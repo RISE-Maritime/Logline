@@ -3,11 +3,11 @@ package se.rise.logline.calibrate
 import android.content.Context
 import android.net.Uri
 import se.rise.logline.keelson.escaped
-import se.rise.logline.record.CONFIG_FOLDER
-import se.rise.logline.record.saveToDownloads
+import se.rise.logline.record.OutputKind
+import se.rise.logline.record.saveOutput
 
 /**
- * Write one platform to `Downloads/Logline/config` as a platform-geometry file.
+ * Write one platform into the chosen folder's `config` subfolder as a platform-geometry file.
  *
  * The **strict** variant: no provenance block, so the file validates against
  * `keelson/connectors/platform/config-schema.json` and can be handed straight to
@@ -17,9 +17,14 @@ import se.rise.logline.record.saveToDownloads
  * Returns the file name it wrote, for the screen to show. Throws whatever the MediaStore write throws;
  * the caller reports it rather than this pretending it succeeded.
  */
-fun exportCalibration(context: Context, calibration: PlatformCalibration): String {
+fun exportCalibration(
+    context: Context,
+    calibration: PlatformCalibration,
+    /** `Settings.recordingsFolderUri` — the exports follow the recordings. Blank is Downloads. */
+    folderUri: String = "",
+): String {
     val name = "${defaultEntityId(calibration.name)}-platform-geometry.json"
-    saveToDownloads(context, name, "application/json", CONFIG_FOLDER) { out ->
+    saveOutput(context, name, "application/json", OutputKind.Export, folderUri) { out ->
         out.write(calibration.toPlatformGeometryJson().toByteArray(Charsets.UTF_8))
     }
     return name
@@ -38,9 +43,14 @@ fun exportCalibration(context: Context, calibration: PlatformCalibration): Strin
  * expressions this phone has not verified would put wrong ones in front of somebody. Crowsnest
  * discovers streams from the wire itself.
  */
-fun exportPlatformRegistry(context: Context, platforms: List<PlatformCalibration>, realm: String): String {
+fun exportPlatformRegistry(
+    context: Context,
+    platforms: List<PlatformCalibration>,
+    realm: String,
+    folderUri: String = "",
+): String {
     val name = "logline-platform-registry.json"
-    saveToDownloads(context, name, "application/json", CONFIG_FOLDER) { out ->
+    saveOutput(context, name, "application/json", OutputKind.Export, folderUri) { out ->
         out.write(platformRegistryJson(platforms, realm).toByteArray(Charsets.UTF_8))
     }
     return name

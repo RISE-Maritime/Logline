@@ -92,7 +92,10 @@ fun RecordingsScreen(
      * broken until somebody is looking for a recording that is not in the list.
      */
     folderGranted: Boolean = false,
-    onGrantFolder: () -> Unit = {},
+    /** Where finished recordings are written, named the way a person would: `Downloads/Logline`. */
+    folderLabel: String = "",
+    /** Opens the system folder picker. The same lambda the Settings row uses — one control, two doors. */
+    onChooseFolder: () -> Unit = {},
     /**
      * Delete every recording in the list, answering how many actually went.
      *
@@ -199,15 +202,15 @@ fun RecordingsScreen(
                 if (loaded) {
                     EmptyState(
                         title = "Nothing saved yet",
-                        body = "Finished recordings are copied to Downloads/Logline and appear here. " +
-                            "Exported settings and platform geometry go to Downloads/Logline/config " +
+                        body = "Finished recordings are copied to $folderLabel and appear here. " +
+                            "Exported settings and platform geometry go to a config folder inside it " +
                             "instead, so they do not clutter this list.\n\n" +
                             "Files saved by an earlier install of this app are not listed — Android " +
-                            "ties them to the install that wrote them. They are still in " +
-                            "Downloads/Logline and any file manager can see them.",
+                            "ties them to the install that wrote them. They are still in the folder " +
+                            "and any file manager can see them.",
                     )
-                    if (!folderGranted) {
-                        OutlinedButton(onClick = onGrantFolder) { Text("Show the whole folder…") }
+                    OutlinedButton(onClick = onChooseFolder) {
+                        Text(if (folderGranted) "Change folder…" else "Choose a folder…")
                     }
                 } else {
                     Text("Looking…", style = MaterialTheme.typography.bodyLarge)
@@ -231,11 +234,28 @@ fun RecordingsScreen(
                 total = files.size,
             )
 
+            // **Where the files are going, on the screen that lists them.** One quiet line, because it
+            // is a standing fact rather than anything to act on — but it has to be *somewhere*: the
+            // recorder writes to a folder the operator chose weeks ago, and a list of files that never
+            // says where they are is a list somebody has to go and check with a file manager.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 16.dp, end = 8.dp),
+            ) {
+                Text(
+                    "Saving to $folderLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onChooseFolder) { Text("Change") }
+            }
+
             // **The list's own admission that it may be partial.** This is the whole complaint the
             // folder grant answers: the empty state said it in words, but a list with fifteen rows in
             // it and three more sitting unlisted in the folder gave no hint at all, so the missing ones
-            // looked like data loss. One quiet line rather than a banner — nothing is broken, and it
-            // disappears for good the moment the folder is granted.
+            // looked like data loss. A separate fact from the line above — that one says where files
+            // go, this says the list of them is short — and it disappears for good once granted.
             if (!folderGranted) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -247,7 +267,7 @@ fun RecordingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = onGrantFolder) { Text("Show all") }
+                    TextButton(onClick = onChooseFolder) { Text("Show all") }
                 }
             }
 

@@ -455,6 +455,21 @@ class Recorder(private val appContext: Context) {
     @Volatile
     private var activeTags: Set<String> = emptySet()
 
+    /**
+     * Where finished files are copied to, blank meaning `Downloads/Logline`.
+     *
+     * Pushed in as it changes for the same reason the tags are, and read when a file is published
+     * rather than when the run starts — so choosing a folder mid-run takes effect at the next file,
+     * including the one a 512 MB rotation is about to open. Nothing about a destination needs the
+     * run torn down, which is why this arrives through `update()` and not `saveSettings()`.
+     */
+    @Volatile
+    private var outputFolderUri: String = ""
+
+    fun setOutputFolder(uri: String) {
+        outputFolderUri = uri
+    }
+
     fun stop(token: Any? = null) {
         val runScope = scope ?: return
         if (token != null && token !== runScope) {
@@ -506,7 +521,8 @@ class Recorder(private val appContext: Context) {
     }
 
     /**
-     * Copy a finished file into Downloads, where the user can actually get at it, then delete it.
+     * Copy a finished file into the chosen folder, where the user can actually get at it, then delete
+     * it.
      *
      * Returns whether it arrived — which is what [RecordingStatus.filesCompleted] counts, because that
      * number is read as the answer to "did it save?". Counting the copies that failed would be worse
@@ -516,11 +532,12 @@ class Recorder(private val appContext: Context) {
     private fun publish(file: File): Boolean {
         if (!file.exists() || file.length() == 0L) return false
         return try {
-            saveToDownloads(appContext, file.name, "application/octet-stream") { out ->
+            val folder = outputFolderUri
+            saveOutput(appContext, file.name, "application/octet-stream", OutputKind.Recording, folder) { out ->
                 file.inputStream().use { it.copyTo(out) }
             }
             file.delete()
-            Log.i(TAG, "published ${file.name} to Downloads/Logline")
+            Log.i(TAG, "published ${file.name} to ${folder.ifBlank { DEFAULT_FOLDER_LABEL }}")
             true
         } catch (e: java.io.FileNotFoundException) {
             // The file went while this was reading it, which means the *other* half of a stop-start
@@ -534,8 +551,11 @@ class Recorder(private val appContext: Context) {
         } catch (t: Throwable) {
             // Keep the local file if publishing failed — it is still recoverable with adb, whereas
             // deleting it would lose the run outright.
-            Log.e(TAG, "could not publish ${file.name} to Downloads; leaving it in app storage", t)
-            _status.update { it.copy(error = "could not save to Downloads: ${t.message}") }
+            // **The file stays put, and the next launch tries again.** `publishOrphans()` sweeps
+            // app storage at every start, so a grant taken back in Android's settings or a card
+            // pulled out means recordings queue up locally and arrive when the folder does.
+            Log.e(TAG, "could not publish ${file.name}; leaving it in app storage", t)
+            _status.update { it.copy(error = "could not save the recording: ${t.message}") }
             false
         }
     }
@@ -566,7 +586,15 @@ class Recorder(private val appContext: Context) {
      * is handled without a guard of its own: `finalise()` returns null on a file whose tail is
      * already the closing magic, and `publish()` treats a vanished file as somebody else's success.
      */
-    suspend fun publishOrphanRecordings() = withContext(Dispatchers.IO) { sweepOrphans() }
+    suspend fun publishOrphanRecordings(folderUri: String) = withContext(Dispatchers.IO) {
+        // **Passed in rather than assumed.** A sweep runs at app launch with no run behind it, so
+        // there is nothing to have pushed a destination in — and a rescued recording landing in
+        // Downloads while every other file goes to the chosen folder is the sort of split nobody
+        // would think to look for. The value is the same one a run would push, so setting it here
+        // cannot disagree with a run in progress.
+        setOutputFolder(folderUri)
+        sweepOrphans()
+    }
 
     private suspend fun sweepOrphans() {
         sweepLock.withLock {

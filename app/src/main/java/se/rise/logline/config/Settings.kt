@@ -132,12 +132,20 @@ data class Settings(
     val batteryExemptionAsked: Boolean = false,
 
     /**
-     * A persisted grant on `Downloads/Logline`, or blank.
+     * The folder recordings are written to and listed from, as a persisted tree grant — or blank for
+     * `Downloads/Logline`.
      *
-     * **What it buys**: MediaStore attributes a file to the install that wrote it, so after a reinstall
-     * this app's own recordings sit in that folder untouched and invisible — measured, a file written
-     * under another package was absent from a listing that returned all fifteen of this install's. With
-     * the grant the Files list is built from both sources and shows everything there.
+     * **One folder, two jobs, deliberately.** It began as a read-back grant and nothing more: MediaStore
+     * attributes a file to the install that wrote it, so after a reinstall this app's own recordings sit
+     * in that folder untouched and invisible — measured, a file written under another package was absent
+     * from a listing that returned all fifteen of this install's. With the grant the Files list is built
+     * from both sources and shows everything there.
+     * It is now also where finished recordings are copied to, and where the exports go, into a `config`
+     * subfolder. Splitting the two would allow a phone to fill one folder while listing another, which
+     * is a state nobody could diagnose from the screen.
+     *
+     * Read when a file is published rather than when a run starts, so choosing a folder mid-run lands
+     * the next file there — which is why it is written through `update()` and never `saveSettings()`.
      *
      * A device fact and an install fact, like [batteryExemptionAsked]: the grant belongs to *this*
      * installation on *this* phone and is dropped when it goes. So it is deliberately **not** in

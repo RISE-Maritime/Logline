@@ -454,22 +454,24 @@ private fun QosProfileEntry.toSubjectQos(): SubjectQos? {
 }
 
 /**
- * Write this phone's profile to `Downloads/Logline/config`, and return the file name.
+ * Write this phone's profile into the chosen folder's `config` subfolder, and return the file name.
  *
- * Through the same `saveToDownloads` the recorder and the calibration export use — one place holds the
- * pending flag, the folder name and the failure mode, and a second copy would eventually disagree
- * about all three.
+ * Through the same `saveOutput` the recorder and the calibration export use — one place holds the
+ * pending flag, the folder names and the failure mode, and a second copy would eventually disagree
+ * about all three. The destination comes off the settings being exported, so the profile lands
+ * wherever this phone is filing everything else.
  */
 fun exportSettingsProfile(context: android.content.Context, settings: Settings): String {
     val stamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HHmmss", java.util.Locale.US)
         .format(java.util.Date())
     val name = "logline-settings-$stamp.json"
     val text = settings.toProfile().encode()
-    se.rise.logline.record.saveToDownloads(
+    se.rise.logline.record.saveOutput(
         context,
         name,
         "application/json",
-        se.rise.logline.record.CONFIG_FOLDER,
+        se.rise.logline.record.OutputKind.Export,
+        settings.recordingsFolderUri,
     ) { out ->
         out.write(text.toByteArray())
     }
