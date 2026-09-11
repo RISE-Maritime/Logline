@@ -12,10 +12,11 @@ import java.util.Locale
 /**
  * What this install actually is.
  *
- * The version comes from `version.properties` and is bumped by hand — there is no remote and no tags,
- * so nothing derives it and nothing on the phone could otherwise be asked which build it holds. A
- * debug APK gets passed around this fleet; "is this the same build?" has to be answerable from the
- * phone rather than from the machine that built it.
+ * `versionName` comes from `version.properties` and is bumped by hand; `versionCode` is derived from
+ * the commit count, so the number in brackets on the About row identifies the commit this APK was
+ * built from. That is what makes this screen worth having: an APK gets passed around this fleet, and
+ * "is this the same build?" has to be answerable from the phone rather than from the machine that
+ * built it. Until the code was derived it read `1` for every build ever made, which answered nothing.
  *
  * Read through `PackageManager` rather than `BuildConfig`, which is off in this project (AGP 8+
  * defaults it off and nothing here has needed it). That is not merely the cheaper option: the install

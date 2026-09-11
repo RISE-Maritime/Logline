@@ -20,7 +20,11 @@ useful or just installed.
 ./gradlew :app:assembleRelease
 ```
 
-The version comes from `version.properties` at the repo root and is bumped by hand.
+`versionName` comes from `version.properties` at the repo root and is bumped by hand.
+`versionCode` is **derived**: `versionCodeBase` from that file plus the number of commits, so it is
+the same number on a laptop and in CI, always increases, and identifies the commit an APK was built
+from. A shallow clone fails the build rather than guessing — see the comments in `version.properties`
+for why that has to be loud.
 
 **Without a signing key this still works** — it warns and produces `app-release-unsigned.apk`,
 which is fine for trying something out. For anything you hand to another person, sign it.
@@ -69,16 +73,47 @@ The keystore never goes in the repository. Neither do the passwords.
 
 ## Getting it onto phones
 
-### The simple way: a GitHub Release
+### The newest build of main
 
-The repository already builds on every push. Tagging a version builds a signed APK and attaches
-it to a Release, so a phone installs from a link and there is nothing to host and no file to
-chase:
+Every push to `main` replaces one rolling prerelease with a freshly signed APK, so there is always a
+current build behind a link that does not change:
+
+```
+https://github.com/RISE-Maritime/Logline/releases/download/main-latest/Logline-main-latest.apk
+```
+
+It is signed with the same production key a release is, so it installs straight over a tagged
+release, and over an earlier rolling build, keeping the settings, the certificates and the
+recordings. It is marked as a prerelease and never shows up as "Latest" — the Releases list is for
+versions.
+
+One consequence worth knowing before it surprises somebody: the rolling build's `versionCode` is the
+commit count, so it is **higher than any earlier tagged release**. A phone on the rolling build
+cannot step back to an older version without an uninstall, and an uninstall wipes the certificates
+and the entity id.
+
+### A version: tag it
+
+Tagging builds a signed APK, attaches it to a Release, and uses the matching `CHANGELOG.md` section
+as the release notes. It is three steps rather than one, and both of the extra ones are checked by
+CI rather than trusted:
 
 ```bash
-git tag v1.0
-git push --tags
+# 1. bump versionName in version.properties
+# 2. add a `## 1.1 — YYYY-MM-DD` section to CHANGELOG.md
+git commit -am "Release 1.1"
+git push
+git tag v1.1 && git push origin v1.1
 ```
+
+**The tag must equal `versionName` with the `v` stripped.** A tag is a claim and the file is the
+fact; when they disagree, the APK inside a release named `v1.1` reports `1.0` on every phone that
+installs it and nothing on the release page says so. The workflow fails in ten seconds rather than
+publishing that.
+
+**`CHANGELOG.md` must have a matching `## <version> — <date>` heading.** An empty extraction fails
+the release too, because a forgotten changelog entry is the kind of thing nobody notices until the
+release is public.
 
 The signing key reaches CI as repository secrets — `LOGLINE_KEYSTORE_BASE64` (the `.jks`
 base64-encoded), `LOGLINE_KEYSTORE_PASSWORD`, `LOGLINE_KEY_ALIAS`, `LOGLINE_KEY_PASSWORD` — so
@@ -91,7 +126,9 @@ base64 -i ~/logline-release.jks | pbcopy    # paste into the secret
 ### The no-setup way: send the file
 
 `app/build/outputs/apk/release/app-release.apk` is an ordinary file. Drive, email, a USB cable,
-a memory stick — all fine. Nothing about the app cares how it arrived.
+a memory stick — all fine. Nothing about the app cares how it arrived. CI renames it to
+`Logline-<version>.apk` on a release, so what somebody finds in a Downloads folder six months later
+says which one it is.
 
 ### On the phone
 

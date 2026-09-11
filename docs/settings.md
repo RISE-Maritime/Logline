@@ -23,11 +23,14 @@ and the exports follow into a `config` subfolder inside it. It is the same folde
 from, and the same control appears there as **Change** — one destination, so the app cannot fill one
 place while listing another.
 
-Setup's last section is **About**, and its row states the installed build — `1.0 (1) · debug build` —
-so a phone can be asked which APK it is holding without anyone going back to the machine that built
-it. The screen behind it adds the install and update dates and the application id. The version is
-bumped by hand in `version.properties`; nothing derives it, which is exactly why the phone has to be
-able to say it.
+Setup's last section is **About**, and its row states the installed build — `1.0 (10187) · release
+build` — so a phone can be asked which APK it is holding without anyone going back to the machine that
+built it. The screen behind it adds the install and update dates and the application id.
+
+The two numbers answer different questions. `versionName` is bumped by hand in `version.properties`
+and says which *version* this is. The number in brackets is `versionCode`, derived from the commit
+count, and it identifies the *commit* — so two phones on the same version can still be told apart, and
+a phone on a rolling build from `main` can say exactly which one.
 
 Start and Stop sit pinned above the tab bar rather than in the scroll, because the page below them is
 thirty-nine subjects long. The card at the top is the session summary — what the last run left behind

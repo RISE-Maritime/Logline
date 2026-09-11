@@ -1,7 +1,15 @@
 # Changelog
 
 What changed between builds, so "which one is on that phone?" has an answer that `versionName`
-alone cannot give. Versions come from `version.properties` and are bumped by hand.
+alone cannot give. `versionName` comes from `version.properties` and is bumped by hand; `versionCode`
+is derived from the commit count.
+
+**The heading format is a contract, not a style preference.** Each release gets one
+`## <versionName> — <YYYY-MM-DD>` heading: the version exactly as `version.properties` spells it, no
+`v` prefix, an em dash, the date. `.github/workflows/release.yml` takes everything between that
+heading and the next `## ` and makes it the GitHub Release body, matching by literal prefix — so a
+`v` on the front, an en dash, or a version that does not match `version.properties` all mean the
+workflow finds nothing, and it fails the release rather than publishing one with no notes.
 
 ## 1.0 — 2026-08-25
 

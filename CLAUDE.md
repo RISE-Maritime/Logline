@@ -994,10 +994,40 @@ simply never finds anything on the bus.
   `python3 art/svg_to_adaptive_icon.py` regenerates `drawable/ic_launcher_{background,foreground}.xml`.
   Never put an `.svg` under `res/` — AAPT will fail the build. The foreground is deliberately scaled to
   0.80 so a circular launcher mask cannot clip the mark.
-- **Release builds are unsigned by design when no key is configured.** `assembleRelease` warns and
-  emits `app-release-unsigned.apk` rather than failing, so a developer without the keystore is not
-  blocked. Credentials come from env vars or `local.properties`; see the README. Version lives in
-  `version.properties` and is bumped by hand — there is no git repository to derive it from.
+- **Release builds are unsigned by design when no key is configured — *locally*.** `assembleRelease`
+  warns and emits `app-release-unsigned.apk` rather than failing, so a developer without the keystore
+  is not blocked. **CI is the opposite and deliberately so**: both workflows fail on a missing
+  `LOGLINE_KEYSTORE_BASE64`, because an unsigned APK published to a release is worse than no release —
+  Android treats a different signature as a different app, so every phone that installed it needs an
+  uninstall to get back, and an uninstall wipes the mTLS certificates and the entity id. Credentials
+  come from env vars or `local.properties`; see the README.
+- **`versionCode` is derived from the commit count, and a shallow clone is the failure it exists to
+  catch.** `versionCodeBase` in `version.properties` plus `git rev-list --count HEAD`, read through a
+  `ValueSource` in `app/build.gradle.kts` — 10 187 today. `versionName` stays hand-bumped, because
+  that one is an editorial claim and nothing should derive it. Hand-bumping the *code* is what left it
+  at `1` across 187 commits, so every APK ever built reported `1.0 (1)` and none could upgrade another.
+  The derivation is configuration-cache safe and not by luck: a `ValueSource` read at configuration
+  time is a **build configuration input**, so Gradle re-executes it before every build to decide
+  whether the cached configuration still holds. Verified rather than assumed — an empty commit makes
+  Gradle say `a build logic input of type 'GitRepositoryState' has changed` and the APK's code moves
+  from 10187 to 10188. A cached number would be silently wrong on every phone that took the APK, which
+  is why this is a `ValueSource` and not a file read. It is also **not** `providers.exec()`: that
+  throws out of `.get()` when git is missing with no configuration-cache-compatible way to catch it
+  (gradle/gradle#23914), where `obtain()` returning null is the same information with a fallback
+  attached. The `.git` probe lives *inside* `obtain()` for two reasons — a bare `exists()` at
+  configuration time is an undeclared input, and `git` walks **upwards** looking for a repository, so
+  a checkout nested inside another clone would otherwise take that repository's count without a word.
+- **`actions/checkout` defaults to `fetch-depth: 1`, and that default is what would break upgrades
+  permanently.** In a shallow clone `git rev-list --count HEAD` does not fail: it **succeeds and
+  returns the clone depth**, which is 1. Reproduced here with `git clone --depth 1`. A build that way
+  would be green, the APK entirely normal-looking, and it would carry `versionCodeBase + 1` — and
+  Android refuses to install a lower `versionCode` over a higher one, so every phone that took it is
+  stuck until somebody uninstalls, which wipes the certificates. `app/build.gradle.kts` therefore
+  **fails** on a shallow clone rather than falling back, naming `fetch-depth: 0`; only an absent
+  repository entirely (a source archive) falls back, and it warns. Every job in `.github/workflows/`
+  that builds an APK sets `fetch-depth: 0` for this reason and no other. If history is ever squashed
+  or rewritten the count can go *down* — it was rewritten once already, on 2026-09-11 — and the only
+  repair is to raise `versionCodeBase` above the highest code ever released. Never lower it.
 - **`local.properties` is git-ignored** and holds `sdk.dir`. A fresh clone won't build without it.
 - **Configuration cache is on.** Build-logic edits are picked up; if a change seems ignored, add
   `--rerun-tasks` before assuming the code is wrong.
@@ -2424,10 +2454,28 @@ Sibling repos on this machine, useful as references and already in the working-d
 
 ## CI
 
-`.github/workflows/build.yml` runs `testDebugUnitTest lintDebug assembleDebug` on push, pull request,
-and manual dispatch. It is **green as of `542c988`** — run 32592816237, 10m20s — which is the first
-time it has ever passed: the three runs before it all died installing the SDK platform, for the reason
-below. A cold run is around ten minutes, most of it packaging the Zenoh natives.
+`.github/workflows/build.yml` runs `testDebugUnitTest lintDebug :app:assembleRelease` on pushes to
+`main` and on pull requests targeting it, plus manual dispatch. A cold run is around ten minutes, most
+of it packaging the Zenoh natives.
+
+**The branch filters are load-bearing.** `on: push:` carried no filter, so every pull request built
+twice — once as the push, once as the `pull_request` — and every feature-branch commit burned a full
+run. Filtering both to `main` means each commit that matters is built exactly once.
+
+**`assembleRelease` replaced `assembleDebug` for coverage, not speed.** `testDebugUnitTest` already
+compiles the debug variant and `lintDebug` already analyses it, so the only thing given up is
+*packaging* a variant nobody ships — while the variant that does ship now goes through the release
+block and the signing config on every run. Building both would add ten minutes to package 118 MB that
+goes nowhere.
+
+**Signing is gated on a push to `main` specifically, and that is a security boundary.** Not on the
+secret being present: a pull request from a branch *in this repository* does receive secrets, and a
+pull request may edit `app/build.gradle.kts`, so a PR build that can reach the keystore is a PR that
+can print it into the log. PR builds come out unsigned, which is everything a compile check needs.
+
+**Main runs are excluded from concurrency cancellation** (`cancel-in-progress` is false only for
+`refs/heads/main`). A run killed part-way through the upload would leave the rolling release serving a
+truncated 110 MB APK, and a stable download link that hands back a broken file is worse than no link.
 
 Two runner-specific details worth knowing before editing it: there is no `local.properties` on CI, so
 AGP resolves the SDK from `ANDROID_HOME` (verified locally by building with the file moved aside), and
@@ -2440,11 +2488,43 @@ Android publishes minor releases, so platform paths carry a minor version — `3
 a typo, and had the workflow red on every run it made. Both the published index and the SDK installed
 here spell it `37.0`; `$ANDROID_HOME/platforms/android-37.0/package.xml` is the local proof.
 
+## Releases
+
+Two channels, and they are deliberately different things.
+
+**`main-latest` is a rolling prerelease.** Every push to `main` replaces it with a freshly signed APK
+under a fixed asset name, so
+`releases/download/main-latest/Logline-main-latest.apk` is a URL a phone can bookmark. `prerelease:
+true` and `make_latest: false` keep it from outranking a real version at `/releases/latest`. The tag
+is `main-latest` rather than `main`, because a tag sharing a branch's name makes every bare
+`git checkout main` ambiguous.
+
+**The one piece of pure GitHub trivia here: `softprops/action-gh-release` does not move the tag of an
+existing published release.** `target_commitish` is honoured at creation and for drafts only, so the
+tag ref stays wherever it was first cut. `build.yml` therefore force-updates `refs/tags/main-latest`
+itself *before* calling the action; without that step the release would go on naming the commit it was
+first cut at while serving new APKs underneath. `name` and `body` are set on every run for the same
+class of reason — the action retains an existing release's info for any key not supplied, so omitting
+the body once leaves last month's commit described above this month's APK.
+
+**`v*` tags are versions**, and `release.yml` gates them twice. The tag must equal `versionName` with
+the `v` stripped, because a tag is a claim and `version.properties` is the fact — when they disagree,
+the APK inside a release named `v1.1` reports `1.0` on every phone and nothing on the release page
+says so. And `CHANGELOG.md` must carry a matching `## <version> — <date>` heading, which becomes the
+release body; an empty extraction fails the run, since a forgotten changelog entry is only ever
+noticed once the release is public. The extractor matches by **literal prefix rather than regex**,
+because a version is full of dots and `^## 1.0` as a regex also matches `## 120 — …`.
+
+`workflow_dispatch` is deliberately absent from `release.yml`: with no tag in `github.ref` there is
+nothing to name the release after, which is what made the old dispatch path broken rather than merely
+unused.
+
 ## Repository state
 
 A git repository since 2026-08-18, on `main`, with `origin` at `RISE-Maritime/Logline`. The initial
 commit is the whole app at `versionCode 1`; everything before it is unrecoverable, which is the reason
-it exists.
+it exists. That `1` is history rather than a live number — codes are derived from the commit count now
+and start above 10 000, so nothing will ever be built at 1 again.
 
 Ignored and deliberately never committed: `local.properties`, `.claude/settings.local.json`, the mTLS
 client credentials under `certificates/`, any `*.pem` / `*.jks` / `*.keystore`, the generated

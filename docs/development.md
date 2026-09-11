@@ -47,10 +47,19 @@ Kotlin binding ships native `.so` libraries for every ABI; that is expected, not
 ./gradlew :app:assembleRelease
 ```
 
-Version comes from `version.properties` at the repo root — `versionCode` and `versionName`, bumped by
-hand. The repository has no tags and no remote to derive them from, and a version that changes as a
-side effect of building makes "is this the same build?" unanswerable. A non-integer `versionCode`
-fails the build rather than silently defaulting.
+`versionName` comes from `version.properties` at the repo root and is bumped by hand — it is an
+editorial claim about what changed, and nothing should derive it.
+
+`versionCode` **is** derived: `versionCodeBase` from that file plus `git rev-list --count HEAD`. That
+is not the thing the old rule warned about. "A version that changes as a side effect of building makes
+'is this the same build?' unanswerable" is exactly right, and the commit count is the *answer* to it
+rather than a violation — the same checkout produces the same number on every machine, and a different
+number means a different commit. Hand-bumping is what left it at `1` for 187 commits, so every APK
+ever built reported the same version and none of them could upgrade another.
+
+**A shallow clone fails the build rather than falling back.** `git rev-list --count HEAD` does not
+error on a truncated history; it succeeds and returns the clone depth. `version.properties` explains
+what that would cost.
 
 **Signing is optional and off by default.** With no credentials configured the build succeeds, warns,
 and produces `app-release-unsigned.apk` — most developers here never need the key. To produce a signed
