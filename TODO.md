@@ -63,10 +63,10 @@ completes, and that is not something app code can fix.
       checked in `Routes.shouldSyncChecklists` rather than only on the Settings switch, because that is
       the single place a session opens and there are four ways the flag gets set. Re-enabling once the
       binding is fixed is that one boolean; `NavigationRoutesTest` has the positive routing assertions
-      guarded rather than inverted, so they start pinning again the moment it flips. Done in 9de8f83.
+      guarded rather than inverted, so they start pinning again the moment it flips. Done in d251a07.
       The sync is now query-free and there is a simplified `ChecklistRunsScreen` behind the gate, with
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
-      turn the feature on. Done in db09694.
+      turn the feature on. Done in 5d30568.
 
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
   Two independent faults, both found by running it:
