@@ -1,22 +1,133 @@
 import com.google.protobuf.gradle.id
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
+import org.gradle.process.ExecOperations
+import java.io.ByteArrayOutputStream
 import java.util.Properties
+import javax.inject.Inject
 
 /**
- * Version comes from version.properties at the repo root, bumped by hand — there is no git repository
- * to derive a code from. Falls back so a checkout without the file still builds.
+ * The commit count, and whether this clone is shallow, read from git at configuration time.
+ *
+ * **A `ValueSource` rather than `providers.exec()`, and that is about failure rather than taste.**
+ * `providers.exec()` throws out of `.get()` when the binary is missing, and there is no
+ * configuration-cache-compatible way to catch it (gradle/gradle#23914). `obtain()` returning null is
+ * the same information with a fallback attached.
+ *
+ * **It cannot go stale, which is the whole reason deriving a version this way is safe.** A
+ * `ValueSource` read at configuration time is a *build configuration input*, so Gradle re-executes it
+ * at the start of every build to decide whether the cached configuration still holds — move `HEAD`
+ * and the entry is invalidated and the new number reaches the manifest merger. Verified rather than
+ * assumed: an empty commit makes Gradle say "a build logic input of type 'GitRepositoryState' has
+ * changed" and the APK's code moves with it. The cost is one configuration phase per commit, which is
+ * seconds here and is not worth "optimising" into a cached file: a `versionCode` that lagged behind
+ * `HEAD` would be silently wrong, and an APK shipped at the wrong code is wrong on every phone that
+ * takes it.
+ *
+ * **The `.git` probe lives in here, not in the script body**, for two reasons. A bare `exists()` at
+ * configuration time is an *undeclared* input. And `git` walks **upwards** looking for a repository,
+ * so a Logline checkout sitting inside some other clone would otherwise take that repository's commit
+ * count without a word. A worktree's `.git` is a file rather than a directory, hence `exists()`.
+ */
+abstract class GitRepositoryState : ValueSource<String, GitRepositoryState.Parameters> {
+    interface Parameters : ValueSourceParameters {
+        val rootDir: Property<String>
+    }
+
+    @get:Inject
+    abstract val execOperations: ExecOperations
+
+    override fun obtain(): String? {
+        val root = File(parameters.rootDir.get())
+        if (!File(root, ".git").exists()) return null
+        val count = git(root, "rev-list", "--count", "HEAD") ?: return null
+        // Prints "true"/"false". A `--filter=blob:none` clone is *not* shallow and counts correctly,
+        // so this catches the truncated-history case and nothing else.
+        val shallow = git(root, "rev-parse", "--is-shallow-repository") ?: "false"
+        return "$count|$shallow"
+    }
+
+    private fun git(root: File, vararg args: String): String? {
+        val out = ByteArrayOutputStream()
+        val result = try {
+            execOperations.exec {
+                workingDir = root
+                commandLine("git", *args)
+                standardOutput = out
+                errorOutput = ByteArrayOutputStream()
+                isIgnoreExitValue = true
+            }
+        } catch (_: Exception) {
+            return null // No git on PATH at all: a source archive still builds.
+        }
+        if (result.exitValue != 0) return null
+        return out.toString(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }
+    }
+}
+
+/**
+ * `versionName` is hand-bumped in version.properties; `versionCode` is derived from the commit count.
+ *
+ * The split is deliberate. A version *name* is an editorial claim about what changed and nothing
+ * should derive it. A version *code* only has to increase, and hand-bumping it is how it stayed at 1
+ * through 187 commits — which made the About screen, whose entire job is answering "which build is
+ * this phone holding?", answer `1` for every build ever made.
+ *
+ * See version.properties for the two rules that come with this: the shallow-clone trap, and the
+ * ratchet on `versionCodeBase`.
  */
 val versionProps = Properties().apply {
     val file = rootProject.file("version.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
 val appVersionName: String = versionProps.getProperty("versionName") ?: "1.0"
-val appVersionCode: Int = versionProps.getProperty("versionCode")?.toIntOrNull()
-    ?: if (versionProps.getProperty("versionCode") != null) {
-        // Present but not an integer: fail loudly rather than shipping version 1 forever.
-        throw GradleException("version.properties: versionCode must be an integer")
-    } else {
-        1
+
+// A leftover `versionCode=` would now be ignored while still looking authoritative to whoever wrote
+// it. Disagreeing quietly with the file is worse than refusing to build.
+if (versionProps.getProperty("versionCode") != null) {
+    throw GradleException(
+        "version.properties: versionCode is derived from the git commit count now and must be " +
+            "removed. Set versionCodeBase instead — see the comments in that file."
+    )
+}
+
+val versionCodeBase: Int = versionProps.getProperty("versionCodeBase")?.toIntOrNull()
+    ?: throw GradleException("version.properties: versionCodeBase must be an integer")
+val versionCodeFallback: Int = versionProps.getProperty("versionCodeFallback")?.toIntOrNull()
+    ?: throw GradleException("version.properties: versionCodeFallback must be an integer")
+
+val gitState: String? = providers.of(GitRepositoryState::class.java) {
+    parameters.rootDir.set(rootProject.projectDir.absolutePath)
+}.orNull
+
+val appVersionCode: Int = when {
+    gitState == null -> {
+        // No repository and no git binary — a source archive. Never a release path, since CI always
+        // has both, so a low number and a warning is the honest answer.
+        logger.warn(
+            "Logline: no git repository, versionCode falls back to $versionCodeFallback. " +
+                "An APK built this way cannot upgrade a real install."
+        )
+        versionCodeFallback
     }
+    gitState.substringAfter('|') == "true" -> {
+        // **The loud failure, and it is loud on purpose.** `git rev-list --count HEAD` in a shallow
+        // clone does not error: it succeeds and returns the clone depth, which is 1 under
+        // actions/checkout's default. Falling back here would ship versionCodeBase + 1 from a green
+        // build that looks entirely healthy, and an install at that code blocks every later upgrade
+        // until somebody uninstalls — which wipes the mTLS certificates and the entity id.
+        throw GradleException(
+            "Logline: this is a shallow clone, so the commit count is the clone depth rather than " +
+                "the history. Set `fetch-depth: 0` on actions/checkout, or `git fetch --unshallow`."
+        )
+    }
+    else -> {
+        val count = gitState.substringBefore('|').toIntOrNull()
+            ?: throw GradleException("Logline: could not parse the git commit count from '$gitState'")
+        versionCodeBase + count
+    }
+}
 
 /**
  * Release signing, from the environment first, then local.properties (git-ignored, already holds
