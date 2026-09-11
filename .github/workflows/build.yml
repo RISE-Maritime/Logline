@@ -111,12 +111,23 @@ jobs:
       #
       # No local.properties here — it is git-ignored, and AGP falls back to ANDROID_HOME, which
       # setup-android exports. Do not "helpfully" generate one.
-      - name: Test, lint and assemble
+      # **Two Gradle invocations, not one, and this is a real constraint rather than fussiness.**
+      # protoc writes the MCAP descriptor set to `app/src/main/assets/keelson_payloads.desc` — a
+      # *source* directory — and it writes the same path for every variant. Put a debug task and a
+      # release task in one task graph and Gradle refuses it: `mergeReleaseAssets` uses the output of
+      # `generateDebugProto` without declaring a dependency, and lint's model task does the same in
+      # the other direction. It is not caused by anything here; `./gradlew build` has always hit it.
+      # Splitting the invocation keeps one variant per task graph, which is what the shared path
+      # requires. Fixing it properly means getting that file out of `src/` — see TODO.md.
+      - name: Test and lint
+        run: ./gradlew testDebugUnitTest lintDebug
+
+      - name: Assemble the release APK
         env:
           LOGLINE_KEYSTORE_PASSWORD: ${{ secrets.LOGLINE_KEYSTORE_PASSWORD }}
           LOGLINE_KEY_ALIAS: ${{ secrets.LOGLINE_KEY_ALIAS }}
           LOGLINE_KEY_PASSWORD: ${{ secrets.LOGLINE_KEY_PASSWORD }}
-        run: ./gradlew testDebugUnitTest lintDebug :app:assembleRelease
+        run: ./gradlew :app:assembleRelease
 
       # A red run that only says "task failed" wastes the round trip.
       - name: Upload reports on failure

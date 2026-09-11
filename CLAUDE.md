@@ -2462,6 +2462,15 @@ of it packaging the Zenoh natives.
 twice — once as the push, once as the `pull_request` — and every feature-branch commit burned a full
 run. Filtering both to `main` means each commit that matters is built exactly once.
 
+**The Gradle run is split in two, and that is a constraint rather than fussiness.** protoc writes the
+MCAP descriptor set to `app/src/main/assets/keelson_payloads.desc` — a *source* directory — at the same
+path for every variant, so a debug task and a release task in one task graph make Gradle refuse the
+build: `mergeReleaseAssets` uses the output of `generateDebugProto` without declaring a dependency, and
+lint's model task hits it in the other direction. It predates CI building the release variant, and
+`./gradlew build` has always hit it; nothing anybody ran happened to span both variants, and it fails
+loudly rather than silently, which is why it went unnoticed. One variant per invocation is what the
+shared path requires. The real fix is getting that file out of `src/`, filed in TODO.md.
+
 **`assembleRelease` replaced `assembleDebug` for coverage, not speed.** `testDebugUnitTest` already
 compiles the debug variant and `lintDebug` already analyses it, so the only thing given up is
 *packaging* a variant nobody ships — while the variant that does ship now goes through the release
