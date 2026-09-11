@@ -19,9 +19,11 @@ There is **no `java` on the PATH**. Every Gradle invocation needs `JAVA_HOME` po
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ```
 
-`.claude/settings.json` sets `JAVA_HOME` and `ANDROID_HOME` for this project, so Bash calls here
-already have them. If a Gradle command fails with `Unable to locate a Java Runtime`, that env was
-lost — re-export it inline rather than debugging Gradle.
+`.claude/settings.local.json` sets `JAVA_HOME` and `ANDROID_HOME` for this project, so Bash calls here
+already have them. **That file is git-ignored and machine-specific** — it holds absolute paths, which is
+why it is the local half rather than the tracked `settings.json`, so a fresh clone has to write its own
+before Gradle will run. If a Gradle command fails with `Unable to locate a Java Runtime`, that env was
+lost or was never there — re-export it inline rather than debugging Gradle.
 
 `adb` is not on the PATH either; use `$ANDROID_HOME/platform-tools/adb`.
 
@@ -473,12 +475,23 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   the point rather than a leftover: satellite is the *default* layer, so a keyless install would
   otherwise open the Live tab on a blank grid, which reads as a broken app. `Settings.mapTilerKey` is a
   per-phone field, never in the repo and never in the APK — the same stance the mTLS credentials take,
-  and for the same reason, a debug build gets passed around. It **is** carried by a settings profile,
-  unlike the five install-identity fields: a tile key is a shared credential rather than an identity, so
-  a fleet provisions from one QR — with the consequence, stated on the settings screen, that a shared
-  profile carries the key. Note `SettingsProfileTest` does *not* catch a new field on its own; it is a
-  hand-written list of assertions, not a reflective one, so CLAUDE.md's old claim that a new field fails
-  it until somebody decides which side it belongs on holds only if the fixture is updated too.
+  and for the same reason, a debug build gets passed around. A settings profile **can** carry it, unlike
+  the five install-identity fields — a tile key is a shared credential rather than an identity, so a
+  fleet provisioning from one file is legitimate — but it is **off by default**, behind `withSecrets` on
+  `Settings.toProfile()` and a tick in `ExportProfileDialog`. The default is what changed: an export
+  lands in `Downloads/Logline/config`, which other apps can read and a cloud client syncs, and it is the
+  file people forward, so the common errand of handing over endpoints and rates must not quietly include
+  a key somebody is billed for. **The operator identity is gated by the same flag**, because import had
+  a `withOperator` question and export — the end that matters, since it cannot know where the file goes
+  — had none. Note the gate does not apply to *backup*: `files/datastore/` still carries the key to
+  Google Drive, which `data_extraction_rules.xml` now states in words, because excluding the datastore
+  would defeat the point of restoring settings at all.
+  Note `SettingsProfileTest` does *not* catch a new field on its own; it is a hand-written list of
+  assertions, not a reflective one, so CLAUDE.md's old claim that a new field fails it until somebody
+  decides which side it belongs on holds only if the fixture is updated too. Its round-trip helper now
+  passes `withSecrets = true` deliberately: with the default it would still have passed, because
+  `applyProfile` falls back to the phone's own value for an absent key, so the assertion proved nothing.
+  `a default export carries no credential and nobody's name` is the one that pins the default.
   **Six base layers, and Ocean is the one that earns its place.** MapTiler's bathymetry — depth
   contours and soundings under a plain land mask — is the only one that says what is under the hull
   rather than where the shore is. Topographic covers terrain ashore, Outdoor adds trail and cycle routes
@@ -991,7 +1004,10 @@ simply never finds anything on the bus.
 - **AGP 9.3.1 / compileSdk 37** is a leading-edge combination. Treat unfamiliar AGP DSL errors as a
   version-specific API question, not as broken code — `compileSdk { version = release(37) }` and the
   `optimization { }` release block are AGP 9 syntax and are correct as written.
-- **Endpoints are a list, and the default is the cloud router, `tls/router.example.com:443`.** Stored
+- **Endpoints are a list, and the default is loopback, `tcp/127.0.0.1:7447`.** That default is
+  deliberately somewhere the phone cannot reach anybody: this is a public repository and a shipped
+  default must not name a deployment's infrastructure. A fleet's own endpoint arrives by
+  connection-profile QR, which carries no credentials. Stored
   newline-delimited under the *same* `router_endpoint` DataStore key, so an old single-value preference
   migrates for free. The list is **failover, not fan-out**: Zenoh tries them in order and attaches to
   whichever answers first, so there is still one session and one router at a time. A refused entry costs
@@ -2426,12 +2442,14 @@ here spell it `37.0`; `$ANDROID_HOME/platforms/android-37.0/package.xml` is the 
 
 ## Repository state
 
-A git repository since 2026-08-18, on `main`, with no remote configured yet — pushing needs one
-created first, and that is a decision for whoever owns the org. The initial commit is the whole app at
-`versionCode 1`; everything before it is unrecoverable, which is the reason it exists.
+A git repository since 2026-08-18, on `main`, with `origin` at `RISE-Maritime/Logline`. The initial
+commit is the whole app at `versionCode 1`; everything before it is unrecoverable, which is the reason
+it exists.
 
 Ignored and deliberately never committed: `local.properties`, `.claude/settings.local.json`, the mTLS
-client credentials under `certificates/`, any `*.pem` / `*.jks` / `*.keystore`, and the generated
-`assets/keelson_payloads.desc`. Note `.claude/settings.json` **is** tracked and holds this machine's
-absolute `JAVA_HOME` and `ANDROID_HOME` — fine while this is a one-machine project, worth revisiting
-the moment it is not.
+client credentials under `certificates/`, any `*.pem` / `*.jks` / `*.keystore`, the generated
+`assets/keelson_payloads.desc`, and `.idea/deploymentTargetSelector.xml` — which holds the serial
+numbers of whichever phones this machine has deployed to, and was tracked by accident until the
+pre-publication audit. **Nothing machine-specific belongs in a tracked file any more**: this repository
+is public, so absolute paths, device identifiers and deployment hostnames go in the ignored local half.
+`.claude/settings.json` is tracked and deliberately carries only portable permissions.

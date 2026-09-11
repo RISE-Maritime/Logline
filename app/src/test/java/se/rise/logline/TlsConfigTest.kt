@@ -92,10 +92,17 @@ class TlsConfigTest {
         assertTrue(json.contains(""""multicast":{"enabled":false}"""))
     }
 
+    /**
+     * The shipped default is loopback and therefore needs no credentials, which is the whole point of
+     * it: a fresh install must not demand three PEM files before it will do anything. A fleet's own
+     * `tls/` endpoint arrives by connection-profile QR, and *that* does need them — the second
+     * assertion is what keeps the two facts from being confused.
+     */
     @Test
-    fun `the default endpoint is the cloud router over TLS`() {
-        assertEquals("tls/router.example.com:443", se.rise.logline.config.Settings.DEFAULT_ENDPOINT)
-        assertTrue(endpointNeedsTls(se.rise.logline.config.Settings.DEFAULT_ENDPOINT))
+    fun `the default endpoint needs no credentials, unlike a tls one`() {
+        assertEquals("tcp/127.0.0.1:7447", se.rise.logline.config.Settings.DEFAULT_ENDPOINT)
+        assertFalse(endpointNeedsTls(se.rise.logline.config.Settings.DEFAULT_ENDPOINT))
+        assertTrue(endpointNeedsTls("tls/router.example.com:443"))
     }
 
     // ---- multiple endpoints ----

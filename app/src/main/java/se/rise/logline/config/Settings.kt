@@ -390,7 +390,17 @@ data class Settings(
         /** Crowsnest's checklist tree. See `checklist/ChecklistKeys.kt`. */
         const val DEFAULT_CHECKLIST_REALM = "rise"
         const val DEFAULT_CHECKLIST_ENTITY = "roc1"
-        const val DEFAULT_ENDPOINT = "tls/router.example.com:443"
+
+        /**
+         * Loopback, deliberately — a public default must not name anybody's infrastructure.
+         *
+         * It is a valid locator that needs no TLS credentials, and it is already the development path
+         * (`adb reverse tcp:7447 tcp:7447`). A fresh install therefore fails to connect *cleanly*
+         * rather than reaching for a host it holds no client certificate for. A fleet's real endpoint
+         * arrives through a connection-profile QR — see [Settings.toConnectionProfile] — which carries
+         * the realm, the endpoint list and the source names and no credentials at all.
+         */
+        const val DEFAULT_ENDPOINT = "tcp/127.0.0.1:7447"
 
         /** Zenoh's own default scout socket. Deployments may move it — coswim uses :7448. */
         const val DEFAULT_SCOUT_ADDRESS = "224.0.0.224:7446"

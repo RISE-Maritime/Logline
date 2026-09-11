@@ -93,7 +93,7 @@ fun SettingsScreen(
     /** Why the last import failed, in a sentence, or null. */
     offlineMapMessage: String?,
     /** Hand this phone's configuration to another one, or take one from it. */
-    onExportProfile: () -> Unit,
+    onExportProfile: (withSecrets: Boolean) -> Unit,
     onImportProfile: () -> Unit,
     onShowConnectionQr: () -> Unit,
     onScanConnectionQr: () -> Unit,
@@ -102,6 +102,7 @@ fun SettingsScreen(
     onSave: (Settings) -> Unit,
     onCancel: () -> Unit,
 ) {
+    var showExport by remember { mutableStateOf(false) }
     var realm by remember { mutableStateOf(initial.realm) }
     var entityId by remember { mutableStateOf(initial.entityId) }
     val endpoints = remember { mutableStateListOf<String>().apply { addAll(initial.routerEndpoints) } }
@@ -182,6 +183,23 @@ fun SettingsScreen(
 
     info?.let { (title, body) ->
         InfoDialog(title = title, body = body, onDismiss = { info = null })
+    }
+
+    // Reads the *saved* settings rather than this screen's edits: export writes what is stored, and a
+    // half-typed key in the field above is not what would go in the file.
+    if (showExport) {
+        ExportProfileDialog(
+            hasMapTilerKey = initial.mapTilerKey.isNotBlank(),
+            operatorSummary = listOf(initial.operatorName, initial.operatorRole, initial.rocSiteId)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+                .ifBlank { null },
+            onExport = {
+                showExport = false
+                onExportProfile(it)
+            },
+            onDismiss = { showExport = false },
+        )
     }
     var confirmClear by remember { mutableStateOf<TlsCredential?>(null) }
 
@@ -620,9 +638,10 @@ fun SettingsScreen(
                             "away from cities. A MapTiler key swaps in theirs: finer over the " +
                             "Scandinavian coast and one zoom level deeper.\n\n" +
                             "Keys are free for light use from maptiler.com. This one is kept on this " +
-                            "phone and is never built into the app — but note a settings profile does " +
-                            "carry it, which is how a fleet is provisioned from one QR, and also means " +
-                            "a profile you share carries your key."
+                            "phone and is never built into the app. An exported settings profile can " +
+                            "carry it, which is how a fleet is provisioned from one file — but only if " +
+                            "you tick that box when exporting, because the file goes to Downloads where " +
+                            "other apps can read it."
                     },
                 )
                 OutlinedTextField(
@@ -822,7 +841,7 @@ fun SettingsScreen(
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = onExportProfile, modifier = Modifier.weight(1f)) { Text("Export…") }
+                    OutlinedButton(onClick = { showExport = true }, modifier = Modifier.weight(1f)) { Text("Export…") }
                     OutlinedButton(onClick = onImportProfile, modifier = Modifier.weight(1f)) { Text("Import…") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

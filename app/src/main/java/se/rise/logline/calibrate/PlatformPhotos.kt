@@ -7,10 +7,10 @@ import android.graphics.Matrix
 import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.util.Log
+import se.rise.logline.safeFileStem
 import se.rise.logline.sensors.ScaledJpeg
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.util.Locale
 
 private const val TAG = "PlatformPhotos"
 
@@ -111,24 +111,14 @@ const val PHOTO_CAPTURE_DIRECTORY = "photo-capture"
 /**
  * A file name that survives whatever somebody typed into the entity id field.
  *
- * Entity ids are slugs by default and free text in fact, so anything outside `[A-Za-z0-9._-]` is
- * percent-encoded — reversible, collision-free, and it cannot produce `.`, `..` or a path separator.
- * Uppercase hex through `Locale.ROOT`, because `%X` on a Turkish phone is its own small adventure.
+ * Entity ids are slugs by default and free text in fact, so the encoding is [safeFileStem]'s —
+ * shared with the checklist evidence store, because a second transcription of it is what drifts.
  *
  * The extension is honest: [importPlatformPhoto] re-encodes everything it stores as JPEG, whatever
  * arrived. It did not always, which is how a PNG screenshot came to be sitting in a `.jpg` — see the
  * note there for why passing an already-small picture through was the wrong economy here.
  */
-fun photoFileName(entityId: String): String = buildString {
-    entityId.forEach { c ->
-        if (c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '-' || c == '_') {
-            append(c)
-        } else {
-            append(String.format(Locale.ROOT, "%%%02X", c.code))
-        }
-    }
-    append(".jpg")
-}
+fun photoFileName(entityId: String): String = safeFileStem(entityId) + ".jpg"
 
 /**
  * How far to turn a picture that carries an EXIF orientation.

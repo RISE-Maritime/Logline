@@ -21,8 +21,8 @@ completes, and that is not something app code can fix.
       `keelson/Scout.kt` exists because of it. Reproduced twice, zenoh-kotlin 1.10.0.
       Opening the Platforms screen (`livelinessGet`) does *not* crash, so it is the reply path specifically.
       **`KeelsonSession.query()` is affected too — tested on 2026-08-24, and it takes the whole checklist
-      feature with it.** Turning "Share checklists" on and opening the screen against the live
-      `router.example.com` bus crashes the app within seconds, every time, three for three: the session
+      feature with it.** Turning "Share checklists" on and opening the screen against a live
+      `tls/` bus crashes the app within seconds, every time, three for three: the session
       opens, the presence heartbeat goes out, the bootstrap `get` on `checklist_procedure/*` /
       `checklist_state/*` is answered by the router storage, and the reply callback aborts the process
       on the same `EntityGlobalId` `ClassNotFoundException`.
@@ -169,3 +169,35 @@ completes, and that is not something app code can fix.
       still says "about 16 days of recording", and the failure lands at the end of a run rather than
       the start. Nothing is lost when it does: the file stays in app storage and the launch sweep
       retries. A second estimator, or a copy that checks first, is a decision rather than a cleanup.
+
+
+## Pre-publication security review (2026-09-11)
+
+Done before flipping `RISE-Maritime/Logline` public. The audit itself found **no secrets** in the
+working tree or in any of the 185 commits — no key material, no API keys, no passwords, and nothing
+committed and later removed. What follows is what the review changed, and what it deliberately left.
+
+- [ ] **The MapTiler key still reaches Google Drive through the backup.** `files/datastore/` is backed
+      up by design — realm, endpoints, rates, per-subject switches and the operator identity are the
+      whole reason the settings are worth restoring — and the tile key rides along in it. That is a
+      trade rather than an oversight: excluding the datastore would defeat the point, and a tile key is
+      nothing like the mTLS client key, which *is* excluded from both rule files. It is now stated in
+      words in `data_extraction_rules.xml` rather than left to be discovered. If it ever needs to stop,
+      the key needs its own DataStore file so one path can be excluded without the rest.
+
+- [ ] **The commit history carries a personal email address.** `ted.sjoblom@gmail.com` authors 30 of the
+      185 commits; the other 155 use the GitHub noreply address. Removing it means rewriting author
+      fields, which the hostname rewrite did not do. A personal address on one's own open-source commits
+      is ordinary, so this is recorded as a decision that was taken rather than a thing to fix.
+
+- [ ] **A remote platform library is accepted on an unauthenticated version number.** Anyone on the
+      realm can publish a `platform_registry` document with a high `version` and have it staged. It is
+      contained — `shouldApplyRemote` only stages, `mergeRemotePlatforms` never deletes a platform this
+      phone is publishing and never takes remote policy, and applying is an explicit user action in
+      `MainActivity` — so nothing changes without somebody tapping. But bus membership is the only
+      authentication there is, and that is worth knowing before the realm gets wider.
+
+- [ ] **`ChecklistSync`'s discovery channel is `UNLIMITED`.** Decoding happens off the Zenoh receive
+      thread through an unbounded channel, which is deliberate for the 12 s discovery window. A flood of
+      `configuration_json` on the realm is therefore memory pressure rather than backpressure. Not
+      reachable today without bus access; noted with the item above because it has the same precondition.

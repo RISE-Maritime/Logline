@@ -2449,10 +2449,10 @@ private fun App(
                 // rather than two things that drift.
                 folderLabel = folderLabel,
                 onChooseFolder = { recordingsFolderPicker.launch(chooseFolderHint(current.recordingsFolderUri)) },
-                onExportProfile = {
+                onExportProfile = { withSecrets ->
                     scope.launch {
                         profileMessage = withContext(Dispatchers.IO) {
-                            runCatching { exportSettingsProfile(context, current) }.fold(
+                            runCatching { exportSettingsProfile(context, current, withSecrets) }.fold(
                                 onSuccess = { "Wrote $it to $folderLabel/config" },
                                 onFailure = { "Could not export: ${it.message}" },
                             )

@@ -97,10 +97,10 @@ adb shell am start -n se.rise.logline/.MainActivity
 adb logcat -s SensorPublisher:V
 ```
 
-Out of the box the app connects to the **cloud router** at `tls/router.example.com:443`, so all the phone
-needs is a network path of its own — Wi-Fi, or cellular on a device with a SIM. No `adb reverse`, no
-router on your laptop. See [Router security](connecting.md#router-security) for the credentials that endpoint
-requires.
+Out of the box the endpoint is loopback, `tcp/127.0.0.1:7447`, which connects to nothing until you
+either forward a port to the phone (`adb reverse tcp:7447 tcp:7447`) or point it somewhere else. A
+shared `tls/` bus needs a network path of its own — Wi-Fi, or cellular on a device with a SIM — plus
+the credentials in [Router security](connecting.md#router-security).
 
 Pointing at a local router instead is one entry in the endpoint list — typed in, or picked from
 **Scan for routers**. If that router runs on your laptop, use the laptop's LAN address:

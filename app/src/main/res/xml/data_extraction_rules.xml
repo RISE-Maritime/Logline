@@ -9,10 +9,17 @@
     and the checklist state all live in `files/datastore/` and are tedious to retype — losing them on
     a phone swap is a real cost with nothing bought for it.
 
+    Note what rides along in there: `files/datastore/` also holds the **MapTiler key**, which is a
+    credential somebody is billed for. That is a deliberate trade rather than an oversight — excluding
+    the datastore would defeat the whole point of restoring settings, and a tile key is nothing like
+    the mTLS client key below, which authenticates this phone to a shared bus. But it does mean the key
+    reaches Google Drive, so it is stated here rather than left to be discovered. The *export* path
+    makes the opposite call and leaves it out by default: see `Settings.toProfile`.
+
     With no `<include>` anywhere, everything not excluded here is backed up. Adding one would flip
     that: the file becomes an allow-list and anything unlisted stops being backed up, silently.
 
-    Three things must not travel:
+    Five things must not travel:
 
     * `tls` — the mTLS material `TlsCredentialStore` imports. `client_key.pem` authenticates this
       phone to the *shared* fleet bus, so a copy in a Google Drive backup, or riding a phone-to-phone
@@ -34,14 +41,14 @@
       on another phone: restoring it would carry stale shapes for recordings the new device does not
       have. `TrackCache` rebuilds it by reading the recordings again.
 
+    * `checklist-evidence` — checklist photographs this phone has taken. The contrast with `platforms`
+      below is the whole reason: a platform photograph is configuration nothing can rebuild, while this
+      is a local copy of bytes the router already holds durably on `checklist_evidence/{evidence_id}`.
+      A run's worth of them would push a backup past the 25 MB quota, and a file over it fails the
+      *whole* backup — taking the settings with it.
+
     And one thing that deliberately **does** travel, noted here because it is a directory of images in
     `filesDir` and therefore looks like the next thing to exclude:
-
-    * `checklist-evidence` — checklist photographs this phone has taken. Excluded, and the contrast
-      with `platforms` below is the whole reason: a platform photograph is configuration nothing can
-      rebuild, while this is a local copy of bytes the router already holds durably on
-      `checklist_evidence/{evidence_id}`. A run's worth of them would push a backup past the 25 MB
-      quota, and a file over it fails the *whole* backup — taking the settings with it.
 
     * `platforms` — a photograph per platform. It is configuration rather than a cache: nothing can
       rebuild it, and a phone swap that lost it would need somebody to walk back down to the boat.

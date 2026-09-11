@@ -50,7 +50,7 @@ class SettingsRepositoryTest {
 
         assertEquals("rise", settings.realm)
         assertEquals("pixel_6", settings.entityId)
-        assertEquals(listOf("tls/router.example.com:443"), settings.routerEndpoints)
+        assertEquals(listOf("tcp/127.0.0.1:7447"), settings.routerEndpoints)
         assertEquals("phone", settings.locationSource)
         assertEquals("phone", settings.imuSource)
         assertTrue(settings.qosOverrides.isEmpty())

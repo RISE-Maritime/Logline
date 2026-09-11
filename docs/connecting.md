@@ -35,8 +35,8 @@ Android rejects the packets with `EPERM` before Zenoh sees a network at all.
 
 ## Router security
 
-`router.example.com` is the shared fleet bus. It is fronted by a private CA (`minica`), and it **demands a
-client certificate** — mutual TLS, not just server TLS. Three PEM files are therefore needed before a
+A shared fleet bus is typically fronted by a private CA (`minica`) and **demands a client
+certificate** — mutual TLS, not just server TLS. Three PEM files are therefore needed before a
 `tls/` endpoint will connect:
 
 | Credential | What it is |
@@ -125,11 +125,11 @@ which was verified: all 25 channels at unchanged rates against advanced publishe
 ## Verify it is working
 
 From a machine with a Zenoh client, subscribe to everything the phone emits (locators use Zenoh's
-`proto/host:port` form, not a URL). Against the cloud router you are a client of the same bus, and need
-the same three credentials the phone does:
+`proto/host:port` form, not a URL). Against a shared `tls/` bus you are a client of the same bus, and
+need the same three credentials the phone does:
 
 ```bash
-z_sub -e tls/router.example.com:443 -k 'rise/@v0/<entity_id>/pubsub/**' \
+z_sub -e tls/<router-host>:443 -k 'rise/@v0/<entity_id>/pubsub/**' \
   --cfg='transport/link/tls/root_ca_certificate:"minica.pem"' \
   --cfg='transport/link/tls/enable_mtls:true' \
   --cfg='transport/link/tls/connect_certificate:"cert.pem"' \

@@ -133,7 +133,7 @@ class SettingsProfileTest {
     }
 
     private fun roundTrip(settings: Settings): Settings {
-        val text = settings.toProfile().encode()
+        val text = settings.toProfile(withSecrets = true).encode()
         val parsed = requireNotNull(parseSettingsProfile(text)) { "should parse what it just wrote" }
         return settings.applyProfile(parsed)
     }
@@ -160,10 +160,10 @@ class SettingsProfileTest {
         assertEquals(original.backfillEnabled, out.backfillEnabled)
         assertEquals(original.startOnBoot, out.startOnBoot)
         assertEquals(original.offlineTilesOnly, out.offlineTilesOnly)
-        // **Deliberately carried, unlike the five install-identity fields.** A tile key is a shared
-        // credential rather than an identity, and provisioning a fleet from one QR is the reason it
-        // travels — with the consequence, stated on the settings screen, that a profile you share
-        // carries your key.
+        // **Carried, but only when asked for.** A tile key is a shared credential rather than an
+        // identity, so provisioning a fleet from one export is legitimate — but the file lands in
+        // shared storage, so it travels only behind `withSecrets`, which [roundTrip] sets. The default
+        // is pinned separately by `a default export carries no credential and nobody's name`.
         assertEquals(original.mapTilerKey, out.mapTilerKey)
         // Added by hand, because this test does not catch a new field on its own — the assertions are
         // a list, not a reflection over the data class. See the note in TODO.md.
@@ -238,6 +238,32 @@ class SettingsProfileTest {
         assertEquals(listOf("tls/router.example.com:443", "tcp/192.168.0.10:7447"), out.routerEndpoints)
     }
 
+    /**
+     * The default export carries no credential and nobody's name.
+     *
+     * An exported profile is written to `Downloads/Logline/config` — shared storage that other apps can
+     * read and a cloud client will sync — and it is the file people forward. So the MapTiler key, which
+     * somebody is billed for, and the operator identity are both absent unless asked for at the export
+     * dialog. This is the assertion that fails if that default is ever flipped.
+     */
+    @Test
+    fun `a default export carries no credential and nobody's name`() {
+        val text = configured().toProfile().encode()
+
+        assertFalse("map key leaked", text.contains("test-key-abc123"))
+        assertFalse("map key field present", text.contains("maptiler_key"))
+        assertFalse("operator name leaked", text.contains("Ted"))
+        assertFalse("operator role leaked", text.contains("operator_role"))
+        assertFalse("roc site leaked", text.contains("roc_site_id"))
+
+        // …and the shareable half is still there, or this would pass by exporting nothing.
+        val parsed = requireNotNull(parseSettingsProfile(text))
+        assertEquals("rise", parsed.realm)
+        assertNull(parsed.mapTilerKey)
+        assertNull(parsed.operatorName)
+        assertFalse(parsed.hasOperator)
+    }
+
     /** Belt and braces: the identities must not even appear in the text. */
     @Test
     fun `the exported document contains no identity at all`() {
@@ -252,7 +278,9 @@ class SettingsProfileTest {
     /** One export provisioning several phones should not make them all claim the same person. */
     @Test
     fun `the operator can be left behind on import`() {
-        val profile = requireNotNull(parseSettingsProfile(configured().toProfile().encode()))
+        val profile = requireNotNull(
+            parseSettingsProfile(configured().toProfile(withSecrets = true).encode())
+        )
         val blank = configured().copy(operatorName = "", operatorRole = "", rocSiteId = "")
 
         val without = blank.applyProfile(profile, withOperator = false)

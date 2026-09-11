@@ -70,9 +70,11 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Out of the box it connects to the cloud router at `tls/router.example.com:443`, which demands three mTLS
-credentials imported on the phone first — [Connecting to a router](docs/connecting.md). A plain
-`tcp/` router on your own network needs none of them.
+Out of the box the endpoint is loopback, `tcp/127.0.0.1:7447`, so a fresh install publishes nowhere
+until it is pointed at a router — a plain `tcp/` one on your own network needs nothing else, and a
+shared `tls/` bus needs three mTLS credentials imported on the phone first. Either way the endpoint
+can be typed in, found with **Scan for routers**, or provisioned from a QR code.
+See [Connecting to a router](docs/connecting.md).
 
 ## Documentation
 

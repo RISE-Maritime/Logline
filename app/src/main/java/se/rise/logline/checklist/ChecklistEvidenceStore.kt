@@ -2,6 +2,7 @@ package se.rise.logline.checklist
 
 import android.content.Context
 import android.util.Log
+import se.rise.logline.safeFileStem
 import java.io.File
 
 /**
@@ -27,7 +28,17 @@ class ChecklistEvidenceStore(private val context: Context) {
     private fun directory(): File =
         File(context.filesDir, DIRECTORY).apply { if (!exists()) mkdirs() }
 
-    fun file(evidenceId: String): File = File(directory(), "$evidenceId.jpg")
+    /**
+     * The id is sanitised before it becomes a path, even though every caller today generates it
+     * locally through `checklistId("ev")`.
+     *
+     * That is not belt and braces. `filesDir` also holds `tls/client_key.pem`, and this class sits one
+     * short step from the bus: the moment somebody wires up fetching *other* stations' evidence, the id
+     * naming the file is foreign input, and `../tls/client_key.pem` would be an arbitrary overwrite of
+     * the phone's own identity. [safeFileStem] is the same encoding `photoFileName` uses, so a
+     * remote-supplied id cannot leave this directory whichever of the two doors it arrives through.
+     */
+    fun file(evidenceId: String): File = File(directory(), safeFileStem(evidenceId) + ".jpg")
 
     fun save(evidenceId: String, jpeg: ByteArray): Boolean = runCatching {
         file(evidenceId).writeBytes(jpeg)

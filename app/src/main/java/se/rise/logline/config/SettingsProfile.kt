@@ -43,6 +43,13 @@ const val SETTINGS_PROFILE_VERSION = 1
  * via `sharePlatformLibrary`, and as a platform-geometry document — and a third would bring its own
  * version-ordering questions.
  *
+ * **What it can carry, and only when asked.** Two groups are gated behind `withSecrets` on
+ * [Settings.toProfile] and default to *absent*: the MapTiler key, which is a credential somebody is
+ * paying for, and the operator identity. The reason is where the file goes — `exportSettingsProfile`
+ * writes to `Downloads/Logline/config`, which is shared external storage that other apps can read and
+ * cloud clients sync. A list of excluded fields is not much use to somebody who hands over a file that
+ * quietly contains their tile key, so the gate is at the *export* end, where the decision is.
+ *
  * Composite fields carry **the same strings DataStore stores**, produced by the same serialisers, so
  * the file and the stored form cannot drift and both round-trip through one set of parsers.
  */
@@ -303,8 +310,24 @@ private fun kotlinx.serialization.json.JsonObjectBuilder.putIfPresent(key: Strin
     if (value != null) put(key, JsonPrimitive(value))
 }
 
-/** Everything this phone can pass on. */
-fun Settings.toProfile(): SettingsProfile = SettingsProfile(
+/**
+ * Everything this phone can pass on.
+ *
+ * [withSecrets] governs the two groups that are **off by default**, because an exported profile is
+ * written to shared storage (`Downloads/Logline/config`) and is the file people hand around:
+ *
+ * * the **MapTiler key**, which is a credential somebody is paying for. It belongs in a profile — a
+ *   tile key is a shared credential rather than an identity, which is the whole reason a fleet can
+ *   provision from one QR — but carrying it *by default* into a world-readable file is a different
+ *   proposition from carrying it when asked.
+ * * the **operator identity** (name, role, ROC site), which is who is sitting at this phone. Import
+ *   already asks about this through `withOperator`; this is the same question at the other end, and
+ *   the end that matters, since an export cannot know where the file will go.
+ *
+ * Off by default means the common case — handing a colleague your endpoints and rates — produces a
+ * file carrying no credential and nobody's name.
+ */
+fun Settings.toProfile(withSecrets: Boolean = false): SettingsProfile = SettingsProfile(
     realm = realm,
     routerEndpoints = routerEndpoints.serialiseEndpoints(),
     scoutAddress = scoutAddress,
@@ -316,7 +339,7 @@ fun Settings.toProfile(): SettingsProfile = SettingsProfile(
     backfillEnabled = backfillEnabled,
     startOnBoot = startOnBoot,
     offlineTilesOnly = offlineTilesOnly,
-    mapTilerKey = mapTilerKey,
+    mapTilerKey = mapTilerKey.takeIf { withSecrets },
     publishEnabled = publishEnabled,
     audioEnabled = audioEnabled,
     audioSampleRateHz = audioSampleRateHz,
@@ -348,9 +371,9 @@ fun Settings.toProfile(): SettingsProfile = SettingsProfile(
     checklistEnabled = checklistEnabled,
     checklistRealm = checklistRealm,
     checklistEntityId = checklistEntityId,
-    operatorName = operatorName,
-    operatorRole = operatorRole,
-    rocSiteId = rocSiteId,
+    operatorName = operatorName.takeIf { withSecrets },
+    operatorRole = operatorRole.takeIf { withSecrets },
+    rocSiteId = rocSiteId.takeIf { withSecrets },
 )
 
 /**
@@ -461,11 +484,15 @@ private fun QosProfileEntry.toSubjectQos(): SubjectQos? {
  * about all three. The destination comes off the settings being exported, so the profile lands
  * wherever this phone is filing everything else.
  */
-fun exportSettingsProfile(context: android.content.Context, settings: Settings): String {
+fun exportSettingsProfile(
+    context: android.content.Context,
+    settings: Settings,
+    withSecrets: Boolean = false,
+): String {
     val stamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HHmmss", java.util.Locale.US)
         .format(java.util.Date())
     val name = "logline-settings-$stamp.json"
-    val text = settings.toProfile().encode()
+    val text = settings.toProfile(withSecrets).encode()
     se.rise.logline.record.saveOutput(
         context,
         name,

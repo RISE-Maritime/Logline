@@ -46,7 +46,7 @@ Settings screen fields, all persisted to DataStore (`logline_settings`):
 | --- | --- | --- |
 | Realm | `rise` | First segment of every key |
 | Entity ID | slugified `Build.MODEL` | Which physical thing is reporting |
-| Router endpoints | `tls/router.example.com:443` | A list of Zenoh locators, `proto/host:port`, tried in order. A `tls/` or `quic/` scheme turns on TLS and needs the credentials above; `tcp/` does not. The last entry cannot be removed. |
+| Router endpoints | `tcp/127.0.0.1:7447` | A list of Zenoh locators, `proto/host:port`, tried in order. A `tls/` or `quic/` scheme turns on TLS and needs the credentials above; `tcp/` does not. The last entry cannot be removed. |
 | Scan multicast address | `224.0.0.224:7446` | Where **Scan for routers** looks. Only ever used for scanning, never for the session. |
 | Location source ID | `phone` | Also used as the `frame_id` on `LocationFix` |
 | IMU source ID | `phone` | Also used as the `frame_id` on the IMU messages |

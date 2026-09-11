@@ -93,6 +93,83 @@ fun ImportProfileDialog(
     )
 }
 
+/**
+ * What an export is about to write, before it writes it.
+ *
+ * The counterpart to [ImportProfileDialog], and the more important half: an import lands on one phone
+ * somebody is holding, while an export writes a file to shared storage that will be mailed, synced and
+ * forwarded. The two switches are **off by default** for that reason — the common errand is handing
+ * over endpoints and rates, and that file should carry no credential and nobody's name.
+ *
+ * Each row states the consequence rather than an adjective, the rule the rest of this app follows: the
+ * key is somebody's to pay for, and the identity is what other stations will see beside a checklist tick.
+ */
+@Composable
+fun ExportProfileDialog(
+    hasMapTilerKey: Boolean,
+    operatorSummary: String?,
+    onExport: (withSecrets: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var withSecrets by remember { mutableStateOf(false) }
+    val offerable = hasMapTilerKey || operatorSummary != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export settings?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Writes a file to Downloads, which other apps on this phone can read and a cloud " +
+                        "backup will sync.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (offerable) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = withSecrets, onCheckedChange = { withSecrets = it })
+                        Column(Modifier.padding(start = 4.dp)) {
+                            Text(
+                                listOfNotNull(
+                                    "map key".takeIf { hasMapTilerKey },
+                                    "operator identity".takeIf { operatorSummary != null },
+                                ).joinToString(" and ").replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            operatorSummary?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                if (hasMapTilerKey) {
+                                    "Tick this only for a phone in your own fleet — the key is billed to you."
+                                } else {
+                                    "Tick this only for your own phone."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    "This phone's entity id and its identity on the bus stay behind either way — a " +
+                        "profile configures a phone, it does not clone one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onExport(withSecrets) }) { Text("Export") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 @Composable
 private fun Line(label: String, value: String) {
     Row(Modifier.fillMaxWidth()) {
