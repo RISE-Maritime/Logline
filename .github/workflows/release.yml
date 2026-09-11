@@ -1,13 +1,23 @@
 name: release
 
-# Tag a version, get an installable APK. That is the whole of the distribution story — see
-# `docs/deploying.md`. There is nothing to host: a GitHub Release is a permanent URL, unlike a build
-# artifact, which expires.
+# Tag a version, get an installable signed APK with its changelog attached. That is the whole of the
+# distribution story for *versions* — see docs/deploying.md for the phone end of it. The rolling build
+# of main lives in build.yml and is a different thing: a prerelease that moves, not a version.
+#
+# **workflow_dispatch is gone on purpose.** It used to be here and it was broken: with no tag in
+# github.ref there was nothing to name the release after, so the dispatch path would have created a
+# release named for whatever branch it ran on. A release without a tag is not a release. To re-run
+# one, use "Re-run jobs" on the original tag's run; to replace one, delete the tag and the release and
+# push the tag again.
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
+
+# Never cancel a release. Half an upload is worse than a late one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 # Actions are pinned to the same majors `build.yml` uses, and for the reasons documented there. Keeping
 # the two workflows in step matters more than either being newest: they compile the same project with
@@ -19,8 +29,61 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
+      # fetch-depth: 0 for the reason build.yml gives — versionCode is the commit count, and a shallow
+      # clone answers that with the clone depth rather than failing. app/build.gradle.kts refuses to
+      # build one, so this is a red run rather than a wrong number, but the line still has to be here.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # **The tag is a claim; version.properties is the fact.** When they disagree, the APK inside a
+      # release named v1.1 reports itself as 1.0 on every phone that installs it, and nothing on the
+      # release page says so. Checked before anything is built, so the failure costs ten seconds
+      # rather than ten minutes.
+      - name: Check the tag against version.properties
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          declared="$(grep -E '^versionName=' version.properties | head -1 | cut -d= -f2- | tr -d '[:space:]')"
+          if [ "$version" != "$declared" ]; then
+            echo "::error::tag $tag means versionName $version, but version.properties says $declared." \
+                 "Bump version.properties, add its CHANGELOG entry, commit, then retag."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The heading format is a contract, and CHANGELOG.md states it: `## <versionName> — <date>`, an
+      # em dash, no `v` prefix.
+      #
+      # Matched by **literal prefix rather than regex**, because a version is full of dots: `^## 1.0`
+      # as a regex also matches `## 120 — …`. The character after the prefix must be a space or the
+      # end of the line, so `## 1.0` does not match `## 1.0.1`. The next `## ` ends the section.
+      #
+      # An empty extraction fails the release. "I forgot the changelog entry" is exactly the kind of
+      # thing that is only noticed once the release is public.
+      - name: Extract the changelog entry
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" '
+            BEGIN { head = "## " v; n = length(head) }
+            substr($0, 1, n) == head && (length($0) == n || substr($0, n + 1, 1) == " ") {
+              inside = 1; next
+            }
+            inside && substr($0, 1, 3) == "## " { exit }
+            inside { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "::error::CHANGELOG.md has no '## $VERSION — <date>' section. Add one before tagging."
+            exit 1
+          fi
+          echo "path=$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 25
         uses: actions/setup-java@v5
@@ -31,7 +94,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      # `android-37.0`, not `android-37` — see the note in build.yml, which this had red on every run.
+      # `android-37.0`, not `android-37` — see the long note in build.yml.
       - name: Install API 37 platform
         run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
@@ -40,56 +103,72 @@ jobs:
 
       # **The keystore never exists in the repository, and must not.** It arrives as a base64 secret,
       # is written to the runner's temp directory, and dies with the runner. This is what lets the
-      # repository go public without the signing key going with it.
+      # repository be public without the signing key going with it.
       #
-      # Guarded rather than assumed: with no secret configured this step is skipped and the build below
-      # produces an *unsigned* APK instead of failing. That is the same behaviour a developer gets
-      # locally with no keystore, and it means a fork or a first tag before the secrets are set still
-      # gets a build rather than a red run with a confusing message.
+      # **A missing secret now fails rather than quietly producing an unsigned APK.** That is a change
+      # from how this workflow was first written, and the old behaviour was wrong: an unsigned release
+      # is worse than no release, because Android treats a different signature as a different app, so
+      # every phone that installed it has to uninstall to get back — and uninstalling wipes the mTLS
+      # certificates and the entity id. A local build still falls back to unsigned; that is developer
+      # convenience and is not what this rule is about.
       #
-      # The condition reads `secrets` and **not** `env`, which is not a style choice: a step's `if` is
-      # evaluated *before* that step's own `env:` block is set up, so `env.LOGLINE_KEYSTORE_BASE64`
-      # would be empty on every run, the step would always skip, and every release would come out
-      # quietly unsigned. Caught by reading the parsed workflow rather than by running it.
+      # There is deliberately no `if:` here. The old one read `secrets` and not `env` for a real
+      # reason — a step's `if` is evaluated before its own `env:` block exists, so
+      # `env.LOGLINE_KEYSTORE_BASE64` is empty on every run — but a skipped step cannot explain
+      # itself, and the check below can.
       - name: Decode the signing keystore
-        if: ${{ secrets.LOGLINE_KEYSTORE_BASE64 != '' }}
         env:
           LOGLINE_KEYSTORE_BASE64: ${{ secrets.LOGLINE_KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$LOGLINE_KEYSTORE_BASE64" ]; then
+            echo "::error::LOGLINE_KEYSTORE_BASE64 is not set, and a released APK must be signed." \
+                 "See docs/deploying.md for encoding the keystore into the secret."
+            exit 1
+          fi
           echo "$LOGLINE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/logline-release.jks"
           echo "LOGLINE_KEYSTORE=$RUNNER_TEMP/logline-release.jks" >> "$GITHUB_ENV"
 
-      # The env vars take precedence over `local.properties`, which does not exist on a runner anyway.
-      # An absent keystore path leaves the release build unsigned, with a warning, by design.
-      - name: Build the release APK
+      # Tests and lint run here, and in the same invocation rather than a separate job: a release is
+      # the last place to discover the suite was red, and a second job would re-pay the ten minutes of
+      # native packaging to find out. One command, one failure surface.
+      - name: Test, lint and build the release APK
         env:
           LOGLINE_KEYSTORE_PASSWORD: ${{ secrets.LOGLINE_KEYSTORE_PASSWORD }}
           LOGLINE_KEY_ALIAS: ${{ secrets.LOGLINE_KEY_ALIAS }}
           LOGLINE_KEY_PASSWORD: ${{ secrets.LOGLINE_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew testDebugUnitTest lintDebug :app:assembleRelease
 
-      # Signed and unsigned land on different filenames, so this globs rather than naming one — and
-      # says which it found, because "which APK is attached to this release" is exactly the question
-      # somebody will ask in three months.
-      - name: Name the artefact
+      # Named after the version rather than left as AGP's app-release.apk: the filename is what
+      # somebody sees in a Downloads folder six months later, and "which one is this?" should not need
+      # the browser history to answer.
+      #
+      # The signed filename is also the signing assertion — AGP writes app-release-unsigned.apk when
+      # it could not sign, so its absence is the only check needed.
+      - name: Stage the APK
         id: apk
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          path="$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
-          if [ -z "$path" ]; then
-            echo "no APK was produced" >&2
+          set -euo pipefail
+          src="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$src" ]; then
+            echo "::error::$src is missing — the build produced an UNSIGNED APK and it will not be released."
             exit 1
           fi
-          echo "path=$path" >> "$GITHUB_OUTPUT"
-          echo "Built $path"
-          case "$path" in
-            *unsigned*) echo "::warning::This APK is UNSIGNED — it cannot install over a signed build. Set the LOGLINE_KEYSTORE_* secrets." ;;
-          esac
+          mkdir -p "$RUNNER_TEMP/dist"
+          cp "$src" "$RUNNER_TEMP/dist/Logline-$VERSION.apk"
+          echo "path=$RUNNER_TEMP/dist/Logline-$VERSION.apk" >> "$GITHUB_OUTPUT"
 
+      # prerelease and make_latest are both explicit, because the action retains an existing release's
+      # info for any key not supplied — a re-run over a release that was once a draft or a prerelease
+      # would otherwise keep that flag. make_latest: true is also what puts a real version above the
+      # rolling `main-latest` prerelease at /releases/latest.
       - name: Attach it to the release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.version.outputs.version }}
+          body_path: ${{ steps.notes.outputs.path }}
           files: ${{ steps.apk.outputs.path }}
-          body: |
-            Install by downloading the APK below. See `docs/deploying.md` for provisioning a
-            phone — the certificates, the settings profile and the entity id are what make a
-            fresh install a member of the fleet rather than just an installed app.
+          fail_on_unmatched_files: true
+          prerelease: false
+          make_latest: true

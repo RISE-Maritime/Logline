@@ -1,11 +1,30 @@
 name: build
 
-# Runs the same three tasks the README documents for local use, so CI and a developer's machine
-# agree on what "green" means.
+# Tests and lints every change, and — on main only — publishes the rolling prerelease that a phone
+# installs from. Versions are a separate thing and live in release.yml; see docs/deploying.md.
+#
+# **The branch filters are load-bearing.** `on: push:` with no filter ran twice for every pull request
+# (once as the push, once as the pull_request) and once for every feature-branch commit, at about ten
+# minutes a run. Filtering `push` to main and `pull_request` to what targets main means each commit
+# that matters is built exactly once. workflow_dispatch stays for the branch somebody genuinely wants
+# a run on.
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
+
+# Cancel superseded pull-request runs; never cancel main. A main run killed part-way through the
+# upload would leave the rolling release serving a truncated 110 MB APK, and a stable download link
+# that hands back a broken file is worse than no link at all. GitHub keeps only the newest *pending*
+# run per group, so main pushes queue rather than pile up.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: write # publish the rolling prerelease and move its tag
 
 # Every action here is pinned to the major that moved it to Node 24, and **not** to the newest major
 # available. The warning being answered is only about Node 20 being forced onto 24, so the smallest
@@ -29,7 +48,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # **fetch-depth: 0, and it is not optional.** versionCode is versionCodeBase plus
+      # `git rev-list --count HEAD`. The default fetch-depth of 1 does not make that command fail — it
+      # makes it succeed and return 1 — so without this line the build would be green and the APK
+      # would carry versionCode 10001, which blocks every later upgrade on every phone that took it.
+      # app/build.gradle.kts refuses to build a shallow clone rather than allow that, so forgetting
+      # this line is a red run and not a silent one. The line still has to be on every job that
+      # builds an APK.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       # gradle/gradle-daemon-jvm.properties pins toolchainVersion=25. That file also carries foojay
       # download URLs, so Gradle can provision a JDK itself if the runner image lacks 25 — this step
@@ -57,10 +85,38 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      # **Only ever on a push to main, and that is a security boundary rather than tidiness.** A pull
+      # request from a branch *in this repository* does receive secrets, and a pull request is allowed
+      # to edit app/build.gradle.kts — so a PR build that can reach the keystore is a PR that can
+      # print it into the log. Forks get nothing either way, but forks are not the threat here. A PR
+      # build produces app-release-unsigned.apk, which is everything a compile check needs.
+      - name: Decode the signing keystore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          LOGLINE_KEYSTORE_BASE64: ${{ secrets.LOGLINE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$LOGLINE_KEYSTORE_BASE64" ]; then
+            echo "::error::LOGLINE_KEYSTORE_BASE64 is not set, so the rolling APK would be unsigned —" \
+                 "which installs as a different app and cannot upgrade anything. See docs/deploying.md."
+            exit 1
+          fi
+          echo "$LOGLINE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/logline-release.jks"
+          echo "LOGLINE_KEYSTORE=$RUNNER_TEMP/logline-release.jks" >> "$GITHUB_ENV"
+
+      # **assembleRelease rather than assembleDebug, and it is more coverage at the same cost.**
+      # testDebugUnitTest already compiles the debug variant and lintDebug already analyses it, so the
+      # only thing given up is *packaging* a variant nobody ships — while the variant that does ship
+      # now goes through the release block and the signing config on every run. Building both would
+      # add ten minutes of Zenoh natives to package 118 MB that goes nowhere.
+      #
       # No local.properties here — it is git-ignored, and AGP falls back to ANDROID_HOME, which
       # setup-android exports. Do not "helpfully" generate one.
       - name: Test, lint and assemble
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug
+        env:
+          LOGLINE_KEYSTORE_PASSWORD: ${{ secrets.LOGLINE_KEYSTORE_PASSWORD }}
+          LOGLINE_KEY_ALIAS: ${{ secrets.LOGLINE_KEY_ALIAS }}
+          LOGLINE_KEY_PASSWORD: ${{ secrets.LOGLINE_KEY_PASSWORD }}
+        run: ./gradlew testDebugUnitTest lintDebug :app:assembleRelease
 
       # A red run that only says "task failed" wastes the round trip.
       - name: Upload reports on failure
@@ -73,3 +129,74 @@ jobs:
             app/build/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+      # ---- the rolling prerelease, main pushes only ----
+
+      # **The fixed asset name is the entire point**: it is what makes the download URL something a
+      # phone can bookmark. AGP names a signed release APK app-release.apk and an unsigned one
+      # app-release-unsigned.apk, so the presence of the signed name *is* the signing assertion —
+      # there is nothing else to check and no way to publish an unsigned rolling build by accident.
+      - name: Stage the APK
+        id: apk
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          src="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$src" ]; then
+            echo "::error::$src is missing — the build produced an UNSIGNED APK" \
+                 "($(ls app/build/outputs/apk/release 2>/dev/null | tr '\n' ' ')) and it must not be published."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/dist"
+          cp "$src" "$RUNNER_TEMP/dist/Logline-main-latest.apk"
+          base="$(grep -E '^versionCodeBase=' version.properties | cut -d= -f2 | tr -d '[:space:]')"
+          {
+            echo "path=$RUNNER_TEMP/dist/Logline-main-latest.apk"
+            echo "version=$(grep -E '^versionName=' version.properties | cut -d= -f2- | tr -d '[:space:]')"
+            echo "code=$(( base + $(git rev-list --count HEAD) ))"
+            echo "subject=$(git log -1 --pretty=%s)"
+          } >> "$GITHUB_OUTPUT"
+
+      # **softprops/action-gh-release will not move the tag of an existing published release**, and
+      # this whole step exists because of it: GitHub honours target_commitish at creation and for
+      # drafts only, so the tag ref stays where it was first cut and the release would go on naming
+      # last month's commit while serving today's APK underneath. Moving the ref ourselves, before
+      # the action runs, is the fix.
+      - name: Move the rolling tag to this commit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git tag -f main-latest "$GITHUB_SHA"
+          git push -f origin refs/tags/main-latest
+
+      # The tag is `main-latest` and not `main`, because a tag sharing a branch's name makes every
+      # bare `git checkout main` ambiguous. prerelease and make_latest: false together are what keep
+      # it from outranking a real version in the UI and at /releases/latest.
+      #
+      # **name and body are set on every run deliberately.** The action retains an existing release's
+      # info for any key not supplied, so omitting the body once would leave last week's commit
+      # described above this week's APK. overwrite_files defaults to true and replaces the same-named
+      # asset in place, which is what keeps the download URL stable.
+      - name: Publish the rolling prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: main-latest
+          name: Rolling build from main
+          prerelease: true
+          make_latest: false
+          draft: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: ${{ steps.apk.outputs.path }}
+          body: |
+            **The current build of `main`.** Replaced on every push, so this download link is always
+            the newest APK. Not a released version — the Releases list has those.
+
+            - version `${{ steps.apk.outputs.version }}` (`${{ steps.apk.outputs.code }}`)
+            - commit [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}) — ${{ steps.apk.outputs.subject }}
+            - [run ${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Signed with the production key, so it installs straight over a tagged release or an
+            earlier rolling build and the settings, certificates and recordings all survive. See
+            [docs/deploying.md](${{ github.server_url }}/${{ github.repository }}/blob/main/docs/deploying.md)
+            for provisioning a phone.
