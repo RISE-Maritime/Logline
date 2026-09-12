@@ -198,5 +198,5 @@ jobs:
 
             Signed with the production key, so it installs straight over a tagged release or an
             earlier rolling build and the settings, certificates and recordings all survive. See
-            [docs/deploying.md](${{ github.server_url }}/${{ github.repository }}/blob/main/docs/deploying.md)
-            for provisioning a phone.
+            [docs/install.md](${{ github.server_url }}/${{ github.repository }}/blob/main/docs/install.md)
+            for setting a phone up from scratch.

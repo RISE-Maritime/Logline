@@ -1,16 +1,14 @@
-# Logline — putting it on a phone
+# Logline — building and releasing
 
-Internal distribution. No app store, no server to run.
+Producing an APK and getting it to where somebody can install it. No app store, no server to run.
 
-There are three separate jobs here and it helps to keep them apart: **building** an APK,
-**getting it onto a phone**, and **provisioning** that phone so it knows which bus it is on.
-The third is the one people forget, and it is the one that decides whether a fresh install is
-useful or just installed.
+**Installing and setting a phone up is [its own guide](install.md)** — the download link, the
+certificates, the entity id and the first run. This page stops at the point an APK exists and is
+reachable; that one starts there. They were one page once, and it meant whoever was provisioning a
+phone had to read past a keystore they would never touch.
 
 - [Build a release APK](#build-a-release-apk)
 - [Getting it onto phones](#getting-it-onto-phones)
-- [Provisioning a phone](#provisioning-a-phone)
-- [Updating a phone later](#updating-a-phone-later)
 
 ---
 
@@ -130,63 +128,7 @@ a memory stick — all fine. Nothing about the app cares how it arrived. CI rena
 `Logline-<version>.apk` on a release, so what somebody finds in a Downloads folder six months later
 says which one it is.
 
-### On the phone
-
-Android will ask to allow installing from wherever the file came from — the browser, Files,
-Drive. That prompt is expected and only has to be answered once per source.
-
-To install over a cable instead:
-
-```bash
-adb install -r app-release.apk
-```
-
-`-r` keeps the existing data. It fails with a signature mismatch if the APK was signed with a
-different key than the one already installed — see above.
-
 ---
 
-## Provisioning a phone
-
-In this order. Steps 2 and 3 are what make the phone a member of the fleet rather than an app
-that happens to be installed.
-
-**1. Install and open it.**
-
-**2. Import the certificates** — *Setup → This phone → Settings → **Router security***.
-Three files: the root CA, the client certificate, the client key. Each row shows what is loaded,
-with its `CN` and expiry, so you can see the import worked. Skip this and a `tls/` endpoint
-refuses to start and names the file it wants.
-
-**3. Import the settings** — *Setup → This phone → Settings → **Configuration** → Import…*
-This carries the realm, endpoints, rates, per-subject switches, QoS overrides, tag vocabulary
-and the MapTiler key. Export one from a phone that is already set up the way you want.
-
-*Or* use **Show QR** / **Scan QR** between two phones, which carries the connection settings
-only — realm, endpoints, source ids. Quicker in the field, less complete.
-
-**4. Set the entity id by hand** — *Settings → **Identity** → Entity ID*.
-
-This is deliberately **not** carried by a settings profile. The entity id is what names this
-phone's data on the bus; if a profile copied it, two phones would publish onto the same keys and
-overwrite each other. Give each phone something that identifies it — the vessel, or the phone.
-
-**5. Start a run once.** Answer the permission prompts and the battery-optimisation question.
-Then check the **Files** tab shows the recording. That is the whole system proven end to end.
-
----
-
-## Updating a phone later
-
-With the same signing key, an update is just installing the new APK over the old one. Settings,
-certificates, recordings and the entity id all survive.
-
-Two things to know:
-
-- **A release APK cannot install over a debug build**, and vice versa — different keys. Moving
-  a phone from a development build to a released one needs an uninstall, so provision it again
-  afterwards.
-- **Recordings already copied to `Downloads/Logline` survive an uninstall**, because they are in
-  shared storage rather than the app's own. They may stop appearing *in the app's Files list*
-  though: Android ties a file to the install that wrote it. The list offers to reach them again
-  by granting access to the folder.
+From here on it is the phone's turn: installing the file, importing certificates, naming the phone and
+proving a run works end to end. That is all in **[installing and setting up](install.md)**.

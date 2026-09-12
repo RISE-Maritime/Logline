@@ -13,7 +13,7 @@ workflow finds nothing, and it fails the release rather than publishing one with
 
 ## 1.0 — 2026-08-25
 
-First release. Internal use; see [docs/deploying.md](docs/deploying.md) for getting it onto a
+First release. Internal use; see [docs/install.md](docs/install.md) for getting it onto a
 phone and [docs/user-guide.md](docs/user-guide.md) for using it.
 
 ### What it does

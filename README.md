@@ -63,6 +63,25 @@ Six screens, in the order a run passes through them. Taken on a Pixel 6;
 
 ## Quick start
 
+You do not need the source to run it. The newest build of `main` is one link, signed and installable:
+
+```
+https://github.com/RISE-Maritime/Logline/releases/download/main-latest/Logline-main-latest.apk
+```
+
+Open it in the phone's browser, or pick a numbered version from
+[Releases](https://github.com/RISE-Maritime/Logline/releases).
+
+Out of the box the endpoint is loopback, `tcp/127.0.0.1:7447`, so a fresh install publishes nowhere
+until it is pointed at a router — a plain `tcp/` one on your own network needs nothing else, and a
+shared `tls/` bus needs three mTLS credentials imported on the phone first. Either way the endpoint
+can be typed in, found with **Scan for routers**, or provisioned from a QR code.
+
+**[Installing and setting up](docs/install.md)** walks the whole thing, from an empty phone to a
+recording you can read back.
+
+To build it yourself instead:
+
 ```bash
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 
@@ -70,20 +89,15 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Out of the box the endpoint is loopback, `tcp/127.0.0.1:7447`, so a fresh install publishes nowhere
-until it is pointed at a router — a plain `tcp/` one on your own network needs nothing else, and a
-shared `tls/` bus needs three mTLS credentials imported on the phone first. Either way the endpoint
-can be typed in, found with **Scan for routers**, or provisioned from a QR code.
-See [Connecting to a router](docs/connecting.md).
-
 ## Documentation
 
 This file is the front door; everything else is a page of its own.
 
 | | |
 | --- | --- |
+| [docs/install.md](docs/install.md) | installing and setting up a phone, from an empty one |
 | [docs/user-guide.md](docs/user-guide.md) | using the app — for whoever is handed the phone |
-| [docs/deploying.md](docs/deploying.md) | building, signing, and provisioning a phone |
+| [docs/deploying.md](docs/deploying.md) | building, signing, and cutting a release |
 | [docs/subjects.md](docs/subjects.md) | every subject on the wire, and what each number really means |
 | [docs/keys-and-liveliness.md](docs/keys-and-liveliness.md) | the key layout, `@v0`, and the three liveliness tiers |
 | [docs/connecting.md](docs/connecting.md) | endpoints, mTLS, replay after an outage, proving it works |
