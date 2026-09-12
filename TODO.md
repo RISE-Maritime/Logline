@@ -177,18 +177,6 @@ Done before flipping `RISE-Maritime/Logline` public. The audit itself found **no
 working tree or in any of the 185 commits — no key material, no API keys, no passwords, and nothing
 committed and later removed. What follows is what the review changed, and what it deliberately left.
 
-- [ ] **The MapTiler key still reaches Google Drive through the backup.** `files/datastore/` is backed
-      up by design — realm, endpoints, rates, per-subject switches and the operator identity are the
-      whole reason the settings are worth restoring — and the tile key rides along in it. That is a
-      trade rather than an oversight: excluding the datastore would defeat the point, and a tile key is
-      nothing like the mTLS client key, which *is* excluded from both rule files. It is now stated in
-      words in `data_extraction_rules.xml` rather than left to be discovered. If it ever needs to stop,
-      the key needs its own DataStore file so one path can be excluded without the rest.
-
-- [ ] **The commit history carries a personal email address.** `ted.sjoblom@gmail.com` authors 30 of the
-      185 commits; the other 155 use the GitHub noreply address. Removing it means rewriting author
-      fields, which the hostname rewrite did not do. A personal address on one's own open-source commits
-      is ordinary, so this is recorded as a decision that was taken rather than a thing to fix.
 
 - [ ] **A remote platform library is accepted on an unauthenticated version number.** Anyone on the
       realm can publish a `platform_registry` document with a high `version` and have it staged. It is
@@ -205,7 +193,7 @@ committed and later removed. What follows is what the review changed, and what i
 
 ## Build system
 
-- [ ] **The MCAP descriptor set is written into `app/src/main/assets/`, and every variant writes the
+- [x] **The MCAP descriptor set is written into `app/src/main/assets/`, and every variant writes the
       same path.** `descriptorSetOptions.path` in `app/build.gradle.kts` points protoc at a *source*
       directory, and `generateDebugProto` and `generateReleaseProto` both target that one file. Put a
       debug task and a release task in one task graph and Gradle refuses to run it — `mergeReleaseAssets`
@@ -223,3 +211,4 @@ committed and later removed. What follows is what the review changed, and what i
       descriptor into a `DirectoryProperty`, and it needs verifying that `assets/keelson_payloads.desc`
       still lands in the APK at 11 929 bytes — an empty descriptor makes every MCAP schema come out
       empty, which is exactly the kind of thing that is only noticed in a reader weeks later.
+      Done in 799ffd2.

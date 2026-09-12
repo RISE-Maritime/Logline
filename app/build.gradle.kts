@@ -216,6 +216,17 @@ android {
     }
 }
 
+/** The asset name `Recorder` opens at runtime — see `McapSchemas.DESCRIPTOR_ASSET`. */
+val DESCRIPTOR_FILE_NAME = "keelson_payloads.desc"
+
+/**
+ * Where protoc writes each variant's descriptor set.
+ *
+ * Captured here rather than inside the `protobuf` block because `layout` is a `Project` member and the
+ * receiver inside `generateProtoTasks { all().configureEach { } }` is the task.
+ */
+val descriptorSetRoot = layout.buildDirectory.dir("generated/descriptorSet")
+
 protobuf {
     protoc {
         artifact = libs.protoc.get().toString()
@@ -243,11 +254,15 @@ protobuf {
                 generateDescriptorSet = true
                 descriptorSetOptions.includeImports = true
                 descriptorSetOptions.includeSourceInfo = false
-            // Written into src/main/assets so it is packaged like any other asset. AGP 9 rejects
-            // Provider-based source dirs, and routing a build/ directory through the Variant API for one
-            // 3 KB file is more machinery than it is worth. Git-ignored — it is generated, not authored.
+                // **One directory per proto task, under build/ — never into src/.** This used to write
+                // every variant's descriptor to the same file in `src/main/assets`, which is a *source*
+                // directory, and that made any task graph containing both variants illegal: Gradle
+                // refused with `mergeReleaseAssets` using the output of `generateDebugProto` without
+                // declaring a dependency, and lint's model task hit the same thing from the other side.
+                // `./gradlew build` could not run. Keyed on the task name rather than the variant
+                // because that is what is in scope here and the two are one-to-one.
                 descriptorSetOptions.path =
-                    file("src/main/assets/keelson_payloads.desc").path
+                    descriptorSetRoot.get().dir(name).file(DESCRIPTOR_FILE_NAME).asFile.path
             }
         }
     }
@@ -319,13 +334,59 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
-// The descriptor set is produced by protoc, so asset merging has to wait for it. Without this the
-// first clean build packages an APK with no descriptor and every MCAP schema comes out empty.
+/**
+ * Puts one variant's descriptor set into a directory AGP can treat as generated assets.
+ *
+ * It exists because the two shapes do not meet on their own: protoc emits a single *file* at a path it
+ * is told, and `addGeneratedSourceDirectory` wants a task with a `DirectoryProperty` output. Copying is
+ * the whole of the work, and it is a real task rather than a `doLast` so the output directory is a
+ * declared output — which is what makes the dependency AGP wires up an actual one rather than a hope.
+ *
+ * The descriptor is an `@InputFile` and protoc's task is an explicit `dependsOn`, because
+ * `GenerateProtoTask` does not expose the descriptor as a property there is anything to wire to. That
+ * is the one hand-made edge in this chain; everything downstream of here is AGP's.
+ */
+abstract class CollectDescriptorSet : DefaultTask() {
+    @get:InputFile
+    abstract val descriptor: RegularFileProperty
+
+    @get:Input
+    abstract val assetName: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun collect() {
+        val target = outputDirectory.get().asFile
+        target.mkdirs()
+        val source = descriptor.get().asFile
+        // An empty descriptor makes every MCAP schema come out empty, and a reader shows a channel of
+        // undecodable bytes rather than an error — so it is noticed weeks later, in someone else's tool.
+        // Cheaper to refuse here.
+        if (!source.isFile || source.length() == 0L) {
+            throw GradleException("protoc produced no descriptor set at ${'$'}{source.path}")
+        }
+        source.copyTo(target.resolve(assetName.get()), overwrite = true)
+    }
+}
+
+// **The descriptor reaches the APK as a generated asset directory, not as a file in `src/`.**
+// `variant.sources.assets.addGeneratedSourceDirectory` is what carries the task dependency, so asset
+// merging waits for protoc without anything here saying so — the hand-written `mergeAssets dependsOn
+// generateProto` this replaces was the same idea done by name, and it could only ever cover the one
+// edge somebody thought of. Note the API that *was* rejected by AGP 9 is `addStaticSourceDirectory`,
+// which wants a path that already exists; the generated-directory one takes a task and is the right
+// door. Per variant throughout, which is what makes a task graph holding both variants legal again.
 androidComponents {
     onVariants { variant ->
         val capitalised = variant.name.replaceFirstChar { it.uppercase() }
-        tasks.matching { it.name == "merge${capitalised}Assets" }.configureEach {
-            dependsOn("generate${capitalised}Proto")
+        val protoTask = "generate${capitalised}Proto"
+        val collect = tasks.register<CollectDescriptorSet>("collect${capitalised}DescriptorSet") {
+            dependsOn(protoTask)
+            descriptor.set(descriptorSetRoot.get().dir(protoTask).file(DESCRIPTOR_FILE_NAME))
+            assetName.set(DESCRIPTOR_FILE_NAME)
         }
+        variant.sources.assets?.addGeneratedSourceDirectory(collect, CollectDescriptorSet::outputDirectory)
     }
 }

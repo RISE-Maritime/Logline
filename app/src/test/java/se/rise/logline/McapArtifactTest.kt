@@ -12,7 +12,16 @@ class McapArtifactTest {
     @Test
     fun `emit a sample recording for external validation`() {
         val target = System.getenv("MCAP_ARTIFACT") ?: return
-        val descriptor = File("src/main/assets/keelson_payloads.desc").readBytes()
+        // Generated, not authored, and no longer in `src/` — protoc writes one per variant under
+        // build/ so that a task graph holding both variants is legal. This runs under
+        // testDebugUnitTest, so the debug one is the one that exists, and the working directory is
+        // the module. Read with a message rather than a bare NoSuchFileException, because the only
+        // way to get here is to have run the test without the proto task.
+        val descriptorFile = File("build/generated/assets/collectDebugDescriptorSet/keelson_payloads.desc")
+        require(descriptorFile.isFile) {
+            "no descriptor at ${descriptorFile.path} — run :app:collectDebugDescriptorSet first"
+        }
+        val descriptor = descriptorFile.readBytes()
         File(target).outputStream().use { out ->
             val w = McapWriter(out)
             w.start()

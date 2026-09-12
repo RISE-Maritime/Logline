@@ -1897,13 +1897,30 @@ simply never finds anything on the bus.
   parses perfectly and whose every payload fails to decode, which is a genuinely nasty failure mode —
   it was the first bug in `McapWriter` and `McapWriterTest` now pins it. Validate format changes by
   reading a file back with the real `mcap` library, not by eyeballing bytes.
-- **The MCAP schema bytes come from a build-time descriptor set.** `protobuf-javalite` strips
-  descriptors — there is no `getDescriptor()` on a generated lite class — and adding `protobuf-java`
-  alongside collides at dex time. So protoc emits `assets/keelson_payloads.desc` via
-  `descriptorSetOptions`, git-ignored and generated, and nothing parses it at runtime. `includeImports`
-  is mandatory or `google/protobuf/timestamp.proto` is missing and no reader can resolve anything.
-  Restrict the option to the main variants — `all().configureEach` also covers the test proto tasks and
-  they race for the same output file.
+- **The MCAP schema bytes come from a build-time descriptor set, and it is a *generated asset*, never
+  a file in `src/`.** `protobuf-javalite` strips descriptors — there is no `getDescriptor()` on a
+  generated lite class — and adding `protobuf-java` alongside collides at dex time. So protoc emits one
+  via `descriptorSetOptions`, and nothing parses it at runtime; the bytes go straight into the MCAP
+  Schema record. `includeImports` is mandatory or `google/protobuf/timestamp.proto` is missing and no
+  reader can resolve anything. Restrict the option to the main variants — `all().configureEach` also
+  covers the test proto tasks.
+  **Each variant writes its own directory under `build/`, and that is what makes a task graph holding
+  both variants legal.** It used to write `src/main/assets/keelson_payloads.desc`, one path shared by
+  every variant, and because that is a *source* directory Gradle refused any build naming tasks from
+  both: `mergeReleaseAssets` used the output of `generateDebugProto` without declaring a dependency,
+  and lint's model task hit the same thing from the other side. `./gradlew build` could not run.
+  A `CollectDescriptorSet` task per variant copies protoc's file into a `DirectoryProperty`, and
+  `variant.sources.assets.addGeneratedSourceDirectory` attaches it — which is also what carries the
+  task dependency, replacing a hand-written `mergeAssets dependsOn generateProto` that could only ever
+  cover the one edge somebody thought of. **The API that AGP 9 rejects is `addStaticSourceDirectory`**,
+  which wants a path that already exists; the generated-directory one takes a task and is the right
+  door. An old comment saying "AGP 9 rejects Provider-based source dirs" conflated the two.
+  The collect task fails when protoc's output is missing or empty, because an empty descriptor makes
+  every MCAP schema come out empty and a reader then shows a channel of undecodable bytes rather than
+  an error — noticed weeks later, in somebody else's tool. Verified after the move: 11 929 bytes,
+  byte-identical across debug and release, in both APKs, and a written `.mcap` decodes through it with
+  the `mcap` Python library — `foxglove.LocationFix`, `keelson.TimestampedFloat` and `foxglove.Log`
+  all resolving to their real values.
 - **Unit tests return defaults for the Android stubs, and that was a deliberate narrow trade.**
   `testOptions { unitTests { isReturnDefaultValues = true } }` exists because `android.util.Log` throws
   "not mocked" in a JVM test, and `McapTrack` logs on exactly the path a truncated-file test must go
@@ -2461,15 +2478,6 @@ of it packaging the Zenoh natives.
 **The branch filters are load-bearing.** `on: push:` carried no filter, so every pull request built
 twice — once as the push, once as the `pull_request` — and every feature-branch commit burned a full
 run. Filtering both to `main` means each commit that matters is built exactly once.
-
-**The Gradle run is split in two, and that is a constraint rather than fussiness.** protoc writes the
-MCAP descriptor set to `app/src/main/assets/keelson_payloads.desc` — a *source* directory — at the same
-path for every variant, so a debug task and a release task in one task graph make Gradle refuse the
-build: `mergeReleaseAssets` uses the output of `generateDebugProto` without declaring a dependency, and
-lint's model task hits it in the other direction. It predates CI building the release variant, and
-`./gradlew build` has always hit it; nothing anybody ran happened to span both variants, and it fails
-loudly rather than silently, which is why it went unnoticed. One variant per invocation is what the
-shared path requires. The real fix is getting that file out of `src/`, filed in TODO.md.
 
 **`assembleRelease` replaced `assembleDebug` for coverage, not speed.** `testDebugUnitTest` already
 compiles the debug variant and `lintDebug` already analyses it, so the only thing given up is
