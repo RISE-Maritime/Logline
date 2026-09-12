@@ -190,25 +190,3 @@ committed and later removed. What follows is what the review changed, and what i
       `configuration_json` on the realm is therefore memory pressure rather than backpressure. Not
       reachable today without bus access; noted with the item above because it has the same precondition.
 
-
-## Build system
-
-- [x] **The MCAP descriptor set is written into `app/src/main/assets/`, and every variant writes the
-      same path.** `descriptorSetOptions.path` in `app/build.gradle.kts` points protoc at a *source*
-      directory, and `generateDebugProto` and `generateReleaseProto` both target that one file. Put a
-      debug task and a release task in one task graph and Gradle refuses to run it — `mergeReleaseAssets`
-      uses the output of `generateDebugProto` without declaring a dependency, and lint's model task hits
-      the same thing in the other direction. So `./gradlew build`, or any command naming tasks from both
-      variants, fails.
-      Found when CI started building the release variant; it is older than that change and fails loudly
-      rather than silently, which is why it went unnoticed — nothing anybody ran happened to span both
-      variants. Worked around by splitting the Gradle invocation in both workflows, one variant per task
-      graph.
-      The real fix is to stop writing into `src/`: emit the descriptor to a build directory per variant
-      and attach it with `variant.sources.assets.addGeneratedSourceDirectory(...)`. The existing comment
-      says a Provider-based source dir was rejected by AGP 9, which is true of `addStaticSourceDirectory`
-      and not of the generated-directory API. It needs a small task per variant that copies the
-      descriptor into a `DirectoryProperty`, and it needs verifying that `assets/keelson_payloads.desc`
-      still lands in the APK at 11 929 bytes — an empty descriptor makes every MCAP schema come out
-      empty, which is exactly the kind of thing that is only noticed in a reader weeks later.
-      Done in a5a8097.
