@@ -211,4 +211,4 @@ committed and later removed. What follows is what the review changed, and what i
       descriptor into a `DirectoryProperty`, and it needs verifying that `assets/keelson_payloads.desc`
       still lands in the APK at 11 929 bytes — an empty descriptor makes every MCAP schema come out
       empty, which is exactly the kind of thing that is only noticed in a reader weeks later.
-      Done in 799ffd2.
+      Done in a5a8097.
