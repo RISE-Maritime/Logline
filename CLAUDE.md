@@ -1215,7 +1215,11 @@ simply never finds anything on the bus.
   observation timestamp, which is what makes it a repeat rather than a fabrication. That conversion is
   memoised per reading on purpose: `SensorClock.epochNanosNow()` re-reads the boot-to-epoch offset on
   every call, so converting a held sample repeatedly moved its timestamp by a millisecond each time and
-  defeated the point. Also note the unit needs **no conversion** — Android reports lux and the subject
+  defeated the point. **`sensors/HeldClock.kt` is that memo, and the radio collector needs it more.**
+  The cellular quality and identity subjects are polled modem caches: at sea `SignalStrength` refreshed
+  about every two minutes, and converting on every 1 Hz tick turned ~166 real measurements into
+  18 766 distinct timestamps, piling a coverage map's readings into the wrong places. Any collector that
+  republishes a held reading goes through a `HeldClock`, never `epochNanosNow` per publish. Also note the unit needs **no conversion** — Android reports lux and the subject
   is lux, which is the exception to the rule below.
 
 - **`raw_nmea0183` shares the location collector, and `rateOwner` is what forces that.** It has its own

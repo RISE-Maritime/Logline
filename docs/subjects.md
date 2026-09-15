@@ -464,6 +464,13 @@ are taken from NR whenever NR is reporting, so they always describe the same rad
 `radio_rssi_dbm` is the exception — NR has no RSSI equivalent, so it stays the LTE anchor's
 measurement, and on standalone NR it is simply absent.
 
+**The poll rate is not the measurement rate.** The cellular quality and identity subjects are read
+from the modem's cache, which it refreshes when it chooses — on one 5 h 53 min run at sea,
+`SignalStrength` refreshed only 166 times, about once every two minutes. Each poll republishes the
+cached value **with the modem's own report time**, converted once per report, so consecutive messages
+with the same payload timestamp mean "no new report". Deduplicate on that timestamp to get the real
+measurements, and expect a held value to be minutes old.
+
 **The two bitrate subjects are link speed, not traffic.** `radio_downlink_bitrate_bps` and
 `radio_uplink_bitrate_bps` come from `WifiInfo.getRxLinkSpeedMbps()` / `getTxLinkSpeedMbps()`, which is
 the rate the radio has *negotiated* — a Wi-Fi 6E link reports a couple of gigabits whether or not a

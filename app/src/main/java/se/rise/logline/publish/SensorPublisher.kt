@@ -48,6 +48,7 @@ import se.rise.logline.sensors.MslAltitudeResolver
 import se.rise.logline.sensors.undulationMetres
 import se.rise.logline.sensors.FixKind
 import se.rise.logline.sensors.GnssStatusProvider
+import se.rise.logline.sensors.HeldClock
 import se.rise.logline.sensors.NmeaProvider
 import se.rise.logline.sensors.fixQualityOf
 import se.rise.logline.sensors.nmeaEpochNanos
@@ -1751,20 +1752,12 @@ class SensorPublisher(private val appContext: Context) {
         val sink = SubjectSink(PublishedSubject.ILLUMINANCE, session)
         sink.guard {
             var checked = false
-            // Converted once per *real* reading, not once per publish. `epochNanosNow` re-reads the
-            // boot-to-epoch offset each call, so converting a held sample repeatedly moved its
-            // observation time by a millisecond between otherwise identical messages — which would
-            // defeat the whole point of repeating the timestamp, and any consumer deduplicating on it.
-            var lastElapsedNanos = 0L
-            var lastObservedAtNanos = 0L
+            // Converted once per *real* reading, not once per publish — see HeldClock.
+            val clock = HeldClock()
             ScalarSensorProvider(appContext)
                 .illuminance(rate.toIntervalMillis(), onShed = { statusStore.shed(PublishedSubject.ILLUMINANCE) })
                 .collect { s ->
-                if (s.elapsedNanos != lastElapsedNanos) {
-                    lastElapsedNanos = s.elapsedNanos
-                    lastObservedAtNanos = SensorClock.epochNanosNow(s.elapsedNanos)
-                }
-                val observedAtNanos = lastObservedAtNanos
+                val observedAtNanos = clock.epochNanos(s.elapsedNanos)
                 if (!checked) {
                     checked = true
                     warnIfClockBaseLooksWrong(Subjects.ILLUMINANCE_LUX, observedAtNanos)
@@ -2069,12 +2062,16 @@ class SensorPublisher(private val appContext: Context) {
     ) {
         val sinks = RADIO_SUBJECTS.associateWith { SubjectSink(it, session) }
         sinks.getValue(PublishedSubject.CELLULAR_RSRP).guard {
+            // One per modem timestamp: the quality metrics and the cell list are separate caches.
+            val cellularClock = HeldClock()
+            val identityClock = HeldClock()
             RadioProvider(appContext).samples(rate.toIntervalMillis()).collect { s ->
                 // The modem's own report time where it gave us one; otherwise the read time. Polling
                 // republishes the same measurement across ticks, so this is what makes a held value
-                // distinguishable from a fresh one.
+                // distinguishable from a fresh one — and only if it is converted once per report,
+                // which is what HeldClock is for.
                 val cellularAt = s.cellular?.measuredAtElapsedNanos
-                    ?.let { protoTimestamp(SensorClock.epochNanosNow(it)) }
+                    ?.let { protoTimestamp(cellularClock.epochNanos(it)) }
                     ?: protoTimestamp()
                 val now = protoTimestamp()
 
@@ -2112,7 +2109,7 @@ class SensorPublisher(private val appContext: Context) {
                 // whether two measurements straddle a handover.
                 s.identity?.let { id ->
                     val at = id.measuredAtElapsedNanos
-                        ?.let { protoTimestamp(SensorClock.epochNanosNow(it)) }
+                        ?.let { protoTimestamp(identityClock.epochNanos(it)) }
                         ?: now
                     fun emitOne(subject: PublishedSubject, message: com.google.protobuf.MessageLite) {
                         sinks.getValue(subject).emit(publishers.of(subject), message.toByteArray())
