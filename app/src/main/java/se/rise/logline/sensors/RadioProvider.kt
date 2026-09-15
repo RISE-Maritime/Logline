@@ -97,6 +97,7 @@ class RadioProvider(private val context: Context) {
     private val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
     private val connectivity =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val probe = RadioProbe(context, telephony)
 
     fun samples(intervalMillis: Long): Flow<RadioSample> = flow {
         while (true) {
@@ -144,6 +145,7 @@ class RadioProvider(private val context: Context) {
             Log.w(TAG, "getAllCellInfo failed", t)
             return null
         } ?: return null
+        if (probe.enabled) probe.cellList(cells)
 
         // Zero registered entries is legal, and so is more than one. Prefer the primary serving cell,
         // fall back to any registered one.
@@ -188,8 +190,9 @@ class RadioProvider(private val context: Context) {
             Log.w(TAG, "signalStrength unavailable", t)
             null
         } ?: return null
+        if (probe.enabled) probe.signalStrength(strength)
 
-        val lte = strength.getCellSignalStrengths(CellSignalStrengthLte::class.java).firstOrNull()
+        val lte =strength.getCellSignalStrengths(CellSignalStrengthLte::class.java).firstOrNull()
         val nr = strength.getCellSignalStrengths(CellSignalStrengthNr::class.java)
             .firstOrNull()
             ?.takeIf { it.ssRsrp != CellInfo.UNAVAILABLE }

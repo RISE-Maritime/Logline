@@ -189,6 +189,42 @@ deliberate omissions in the current state, not hidden bugs:
   one boolean restores both features when it lands. Publishing, queryables and liveliness declaration
   are unaffected, so nothing the phone *says* or records is limited by it.
 
+## Checking radio freshness on a device
+
+The cellular subjects are read from modem caches, and how often those caches refresh decides whether
+`readCellular()` should keep using `SignalStrength` or switch to the serving cell's own
+`CellInfo` signal strength (TODO.md, *Radio*). `sensors/RadioProbe.kt` logs both caches, plus what a
+`requestCellInfoUpdate()` returns. The probe is off by default and changes nothing on the wire.
+
+1. Install a build that includes the probe, then switch it on and capture its output:
+
+   ```bash
+   adb shell setprop log.tag.RadioProbe DEBUG
+   adb logcat -c && adb logcat -s RadioProbe:D > probe.txt
+   ```
+
+2. Start a run and let it record for **at least 30 minutes, preferably while moving**. A stationary
+   modem hardly refreshes, so a desk test says little. For the NSA question, be attached to 5G:
+   `adb shell dumpsys telephony.registry | grep -i nrState` should show `CONNECTED`.
+3. Stop the run, pull the recording, and run both reports
+   (`pip install mcap mcap-protobuf-support` first):
+
+   ```bash
+   python3 tools/radio_freshness.py logline-….mcap
+   python3 tools/radio_probe_summary.py probe.txt
+   ```
+
+4. Read the results:
+   - **`radio_freshness.py`:** *distinct ts* should be close to *changes* for every cellular channel.
+     If it is near *messages* instead, held readings are being re-stamped again.
+   - **`radio_probe_summary.py`, freshness:** compare the median age of `CELL serving …` and
+     `REQCELL serving …` against `SignalStrength (SS)`.
+   - **`radio_probe_summary.py`, NSA:** the last line shows whether the cell list carried an NR cell
+     when `SignalStrength` had an NR leg.
+   - **Decision:** switch to `CellInfo` only if it is clearly fresher **and** carries the NR leg on
+     NSA. Otherwise keep `SignalStrength`.
+5. Switch the probe off: `adb shell setprop log.tag.RadioProbe ""`.
+
 ## Related repositories
 
 Sibling checkouts under `~/Documents/CODE/`, referenced throughout the docs:
