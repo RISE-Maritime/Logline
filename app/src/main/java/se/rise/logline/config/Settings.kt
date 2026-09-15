@@ -347,6 +347,11 @@ data class Settings(
     /** The same, for the wire: publish everything that is recorded, with no thinning. */
     val publishAllMax: Boolean = false,
     /**
+     * Log only position, battery and marks, for a phone carried to mark events. A mode over
+     * [disabledSubjects] and the rate maps, never an edit of them — see `MINIMUM_SUBJECTS`.
+     */
+    val minimumMode: Boolean = false,
+    /**
      * Join the shared checklist on the bus.
      *
      * Off by default because it opens a **second** Zenoh session and announces this phone, by name, to
@@ -514,6 +519,16 @@ data class Settings(
      */
     fun recordRate(subject: String): SensorRate {
         val owner = PublishedSubject.forSubject(subject)?.rateOwner ?: subject
+        // Before recordAllMax, or Maximum would lift Minimum's position cap straight back to Max. A
+        // slower tuned rate still wins.
+        if (minimumMode && owner == Subjects.LOCATION_FIX) {
+            return slowerOf(MINIMUM_POSITION_RATE, configuredRecordRate(owner))
+        }
+        return configuredRecordRate(owner)
+    }
+
+    /** [recordRate] for a subject that owns its rate, before any Minimum cap. */
+    private fun configuredRecordRate(owner: String): SensorRate {
         // For these the two rates are one thing: a poll produces exactly one sample and publishes it,
         // and a chunk or a capture interval is not a rate a file could hold more of. Falling back to the
         // registry default here instead would clamp a *raised* publish rate back down to it.
@@ -690,6 +705,8 @@ data class Settings(
      */
     fun offSubjects(): Set<PublishedSubject> = buildSet {
         addAll(disabledSubjects)
+        // Added here and never written into disabledSubjects, so leaving Minimum restores the switches.
+        if (minimumMode) addAll(minimumForcedOff())
         if (!audioEnabled) add(PublishedSubject.AUDIO)
         // **The two camera subjects cannot both run**, and this is where that is enforced rather
         // than in the UI, so an imported profile with both set cannot reach a state the hardware

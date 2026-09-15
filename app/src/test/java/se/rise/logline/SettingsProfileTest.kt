@@ -82,6 +82,7 @@ class SettingsProfileTest {
         ),
         recordAllMax = true,
         publishAllMax = true,
+        minimumMode = true,
         checklistEnabled = true,
         operatorId = "3f2b0c7e-0000-4000-8000-000000000001",
         operatorName = "Ted",
@@ -188,6 +189,7 @@ class SettingsProfileTest {
         assertEquals(original.recordRates, out.recordRates)
         assertEquals(original.recordAllMax, out.recordAllMax)
         assertEquals(original.publishAllMax, out.publishAllMax)
+        assertEquals(original.minimumMode, out.minimumMode)
         assertEquals(original.qosOverrides, out.qosOverrides)
         assertEquals(original.annotationButtons, out.annotationButtons)
         assertEquals("the vocabulary travels, like the annotation buttons", original.tags, out.tags)

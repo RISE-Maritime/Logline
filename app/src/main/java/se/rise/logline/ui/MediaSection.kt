@@ -52,6 +52,8 @@ fun MediaSection(
     onChange: (Settings) -> Unit,
     /** The subject's own rate and QoS page: the time-lapse interval and the video frame rate. */
     onOpenSubjectQos: (PublishedSubject) -> Unit,
+    /** Minimum logging is on, which switches all three off; the switches are disabled rather than inert. */
+    locked: Boolean = false,
 ) {
     var showHelp by rememberSaveable { mutableStateOf(false) }
     // The time-lapse cost depends on how often a frame is taken, which is the subject's rate and not a
@@ -80,7 +82,11 @@ fun MediaSection(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "Changing any of these restarts the run and starts a new file.",
+                if (locked) {
+                    "Off while Minimum logging is on."
+                } else {
+                    "Changing any of these restarts the run and starts a new file."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -92,7 +98,8 @@ fun MediaSection(
                     "it on the audio subject. It records every conversation held near the phone — " +
                     "Android shows its microphone indicator throughout, and this is off unless you " +
                     "turn it on.",
-                checked = settings.audioEnabled,
+                checked = settings.audioEnabled && !locked,
+                enabled = !locked,
                 onCheckedChange = { onChange(settings.copy(audioEnabled = it)) },
             )
             if (settings.audioEnabled) {
@@ -144,6 +151,7 @@ fun MediaSection(
                     "it on.",
                 checked = settings.cameraEnabled && !settings.videoEnabled,
                 unavailable = PublishedSubject.IMAGE_COMPRESSED in unavailableSubjects,
+                locked = locked,
                 // One camera consumer at a time — see the video switch below.
                 onCheckedChange = {
                     onChange(settings.copy(cameraEnabled = it, videoEnabled = if (it) false else settings.videoEnabled))
@@ -190,6 +198,7 @@ fun MediaSection(
                     "sees, not a frame every few seconds.",
                 checked = settings.videoEnabled,
                 unavailable = PublishedSubject.VIDEO_COMPRESSED in unavailableSubjects,
+                locked = locked,
                 onCheckedChange = {
                     onChange(settings.copy(videoEnabled = it, cameraEnabled = if (it) false else settings.cameraEnabled))
                 },
@@ -242,13 +251,14 @@ private fun MediaSwitch(
     description: String,
     checked: Boolean,
     unavailable: Boolean,
+    locked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     SettingSwitch(
         title = title,
         description = if (unavailable) "Not on this device. $description" else description,
-        checked = checked && !unavailable,
-        enabled = !unavailable,
+        checked = checked && !unavailable && !locked,
+        enabled = !unavailable && !locked,
         onCheckedChange = onCheckedChange,
     )
 }

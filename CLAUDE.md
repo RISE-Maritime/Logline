@@ -243,6 +243,20 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   Each row states the **consequence** rather than an adjective — `~241 MB/h` at maximum against
   `~23 MB/h` configured, both measured — which is why `Capacity.kt` carries two constants and
   `baseMegabytesPerHour()` picks between them. "Much larger files" is not a number anyone can plan with.
+- **Minimum logging is a third mode over the same maps, and it narrows rather than raises.**
+  `Settings.minimumMode` is for a phone carried only to mark events. `offSubjects()` adds everything
+  outside `MINIMUM_SUBJECTS` (`config/MinimumMode.kt`), and `recordRate()` caps `location_fix` at
+  0.2 Hz. Nothing is written into `disabledSubjects` or the rate maps, so Full returns the tuned profile,
+  and `MinimumModeTest` pins that.
+  Three things are load-bearing:
+  - **The cap is checked before `recordAllMax`.** Otherwise the default Maximum lifts position straight
+    back to Max.
+  - **The set holds entries, not subject names.** Four entries publish `location_fix`.
+  - **The IMU is out on purpose.** A phone that gets picked up would put an event-shaped burst in the
+    file.
+
+  The UI disables what the mode forces off rather than leaving pressable switches that do nothing. It
+  shows no MB/h figure, because none has been measured.
 - **Every subject has its own publish rate, and a derived one is capped by the subject it rides.**
   About half the registry carries a `rateOwner`, and those subjects used to have no rate of their own at
   all — all three of `recordRate`, `publishRate` and `ratesCanDiffer` opened with

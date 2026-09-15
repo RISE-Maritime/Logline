@@ -1193,6 +1193,11 @@ private fun App(
                 onSetPublishAllMax = { on ->
                     scope.launch { saveSettings(app, current.copy(publishAllMax = on)) }
                 },
+                // saveSettings for the same reason as the rate modes: position's rate is fixed when
+                // the location request is registered.
+                onSetMinimumMode = { on ->
+                    scope.launch { saveSettings(app, current.copy(minimumMode = on)) }
+                },
                 onGrantLocation = { locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
                 // Routed by registry entry, not subject: `radio_rssi_dbm` is published under two
                 // source ids, so the subject name no longer identifies a single card.

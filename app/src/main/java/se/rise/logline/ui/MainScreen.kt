@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import se.rise.logline.config.Settings
+import se.rise.logline.config.minimumForcedOff
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
 import se.rise.logline.publish.ConnectionState
@@ -160,6 +161,8 @@ fun MainScreen(
     /** Flip every subject to full rate, or back to the tuned profile. Restarts the run. */
     onSetRecordAllMax: (Boolean) -> Unit,
     onSetPublishAllMax: (Boolean) -> Unit,
+    /** Switch between Full and Minimum logging. Restarts the run. */
+    onSetMinimumMode: (Boolean) -> Unit = {},
     /**
      * A live camera from some other entity, supplied by `MainActivity` — null when none is configured,
      * which is the default. A `WebView` needs a `Context`, so it arrives the way the chart does.
@@ -306,10 +309,16 @@ fun MainScreen(
                 onRemoveTag = onRemoveTag,
             )
 
+            // Above the rates, because Minimum decides them: while it is on, the rate chips and every
+            // switch it forces off are disabled rather than pressable and doing nothing.
+            LoggingModeCard(settings = settings, onSetMinimumMode = onSetMinimumMode)
+            val forcedOff = if (settings.minimumMode) minimumForcedOff() else emptySet()
+
             RateModeCard(
                 settings = settings,
                 onSetRecordAllMax = onSetRecordAllMax,
                 onSetPublishAllMax = onSetPublishAllMax,
+                locked = settings.minimumMode,
             )
 
             subjectGroups().forEach { rawGroup ->
@@ -353,7 +362,7 @@ fun MainScreen(
                         Switch(
                             checked = anyOn,
                             onCheckedChange = { onToggleSubjects(governed, it) },
-                            enabled = governed.any { it !in unavailableSubjects },
+                            enabled = governed.any { it !in unavailableSubjects && it !in forcedOff },
                             modifier = Modifier
                                 .padding(start = 8.dp)
                                 .semantics { contentDescription = "Publish all of ${group.title}" },
@@ -392,6 +401,7 @@ fun MainScreen(
                                         ?.let { labelOf(it).name },
                                     onOpen = { onOpenSubjectQos(entry) },
                                     onToggle = { onToggleSubject(entry, it) },
+                                    locked = entry in forcedOff,
                                 )
                             }
                         }
@@ -409,6 +419,7 @@ fun MainScreen(
                 unavailableSubjects = unavailableSubjects,
                 onChange = onMediaChange,
                 onOpenSubjectQos = onOpenSubjectQos,
+                locked = settings.minimumMode,
             )
 
             // **Below what this phone records, because it is the other direction.** Everything above
@@ -1013,6 +1024,8 @@ private fun RateModeCard(
     settings: Settings,
     onSetRecordAllMax: (Boolean) -> Unit,
     onSetPublishAllMax: (Boolean) -> Unit,
+    /** Minimum logging sets the rates, so neither choice can be made while it is on. */
+    locked: Boolean = false,
 ) {
     var showHelp by rememberSaveable { mutableStateOf(false) }
 
@@ -1041,6 +1054,7 @@ private fun RateModeCard(
                 label = "Recording",
                 atMax = settings.recordAllMax,
                 onChange = onSetRecordAllMax,
+                enabled = !locked,
                 // The consequence, not the adjective: a measured figure is worth more than "larger".
                 detail = if (settings.recordAllMax) {
                     "Every sample the sensors give · ~$MAX_MEGABYTES_PER_HOUR MB/h"
@@ -1053,6 +1067,7 @@ private fun RateModeCard(
                 label = "Publishing",
                 atMax = settings.publishAllMax,
                 onChange = onSetPublishAllMax,
+                enabled = !locked,
                 detail = if (settings.publishAllMax) {
                     "Unthinned to the bus · more link and battery use"
                 } else {
@@ -1060,7 +1075,61 @@ private fun RateModeCard(
                 },
             )
             Text(
-                "Changing either restarts the run and starts a new file.",
+                if (locked) {
+                    "Set by Minimum logging: position every 5 s. Choose Full to change these."
+                } else {
+                    "Changing either restarts the run and starts a new file."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Full or Minimum logging, for a phone carried only to mark events — see `MINIMUM_SUBJECTS`.
+ *
+ * A two-option selector rather than a switch, for the reason the rate modes are: *off* would read as
+ * "logging disabled" when it means "log everything configured".
+ */
+@Composable
+private fun LoggingModeCard(
+    settings: Settings,
+    onSetMinimumMode: (Boolean) -> Unit,
+) {
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+
+    if (showHelp) {
+        InfoDialog(
+            title = "Logging",
+            body = "Minimum is for a phone carried only to mark events. It keeps the position every " +
+                "five seconds with its accuracy, fix quality, speed and course, the battery charge, and " +
+                "the marks. Everything else is off, the IMU included, since somebody picking the phone " +
+                "up would put something in the file that looks like an event.\n\n" +
+                "It is a mode, not an edit: your switches and rates are kept, and choosing Full brings " +
+                "all of them back.",
+            onDismiss = { showHelp = false },
+        )
+    }
+
+    SectionHeader("Logging", onInfo = { showHelp = true })
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            RateModeRow(
+                label = "Subjects",
+                atMax = settings.minimumMode,
+                onChange = onSetMinimumMode,
+                // No MB/h figure: nobody has measured a Minimum run yet, and an invented one is worse.
+                detail = if (settings.minimumMode) {
+                    "Position every 5 s, battery and marks only · size not measured yet"
+                } else {
+                    "Every subject switched on below, at its own rate"
+                },
+                options = "Full" to "Minimum",
+            )
+            Text(
+                "Changing it restarts the run and starts a new file.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1075,19 +1144,24 @@ private fun RateModeRow(
     atMax: Boolean,
     onChange: (Boolean) -> Unit,
     detail: String,
+    /** The labels for the first (false) and second (true) choice. */
+    options: Pair<String, String> = "Configured" to "Maximum",
+    enabled: Boolean = true,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         FilterChip(
             selected = !atMax,
             onClick = { onChange(false) },
-            label = { Text("Configured") },
+            label = { Text(options.first) },
+            enabled = enabled,
         )
         Spacer(Modifier.width(6.dp))
         FilterChip(
             selected = atMax,
             onClick = { onChange(true) },
-            label = { Text("Maximum") },
+            label = { Text(options.second) },
+            enabled = enabled,
         )
     }
     Text(
@@ -1341,6 +1415,8 @@ private fun SubjectRow(
     cappedBy: String? = null,
     onOpen: () -> Unit,
     onToggle: (Boolean) -> Unit,
+    /** Switched off by Minimum logging, so the switch is disabled and the row says why. */
+    locked: Boolean = false,
 ) {
     val hz = achievedHz(
         samples = status.samplesPublished,
@@ -1360,8 +1436,13 @@ private fun SubjectRow(
         SubjectHealth.Unavailable -> withSet("Not on this device")
         // The switch is in this row, so the old "turn it on in Settings" is no longer where to go —
         // except for the two that need a restart to take effect, which is worth saying up front.
-        SubjectHealth.Off ->
-            withSet(if (entry in START_TIME_SUBJECTS) "Off — switching it on restarts the run" else "Off")
+        SubjectHealth.Off -> withSet(
+            when {
+                locked -> "Off · Minimum"
+                entry in START_TIME_SUBJECTS -> "Off — switching it on restarts the run"
+                else -> "Off"
+            },
+        )
         SubjectHealth.Failed -> withSet("Failed — ${status.failure}")
         // Both of these have no achieved rate to state, so the ceiling stands in — which is the one
         // moment it is worth reading, since deciding what to ask a source for happens before a run and
@@ -1467,7 +1548,7 @@ private fun SubjectRow(
             checked = enabled,
             onCheckedChange = onToggle,
             // Unavailable hardware is not something a switch can fix, so the row says so instead.
-            enabled = health != SubjectHealth.Unavailable,
+            enabled = health != SubjectHealth.Unavailable && !locked,
             modifier = Modifier
                 .padding(end = 12.dp)
                 .semantics { contentDescription = "Publish ${label.name}" },

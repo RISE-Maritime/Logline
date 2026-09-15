@@ -93,6 +93,7 @@ data class SettingsProfile(
     val sensorRates: Map<String, String>? = null,
     val recordRates: Map<String, String>? = null,
     val recordAllMax: Boolean? = null,
+    val minimumMode: Boolean? = null,
     val publishAllMax: Boolean? = null,
     val qosOverrides: Map<String, QosProfileEntry>? = null,
     /** One serialised button per line, as `serialiseAnnotationButtons` writes them. */
@@ -191,6 +192,7 @@ fun SettingsProfile.encode(pretty: Boolean = true): String {
             )
         }
         putIfPresent("record_all_max", recordAllMax)
+        putIfPresent("minimum_mode", minimumMode)
         putIfPresent("publish_all_max", publishAllMax)
         qosOverrides?.takeIf { it.isNotEmpty() }?.let { overrides ->
             put(
@@ -264,6 +266,7 @@ fun parseSettingsProfile(text: String): SettingsProfile? {
             ?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }
             ?.toMap(),
         recordAllMax = (root["record_all_max"] as? JsonPrimitive)?.booleanOrNull,
+        minimumMode = (root["minimum_mode"] as? JsonPrimitive)?.booleanOrNull,
         publishAllMax = (root["publish_all_max"] as? JsonPrimitive)?.booleanOrNull,
         sensorRates = (root["sensor_rates"] as? JsonObject)
             ?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { k to it } }
@@ -357,6 +360,7 @@ fun Settings.toProfile(withSecrets: Boolean = false): SettingsProfile = Settings
     sensorRates = sensorRates.mapValues { (_, rate) -> rate.serialise() }.ifEmpty { null },
     recordRates = recordRates.mapValues { (_, rate) -> rate.serialise() }.ifEmpty { null },
     recordAllMax = recordAllMax,
+    minimumMode = minimumMode,
     publishAllMax = publishAllMax,
     qosOverrides = qosOverrides.mapValues { (_, qos) ->
         QosProfileEntry(
@@ -437,6 +441,7 @@ fun Settings.applyProfile(profile: SettingsProfile, withOperator: Boolean = true
         ?.toMap()
         ?: recordRates,
     recordAllMax = profile.recordAllMax ?: recordAllMax,
+    minimumMode = profile.minimumMode ?: minimumMode,
     publishAllMax = profile.publishAllMax ?: publishAllMax,
     sensorRates = profile.sensorRates
         ?.mapNotNull { (subject, stored) -> parseSensorRate(stored)?.let { subject to it } }

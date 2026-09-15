@@ -88,6 +88,30 @@ whole point is that a subject behaves the same wherever it is published, so pref
 than shedding samples, which on a 55 Hz sensor path can stall the publisher. Every profile in
 `qos.yaml` uses `DROP` for that reason; the screen warns when you pick `BLOCK`.
 
+## Minimum logging
+
+For a phone carried only to mark events. The **Logging** card at the top of the Session page switches
+between **Full** and **Minimum**.
+
+Minimum keeps:
+
+- the position, every 5 s, with its horizontal accuracy, fix quality, speed and course;
+- the battery charge and whether it is charging;
+- the event marks.
+
+Everything else is off:
+
+- **the IMU**, on purpose: someone picking the phone up would put something in the file that looks
+  like an event;
+- radio, the barometer, light, raw NMEA, audio, camera and platform calibration.
+
+While it is on, the sampling-rate chips and the switches it controls are disabled, and those rows read
+`Off · Minimum`.
+
+**It is a mode, not an edit.** Your per-subject switches and rates are kept, and choosing Full brings
+them all back. Changing it restarts the run, like the rate modes, because the position request's
+interval is fixed when a run starts. How much a Minimum run writes per hour has not been measured yet.
+
 ## Setting up a second phone
 
 **Settings → Configuration.** *Export…* writes a JSON profile to `Downloads/Logline`; *Import…* reads

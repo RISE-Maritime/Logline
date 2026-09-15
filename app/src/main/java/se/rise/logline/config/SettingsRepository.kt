@@ -136,6 +136,7 @@ internal object Keys {
     fun recordRateHz(subject: String) = stringPreferencesKey("record_rate_$subject")
 
     val RECORD_ALL_MAX = booleanPreferencesKey("record_all_max")
+    val MINIMUM_MODE = booleanPreferencesKey("minimum_mode")
     val PUBLISH_ALL_MAX = booleanPreferencesKey("publish_all_max")
 
     val CALIBRATION_SOURCE = stringPreferencesKey("calibration_source")
@@ -320,6 +321,7 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
         // default, which is exactly what it did: a fresh install showed "Configured" on the Session
         // screen while the data class said otherwise.
         recordAllMax = prefs[Keys.RECORD_ALL_MAX] ?: true,
+        minimumMode = prefs[Keys.MINIMUM_MODE] ?: false,
         publishAllMax = prefs[Keys.PUBLISH_ALL_MAX] ?: false,
         // Absent means off, for the same reason audio is: a stored value is the only thing that makes
         // this phone visible to other sites.
@@ -359,6 +361,7 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.AUDIO_CHANNELS] = settings.audioChannels.toString()
     prefs[Keys.CHECKLIST_ENABLED] = settings.checklistEnabled.toString()
     prefs[Keys.RECORD_ALL_MAX] = settings.recordAllMax
+    prefs[Keys.MINIMUM_MODE] = settings.minimumMode
     prefs[Keys.PUBLISH_ALL_MAX] = settings.publishAllMax
     prefs[Keys.OPERATOR_ID] = settings.operatorId
     prefs[Keys.OPERATOR_NAME] = settings.operatorName
