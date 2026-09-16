@@ -1,11 +1,11 @@
 package se.rise.logline
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import se.rise.logline.config.Settings
 import se.rise.logline.keelson.PublishedSubject
@@ -15,24 +15,30 @@ import se.rise.logline.publish.PublisherStatus
 import se.rise.logline.publish.SubjectStatus
 import se.rise.logline.record.RecordingStatus
 import se.rise.logline.ui.MainScreen
+import se.rise.logline.ui.components.LocalRunState
+import se.rise.logline.ui.components.RunState
 import se.rise.logline.ui.theme.LoglineTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The four states of the status card, on a real device.
+ * The four states of the session card, on a real device.
  *
  * These are the first instrumented tests in the app, and they are deliberately narrow: `MainScreen`
  * takes data and lambdas and nothing else — no repository, no `Context` — which is exactly what makes
  * it testable without a running publisher. What they catch is the class of regression that otherwise
- * only shows up on a phone: a status card that says the wrong thing about a run, where every JVM test
- * still passes because the arithmetic underneath was right.
+ * only shows up on a phone: a card that says the wrong thing about a run, where every JVM test still
+ * passes because the arithmetic underneath was right.
  *
  * The distinction between "Publishing" and "Publishing to nothing" is the one worth guarding hardest.
  * A lost router is not a failed run — the service must not stop for it — so the difference lives only
  * in this card, and a phone that has quietly stopped reaching the bus looks identical to a healthy one
  * if this text is wrong.
+ *
+ * The run's own state reaches the app bar through [LocalRunState] rather than through `MainScreen`'s
+ * arguments, so [show] provides it: the two lamps are drawn by `ScreenScaffold` for every screen, and
+ * without it they would report the default idle state under a running one.
  */
 @RunWith(AndroidJUnit4::class)
 class MainScreenTest {
@@ -51,24 +57,43 @@ class MainScreenTest {
     private fun show(status: PublisherStatus, recording: RecordingStatus = RecordingStatus()) {
         compose.setContent {
             LoglineTheme {
-                MainScreen(
-                    settings = settings,
-                    status = status,
-                    recording = recording,
-                    live = LiveLatest(),
-                    locationGranted = true,
-                    freeBytes = 80L * 1024 * 1024 * 1024,
-                    unavailableSubjects = emptySet(),
-                    disabledSubjects = emptySet(),
-                    onStart = {},
-                    onStop = { _ -> },
-                    onSetRecordAllMax = {},
-                    onSetPublishAllMax = {},
-                    onGrantLocation = {},
-                    onOpenSubjectQos = {},
-                    onToggleSubject = { _, _ -> },
-                    onToggleSubjects = { _, _ -> },
-                )
+                CompositionLocalProvider(
+                    LocalRunState provides RunState(
+                        running = status.running,
+                        connection = status.connection,
+                        recording = recording.recording,
+                        publishing = settings.publishEnabled,
+                    )
+                ) {
+                    MainScreen(
+                        settings = settings,
+                        status = status,
+                        recording = recording,
+                        live = LiveLatest(),
+                        folderLabel = "Download/Logline",
+                        locationGranted = true,
+                        freeBytes = 80L * 1024 * 1024 * 1024,
+                        unavailableSubjects = emptySet(),
+                        disabledSubjects = emptySet(),
+                        onStart = {},
+                        onStop = { _ -> },
+                        onSetPublishEnabled = {},
+                        onSetRecordingEnabled = {},
+                        onSetRecordAllMax = {},
+                        onSetPublishAllMax = {},
+                        supportedAudioRates = setOf(16_000),
+                        onMediaChange = {},
+                        tags = emptyList(),
+                        activeTags = emptySet(),
+                        onToggleTag = {},
+                        onAddTag = {},
+                        onRemoveTag = {},
+                        onGrantLocation = {},
+                        onOpenSubjectQos = {},
+                        onToggleSubject = { _, _ -> },
+                        onToggleSubjects = { _, _ -> },
+                    )
+                }
             }
         }
     }
@@ -83,15 +108,22 @@ class MainScreenTest {
         )
     }
 
+    /**
+     * Nothing has run in this process yet.
+     *
+     * The card deliberately does not say "Not publishing" — the `PUB` lamp in the app bar says it and
+     * the Start button says it again — so what it states instead is that the phone is configured and
+     * the space has been checked.
+     */
     @Test
-    fun idle_says_what_to_do_rather_than_reporting_a_run() {
+    fun a_fresh_process_says_it_is_ready_rather_than_idle() {
         show(PublisherStatus(running = false))
 
-        compose.onNodeWithText("Not publishing").assertIsDisplayed()
-        compose.onNodeWithText("Start to put this phone's sensors on the bus.").assertIsDisplayed()
-        // The chip is `clearAndSetSemantics`, so what a screen reader gets is the whole chip's
-        // description rather than its text — which is the thing worth asserting.
-        compose.onNodeWithContentDescription("Router Idle").assertIsDisplayed()
+        compose.onNodeWithText("Ready to publish").assertIsDisplayed()
+        // The lamp is `clearAndSetSemantics`, so what a screen reader gets is the whole lamp's
+        // description rather than its `PUB` label — which is the thing worth asserting.
+        compose.onNodeWithContentDescription("Not publishing").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Not recording").assertIsDisplayed()
     }
 
     /**
@@ -108,16 +140,16 @@ class MainScreenTest {
             )
         )
 
-        compose.onNodeWithText("Not publishing").assertIsDisplayed()
+        compose.onNodeWithText("Last run").assertIsDisplayed()
         // A narrow no-break space groups the digits, not an ordinary one — `formatCount` uses U+202F
         // so a count never wraps mid-number. Spelling it out here rather than pasting an invisible
         // character into the expectation.
-        val nnbsp = '\u202f'
-        compose.onNodeWithText("Last run published 12${nnbsp}345 samples over 00:01:00.").assertIsDisplayed()
+        val nnbsp = ' '
+        compose.onNodeWithText("12${nnbsp}345 samples · 00:01:00").assertIsDisplayed()
     }
 
     @Test
-    fun publishing_names_the_bus_it_is_publishing_to() {
+    fun publishing_says_so_and_lights_the_lamp() {
         show(
             PublisherStatus(
                 running = true,
@@ -127,8 +159,8 @@ class MainScreenTest {
         )
 
         compose.onNodeWithText("Publishing").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Router Connected").assertIsDisplayed()
-        compose.onNodeWithText("Not publishing").assertIsNotDisplayed()
+        compose.onNodeWithContentDescription("Publishing").assertIsDisplayed()
+        compose.onNodeWithText("Ready to publish").assertDoesNotExist()
     }
 
     /**
@@ -147,7 +179,7 @@ class MainScreenTest {
         )
 
         compose.onNodeWithText("Publishing to nothing").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Router No router").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Publishing, no router").assertIsDisplayed()
     }
 
     /** A subject that published and then went quiet is called out in the detail line. */

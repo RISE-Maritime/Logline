@@ -171,22 +171,99 @@ completes, and that is not something app code can fix.
       retries. A second estimator, or a copy that checks first, is a decision rather than a cleanup.
 
 
-## Pre-publication security review (2026-09-11)
+## Radio (2026-09-14)
 
-Done before flipping `RISE-Maritime/Logline` public. The audit itself found **no secrets** in the
-working tree or in any of the 185 commits — no key material, no API keys, no passwords, and nothing
-committed and later removed. What follows is what the review changed, and what it deliberately left.
+Found while mapping data-link coverage from `logline-2026-09-14.mcap` (Phone 5, 5 h 53 min at sea)
+in the Foxglove coverage panel. The panel left most of the track empty, and the cause turned out to
+be here, not in the panel.
 
+- [ ] **The cellular quality subjects mostly republish a stale cached measurement, and each repeat
+      gets a new timestamp.** `radio_rsrp_dbm`, `radio_rsrq_db`, `radio_sinr_db`, `radio_rssi_dbm`
+      and `radio_access_technology` come from `TelephonyManager.getSignalStrength()` in
+      `RadioProvider.readCellular()`, polled at 1 Hz.
+      **Measured on that recording:**
+      - **Held values:** 20 577 of 20 836 consecutive readings repeat the previous value.
+      - **Rare refreshes:** `SignalStrength.getTimestampMillis()` moved only 166 times in the
+        whole run, so the modem refreshed about every 2 minutes on average.
+      - **Staleness:** the published timestamp is a median of 246 s behind log time, p90 1 725 s,
+        worst 2 827 s (47 minutes).
+      - **Pattern:** the lag climbs steadily and drops back at each refresh. It never jumps upward,
+        which rules out a wrong clock base.
+      So the stream looks like 1 Hz data but carries about 166 measurements.
+      The provider KDoc already expects a held value. It says carrying the real timestamp "is what
+      lets a consumer tell a fresh reading from one held for two minutes". **That promise is broken
+      by the clock conversion, not by the timestamp.**
+      `SensorPublisher.runRadio` calls `SensorClock.epochNanosNow(measuredAtElapsedNanos)` on every
+      tick, and that re-reads `currentTimeMillis` and `elapsedRealtimeNanos` each time. So one
+      measurement comes out as a slightly different epoch time on every tick: 18 766 "distinct"
+      timestamps for about 166 real measurements. A consumer comparing timestamps sees a new
+      reading every second.
+      **What that did downstream:** a consumer joining readings to position by their own timestamp
+      piled 20 837 readings into about 45 of the 112 areas the boat covered. One joining by log
+      time would do worse and paint a value measured up to 47 minutes earlier along the track.
+      **Fix, in order of value:**
+      1. **Stop repeating a held measurement.** Publish the quality subjects only when
+         `measuredAtElapsedNanos` changes. If a steady rate matters to someone, at least convert
+         each measurement's epoch time once and reuse it, so repeats are identical and
+         recognisable. Either way the timestamp then keeps the KDoc's promise.
+         *Fix 1 (convert once, keep repeating) done in 0d14ce1; 2 and 3 still open, and not yet
+         verified on a device.*
+      2. **Get fresher measurements.** Check whether the serving `CellInfo`'s
+         `getCellSignalStrength()` (`CellSignalStrengthLte`/`Nr`) refreshes faster than
+         `SignalStrength`: the identity from the same cell list was only a median of 9 s behind
+         (max 31 s) on this run. If it does, read RSRP/RSRQ/SINR/RSSI from there, and consider
+         `TelephonyManager.requestCellInfoUpdate()` (API 29, `ACCESS_FINE_LOCATION`, both already
+         met) to ask the modem for a new report instead of reading its cache.
+         **Check the NSA case before switching.** `readCellular()` deliberately takes the NR leg
+         when attached to 5G NSA, and the cell list may only carry the LTE anchor. Losing the NR
+         leg's RSRP would be a regression hiding behind a freshness gain.
+         *The probe and reports for this measurement are ready; procedure in
+         [docs/development.md](docs/development.md#checking-radio-freshness-on-a-device).*
+      3. **Say how old a value is.** If a held measurement is still published at all, a
+         measurement-age subject, or a note in `configuration_json` saying the quality subjects are
+         a cache refreshed at the modem's discretion, would stop a consumer mistaking the poll rate
+         for the measurement rate.
+      **A test worth adding:** a fake `SignalStrength` held for N ticks must produce either one
+      message or N messages with byte-identical timestamps, never N distinct ones.
 
-- [ ] **A remote platform library is accepted on an unauthenticated version number.** Anyone on the
-      realm can publish a `platform_registry` document with a high `version` and have it staged. It is
-      contained — `shouldApplyRemote` only stages, `mergeRemotePlatforms` never deletes a platform this
-      phone is publishing and never takes remote policy, and applying is an explicit user action in
-      `MainActivity` — so nothing changes without somebody tapping. But bus membership is the only
-      authentication there is, and that is worth knowing before the realm gets wider.
+- [x] **The same conversion jitter applies to the cell identity subjects, less severely.**
+      `radio_cell_id`, `radio_physical_cell_id`, `radio_earfcn`, `radio_band` and
+      `radio_downlink_bandwidth_mhz` use `CellInfo.getTimestampMillis()` through the same per-tick
+      `epochNanosNow`. On this run the cell list refreshed often (lag median 9 s, max 31 s), but
+      20 708 of 20 836 consecutive values still repeat under a new timestamp. Fix 1 above applies
+      unchanged. The comment in `runRadio` says identity is stamped this way precisely so a
+      consumer can tell whether two measurements straddle a handover, which the jitter currently
+      defeats. Done in 0d14ce1.
 
-- [ ] **`ChecklistSync`'s discovery channel is `UNLIMITED`.** Decoding happens off the Zenoh receive
-      thread through an unbounded channel, which is deliberate for the 12 s discovery window. A flood of
-      `configuration_json` on the realm is therefore memory pressure rather than backpressure. Not
-      reachable today without bus access; noted with the item above because it has the same precondition.
+- [x] **A "minimum" logging config button on session page** for phones just used as event marker, we should keep some oter data as well so we know were the devise is but dos not need a a high rate and acceleramtion is not needed as someone might pick up the phone or what do you think Done in 0156141.
+
+- [ ] **Measure a Minimum run: MB/h and battery drain.** The Logging card deliberately shows no size
+      figure because none has been measured. Record an hour in Minimum on a phone, then read the
+      file size and the battery estimate, and put the MB/h beside the others in `Capacity.kt` so the
+      card can state it. While at it, confirm the file holds only the eight Minimum channels, with
+      `location_fix` at ~0.2 Hz, and that `dumpsys sensorservice` lists no Logline listeners.
+
+- [ ] **Consider a lower location priority in Minimum.** `LocationProvider` always asks for
+      `Priority.PRIORITY_HIGH_ACCURACY`, which keeps the GNSS engine busy even at one fix per 5 s.
+      `PRIORITY_BALANCED_POWER_ACCURACY` could save a lot of battery on an event-marker phone, but it
+      falls back to wifi and cell accuracy. Decide once the drain above is measured, and only if
+      marks placed that coarsely are still useful.
+
+- [x] **`MainScreenTest` (androidTest) no longer compiles.** It passes no `activeTags`, `onToggleTag`,
+      `onAddTag` or `onRemoveTag`, which `421f334` added to `MainScreen` without defaults.
+      `compileDebugAndroidTestKotlin` fails on exactly those four. CI does not build androidTest, so
+      nothing flagged it. 
+      Done in 9e60f59.
+
+- [ ] **Run `MainScreenTest` on a phone — it compiles again but has never been executed since.** Ten
+      arguments were missing, not four, and three of the five tests were asserting text the screen had
+      stopped saying: the card no longer says "Not publishing" or "Start to put this phone's sensors on
+      the bus.", and the two `ConnectionChip`s it looked for ("Router Idle", "Router Connected") were
+      replaced by the app bar's `PUB`/`REC` lamps. The assertions were rewritten against what
+      `StatusCard` and `RunStatus` say today — `Ready to publish`, `Last run`, `Publishing`,
+      `Publishing to nothing`, and the lamps' own descriptions — and the test now provides
+      `LocalRunState` itself, since the lamps read the run's state from there rather than from
+      `MainScreen`'s arguments. None of that has been checked against a device. Note the cost of
+      checking: `connectedDebugAndroidTest` reinstalls the app, which wipes `filesDir` and regenerates
+      the entity id, so export a settings profile first and follow the recovery steps in CLAUDE.md.
 
