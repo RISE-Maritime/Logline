@@ -180,9 +180,33 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   added `depth_below_{transducer,keel,surface}_m`, `scenario_event`, `scenario_tick_ack` and
   `envelope_exceedance`; `pre.18` added a host-telemetry family (`cpu_load_pct`, `memory_used_pct`,
   `disk_free_bytes`, `disk_used_pct` and the rest), four navigation-advice subjects and
-  `checklist_handover`. Of those, **`disk_free_bytes` and `disk_used_pct` are adopted** — the phone
-  already measured that number for its own capacity estimate — and the rest are hardware or a role a
-  phone has not got, or filed in TODO.md.
+  `checklist_handover`. Of the host family, **six of the nine are adopted** — `disk_free_bytes`,
+  `disk_used_pct`, `memory_used_pct`, `swap_used_pct`, `host_name` and `host_boot_time` — and the rest
+  are filed in TODO.md.
+- **Two host subjects are unobtainable on Android, and the evidence is worth keeping.** `cpu_load_pct`
+  and `cpu_temperature_celsius` have no route from a normal app: measured under the app's own uid on a
+  Pixel 6, `/proc/stat`, `/proc/loadavg` and `/sys/class/thermal` are all **`Permission denied`**, and
+  the sanctioned APIs — `HardwarePropertiesManager.getCpuUsages` and `getDeviceTemperatures` — are
+  gated behind `DEVICE_POWER`, a signature permission. `/proc/meminfo` is the one file in that set that
+  *is* readable, which is why `swap_used_pct` comes from there and the CPU subjects do not exist.
+  `sensors/HostMetrics.kt` carries the diagnosis. The nearest available substitute is
+  `PowerManager.getCurrentThermalStatus()`, which has no keelson subject — an upstream conversation,
+  not a local one.
+  Three more things about this family.
+  - **The source id carries the instance, and `subjects.yaml` says so in words**: "the mountpoint or NIC
+    name: `pc/disk/data`, `pc/net/eth0`". That is §2.1.2's multiplicity rule — an instance is a chunk of
+    the source, never a new subject name — so the disk subjects publish on `.../disk_free_bytes/{source}/disk/data`
+    through `sourceSuffix`, the same mechanism the unfused GNSS fixes use. They shipped without it for
+    an hour and were wrong; a phone has one volume, so nothing was ambiguous, but a consumer selecting
+    `disk_free_bytes/**/data` matched nothing.
+  - **`host_boot_time` is not a duplicate of `device_uptime_duration`**, and upstream settles it rather
+    than leaving it open: "uptime rides `device_uptime_duration` above". One is an instant, the other a
+    duration that keeps growing. They are the same information seen twice, and the instant is the one
+    that stays put while the phone is awake.
+  - **The boot instant is computed once per run, never per poll.** `currentTimeMillis` and
+    `elapsedRealtime` are separate clocks whose difference is not stable, so recomputing it every five
+    seconds republishes a boot time that jitters by milliseconds — which reads as a phone that keeps
+    rebooting. Same lesson `HeldClock` records for the radio subjects, reached by another route.
   **Take upstream files from a tag, not from `../keelson`'s worktree.** That checkout is a working
   repository and is routinely parked on a feature branch: while this was being done it sat on one
   that branched before the checklist merge and has no `Checklist*.proto` at all, so `/sync-protos`

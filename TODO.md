@@ -228,31 +228,6 @@ be here, not in the panel.
       **A test worth adding:** a fake `SignalStrength` held for N ticks must produce either one
       message or N messages with byte-identical timestamps, never N distinct ones.
 
-- [x] **The same conversion jitter applies to the cell identity subjects, less severely.**
-      `radio_cell_id`, `radio_physical_cell_id`, `radio_earfcn`, `radio_band` and
-      `radio_downlink_bandwidth_mhz` use `CellInfo.getTimestampMillis()` through the same per-tick
-      `epochNanosNow`. On this run the cell list refreshed often (lag median 9 s, max 31 s), but
-      20 708 of 20 836 consecutive values still repeat under a new timestamp. Fix 1 above applies
-      unchanged. The comment in `runRadio` says identity is stamped this way precisely so a
-      consumer can tell whether two measurements straddle a handover, which the jitter currently
-      defeats. Done in 0d14ce1.
-
-- [x] **A "minimum" logging config button on session page** for phones just used as event marker, we should keep some oter data as well so we know were the devise is but dos not need a a high rate and acceleramtion is not needed as someone might pick up the phone or what do you think Done in 0156141.
-
-- [x] **Measure a Minimum run: MB/h and battery drain.** The Logging card deliberately shows no size
-      figure because none has been measured. Record an hour in Minimum on a phone, then read the
-      file size and the battery estimate, and put the MB/h beside the others in `Capacity.kt` so the
-      card can state it. While at it, confirm the file holds only the eight Minimum channels, with
-      `location_fix` at ~0.2 Hz, and that `dumpsys sensorservice` lists no Logline listeners.
-      Done in a3377da.
-
-- [x] **Consider a lower location priority in Minimum.** `LocationProvider` always asks for
-      `Priority.PRIORITY_HIGH_ACCURACY`, which keeps the GNSS engine busy even at one fix per 5 s.
-      `PRIORITY_BALANCED_POWER_ACCURACY` could save a lot of battery on an event-marker phone, but it
-      falls back to wifi and cell accuracy. Decide once the drain above is measured, and only if
-      marks placed that coarsely are still useful.
-      Done in a3377da.
-
 - [ ] **Re-measure the Minimum drain now that it asks for balanced power — and revert if it barely
       moves.** The −3.98 %/h in CLAUDE.md was measured with the *old* high-accuracy request and is no
       longer what the shipped mode draws. The MB/h figure survives the change (neither the subject
@@ -279,12 +254,6 @@ be here, not in the panel.
       no extra collector and no extra listener, and it costs about 0.02 MB/h. Anything written down as
       "the eight Minimum channels" — including the ticked item above — predates it.
 
-- [x] **`MainScreenTest` (androidTest) no longer compiles.** It passes no `activeTags`, `onToggleTag`,
-      `onAddTag` or `onRemoveTag`, which `421f334` added to `MainScreen` without defaults.
-      `compileDebugAndroidTestKotlin` fails on exactly those four. CI does not build androidTest, so
-      nothing flagged it. 
-      Done in 4d8a856.
-
 - [ ] **Run `MainScreenTest` on a phone — it compiles again but has never been executed since.** Ten
       arguments were missing, not four, and three of the five tests were asserting text the screen had
       stopped saying: the card no longer says "Not publishing" or "Start to put this phone's sensors on
@@ -300,7 +269,7 @@ be here, not in the panel.
 
 ## keelson 0.6.0-pre.18 (2026-09-17)
 
-- [ ] **Six of the eight new host subjects are unadopted, and a phone has all of them.** `pre.18` added
+- [x] **Six of the eight new host subjects are unadopted, and a phone has all of them.** `pre.18` added
       `cpu_load_pct`, `cpu_temperature_celsius`, `memory_used_pct`, `swap_used_pct`,
       `network_interface_up`, `host_name` and `host_boot_time` alongside the two taken here. Every one
       is readable on Android, and a run that could say the phone was thermally throttled or out of
@@ -310,6 +279,41 @@ be here, not in the panel.
       phone that is also a platform. Note `host_boot_time` overlaps `device_uptime_duration`, which
       this app already publishes — adopting both without deciding which is authoritative would put two
       answers to one question in the same file.
+      Done in HEAD. **Three of the claims above were wrong, which is why the probe came first.** The
+      family is nine subjects, not eight, so seven were outstanding rather than six. "Every one is
+      readable on Android" is false: measured under the app's own uid on a Pixel 6, `/proc/stat`,
+      `/proc/loadavg` and `/sys/class/thermal` are all `Permission denied`, and the sanctioned APIs
+      (`HardwarePropertiesManager.getCpuUsages` / `getDeviceTemperatures`) need `DEVICE_POWER`, a
+      signature permission — so `cpu_load_pct` and `cpu_temperature_celsius` are unobtainable, and the
+      thermal-throttling evidence this item wanted is exactly what cannot be had. And the
+      `host_boot_time` overlap is settled upstream rather than open: `subjects.yaml` says in words that
+      "uptime rides `device_uptime_duration`", so the two coexist by design — one an instant, one a
+      duration. Four adopted: `memory_used_pct`, `swap_used_pct`, `host_name`, `host_boot_time`.
+
+- [ ] **`cpu_load_pct` and `cpu_temperature_celsius` need a privileged build to ever appear.** Recorded
+      so nobody spends an afternoon rediscovering it: both are blocked at the SELinux layer *and* at the
+      permission layer, so there is no app-side trick. What a normal app *can* have is
+      `PowerManager.getCurrentThermalStatus()` (API 29+), which returns NONE/LIGHT/MODERATE/SEVERE/
+      CRITICAL/EMERGENCY/SHUTDOWN and answers "is this phone throttling" without answering "how hot is
+      it". There is no keelson subject for that shape, so adopting it is an upstream conversation
+      first — `thermal_status`, or an enum on an existing one.
+
+- [ ] **`network_interface_up` is unresolved, not rejected.** It is per NIC, and `/proc/net/dev` is
+      `Permission denied` under the app uid like the rest of `/proc` — but recent Android moved
+      `NetworkInterface.getNetworkInterfaces()` off `/proc` and onto netlink, so it may work anyway.
+      That cannot be settled from a shell, and an instrumented test reinstalls the app, wiping
+      `filesDir` and the mTLS credentials. The alternative is `ConnectivityManager.getAllNetworks()` +
+      `getLinkProperties().interfaceName`, which needs only `ACCESS_NETWORK_STATE` (already held) but
+      sees only interfaces carrying a Network the app can observe — so a NIC that is up and idle reads
+      as absent rather than as down, which is a different claim from the one the subject makes.
+
+- [ ] **Decide whether a nested source id deserves its own liveliness token.** Adding `disk/data` made
+      this concrete: the app declares one source-tier token per `(entity, source)` pair, so
+      `box/disk/data` now gets one, exactly as `fix/gnss` and `fix/network` already do. §2.1.1 of
+      `0.6.0-pre.18` says tokens go "at the producer prefix… there is no per-thing token", which would
+      mean one token on `box` and none on the mountpoint. Consistent-with-the-app today and possibly
+      wrong against the spec; `LivelinessTest` pins the current behaviour so a change is visible. Settle
+      it together with the §2.1.1/§2.1.2 read filed above — they are the same question.
 
 - [ ] **The `battery` collector group polls three non-battery things and is still called `battery`.**
       `DEVICE_UPTIME` was the first, `disk_free_bytes` and `disk_used_pct` joined it at `pre.18`. It is

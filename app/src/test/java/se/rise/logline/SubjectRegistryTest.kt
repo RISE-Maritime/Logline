@@ -181,6 +181,10 @@ class SubjectRegistryTest {
                 "device_uptime_duration",
                 "disk_free_bytes",
                 "disk_used_pct",
+                "memory_used_pct",
+                "swap_used_pct",
+                "host_name",
+                "host_boot_time",
                 "imu_temperature_celsius",
                 "linear_acceleration_mpss",
                 "angular_velocity_radps",
@@ -318,7 +322,7 @@ class SubjectRegistryTest {
                 .all { defaults.sourceFor(it) == "phone" },
         )
         assertEquals(
-            setOf("phone", "phone/gnss", "phone/network", "cellular", "wifi", "calibration"),
+            setOf("phone", "phone/gnss", "phone/network", "phone/disk/data", "cellular", "wifi", "calibration"),
             PublishedSubject.entries.map { defaults.sourceFor(it) }.toSet(),
         )
     }

@@ -93,6 +93,13 @@ val BATTERY_SUBJECTS = setOf(
     // The group is a device poll now rather than a battery one; only its name still says otherwise.
     PublishedSubject.DISK_FREE_BYTES,
     PublishedSubject.DISK_USED_PCT,
+    // The rest of the host family a phone can answer for. Memory and swap are health; the name and the
+    // boot instant are identity, which upstream republishes on a long interval and this rides the poll
+    // for rather than opening a collector for two values that never change.
+    PublishedSubject.MEMORY_USED_PCT,
+    PublishedSubject.SWAP_USED_PCT,
+    PublishedSubject.HOST_NAME,
+    PublishedSubject.HOST_BOOT_TIME,
 )
 
 /**

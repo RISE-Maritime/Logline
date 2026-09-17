@@ -50,6 +50,17 @@ object Subjects {
      */
     const val DISK_FREE_BYTES = "disk_free_bytes"
     const val DISK_USED_PCT = "disk_used_pct"
+
+    /**
+     * The rest of the host family a phone can answer for.
+     *
+     * `cpu_load_pct` and `cpu_temperature_celsius` are deliberately absent rather than forgotten —
+     * see `HostMetrics`, which records the measurement showing a normal app cannot reach either.
+     */
+    const val MEMORY_USED_PCT = "memory_used_pct"
+    const val SWAP_USED_PCT = "swap_used_pct"
+    const val HOST_NAME = "host_name"
+    const val HOST_BOOT_TIME = "host_boot_time"
     const val IMU_TEMPERATURE_CELSIUS = "imu_temperature_celsius"
     const val AIR_PRESSURE_PA = "air_pressure_pa"
     const val ILLUMINANCE_LUX = "illuminance_lux"

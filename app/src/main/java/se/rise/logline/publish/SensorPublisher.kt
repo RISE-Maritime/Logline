@@ -1,12 +1,14 @@
 package se.rise.logline.publish
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.GeomagneticField
 import android.location.Location
 import android.location.LocationManager
 import android.os.SystemClock
+import android.provider.Settings as AndroidSettings
 import android.util.Size
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -35,6 +37,7 @@ import se.rise.logline.keelson.subjectLivelinessKeys
 import se.rise.logline.record.RecordSample
 import se.rise.logline.record.Recorder
 import se.rise.logline.record.recordingsDir
+import se.rise.logline.sensors.HostMetrics
 import se.rise.logline.record.QueueLoad
 import se.rise.logline.record.RecordingStatus
 import se.rise.logline.sensors.AudioProvider
@@ -90,7 +93,9 @@ import keelson.Primitives.TimestampedInt64
 import keelson.Primitives.TimestampedQuaternion
 import keelson.LocationFixQualityOuterClass.LocationFixQuality
 import keelson.Primitives.TimestampedString
+import keelson.Primitives.TimestampedTimestamp
 import kotlinx.coroutines.CancellationException
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1985,6 +1990,17 @@ class SensorPublisher(private val appContext: Context) {
     ) {
         val sinks = BATTERY_SUBJECTS.associateWith { SubjectSink(it, session) }
         val runtime = RuntimeEstimator()
+        // **Read once for the whole run, not once per poll.** `currentTimeMillis` and `elapsedRealtime`
+        // are separate clocks and their difference is not stable — recomputing it every five seconds
+        // republishes a boot instant that jitters by a few milliseconds each time, which reads as a
+        // phone that keeps rebooting. Same lesson `HeldClock` records for the radio subjects.
+        val bootEpochMillis = System.currentTimeMillis() - SystemClock.elapsedRealtime()
+        // Identity, and it cannot change while the process lives. `DEVICE_NAME` is what the user called
+        // the phone in Android's settings — the nearest thing it has to a hostname, and a good deal more
+        // use to a person than `Build.MODEL`, which is the same string on every Pixel 6 in the fleet.
+        val hostName = AndroidSettings.Global.getString(appContext.contentResolver, AndroidSettings.Global.DEVICE_NAME)
+            ?.takeIf { it.isNotBlank() }
+        val activityManager = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         // Whichever gauge the first reading offered, kept for the rest of the run: microamp-hours and
         // percent are both "fuel" to the estimator and it cannot tell them apart, so switching between
         // them mid-run would look like the battery falling off a cliff.
@@ -2063,6 +2079,41 @@ class SensorPublisher(private val appContext: Context) {
                     val usedPct = (totalBytes - freeBytes).toDouble() / totalBytes * 100.0
                     emit(PublishedSubject.DISK_USED_PCT, usedPct.toFloat())
                 }
+
+                // Memory from the platform API and swap from `/proc/meminfo`, which is the split
+                // `HostMetrics` explains: `ActivityManager` cannot be locked down under the app, and
+                // `/proc` already has been for the CPU — but there is no API for swap at all. Both
+                // return null rather than zero when they have nothing, so `emit` skips them.
+                activityManager?.let { am ->
+                    val memory = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+                    emit(
+                        PublishedSubject.MEMORY_USED_PCT,
+                        HostMetrics.memoryUsedPct(memory.totalMem, memory.availMem),
+                    )
+                }
+                // A read of a small virtual file every five seconds. Wrapped because the whole point of
+                // `HostMetrics` is that `/proc` access is a permission that has been tightened before
+                // and may be again — and a collector that threw here would take the battery subjects
+                // and the low-battery watchdog's own readings down with it.
+                emit(
+                    PublishedSubject.SWAP_USED_PCT,
+                    runCatching { HostMetrics.swapUsedPct(File("/proc/meminfo").readText()) }.getOrNull(),
+                )
+
+                // Identity: the same two values every poll, read once at the top of the run.
+                hostName?.let { name ->
+                    val msg = TimestampedString.newBuilder().setTimestamp(now).setValue(name).build()
+                    sinks.getValue(PublishedSubject.HOST_NAME)
+                        .emit(publishers.of(PublishedSubject.HOST_NAME), msg.toByteArray())
+                }
+                sinks.getValue(PublishedSubject.HOST_BOOT_TIME).emit(
+                    publishers.of(PublishedSubject.HOST_BOOT_TIME),
+                    TimestampedTimestamp.newBuilder()
+                        .setTimestamp(now)
+                        .setValue(protoTimestamp(bootEpochMillis * 1_000_000L))
+                        .build()
+                        .toByteArray(),
+                )
 
                 emit(PublishedSubject.BATTERY_STATE_OF_CHARGE, s.stateOfChargePct)
                 emit(PublishedSubject.BATTERY_VOLTAGE, s.voltageV)

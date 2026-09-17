@@ -96,6 +96,16 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     // disk and a row that renames its own subject is one more thing to reconcile.
     Subjects.DISK_FREE_BYTES -> SubjectLabel("Disk free", "GB")
     Subjects.DISK_USED_PCT -> SubjectLabel("Disk used", "%")
+    Subjects.MEMORY_USED_PCT -> SubjectLabel("Memory used", "%")
+    Subjects.SWAP_USED_PCT -> SubjectLabel("Swap used", "%")
+    // No unit on either: one is a name and the other an instant, and "Booted" reads better than the
+    // subject's own "Host boot time" for a row that sits under a heading already saying Device.
+    //
+    // "Phone name" rather than "Host name" — which is what `derivedName` produces on its own, so the
+    // deliberate-label test could not tell it from a subject nobody had named. It is also the truer
+    // word: the value is `Settings.Global.DEVICE_NAME`, what somebody typed when they set the phone up.
+    Subjects.HOST_NAME -> SubjectLabel("Phone name")
+    Subjects.HOST_BOOT_TIME -> SubjectLabel("Booted")
 
     // The link is already in the section heading, so these drop the `radio_` and keep the acronym the
     // way a radio engineer writes it.
@@ -164,7 +174,9 @@ fun formatLiveValue(entry: PublishedSubject, value: Float): String = when (entry
     // One decimal on both: a phone's disk moves in tenths of a gigabyte over a run, and a percentage
     // that only ever showed whole numbers would look frozen for the first hour.
     Subjects.DISK_FREE_BYTES,
-    Subjects.DISK_USED_PCT -> "%.1f".fmt(value)
+    Subjects.DISK_USED_PCT,
+    Subjects.MEMORY_USED_PCT,
+    Subjects.SWAP_USED_PCT -> "%.1f".fmt(value)
     // A live boolean arrives as 1 or 0; "Yes" is what a person reads.
     Subjects.BATTERY_IS_CHARGING -> if (value != 0f) "Yes" else "No"
 

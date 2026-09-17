@@ -133,11 +133,19 @@ class LivelinessTest {
             .map { settings.entityFor(it) to settings.sourceFor(it) }
             .toSet()
 
-        // The three configurable ids, the two radio links whose ids are fixed by the hardware, and the
-        // two position solutions nested one level *under* the configured location source — all beneath
-        // the phone's entity.
+        // The three configurable ids, the two radio links whose ids are fixed by the hardware, the two
+        // position solutions nested one level *under* the configured location source, and the disk
+        // mountpoint nested under the device source — all beneath the phone's entity.
+        //
+        // **A nested source earns its own source-tier token here, and whether it should is an open
+        // question rather than a settled one.** `0.6.0-pre.18`'s §2.1.1 says tokens are declared "at the
+        // producer prefix… there is no per-thing token", which would put one token on `box` and none on
+        // `box/disk/data`. This app has always declared one per `(entity, source)` pair, which is why
+        // `fix/gnss` and `fix/network` already have their own — so `disk/data` is consistent with the
+        // app rather than newly wrong, and changing the rule would move those two as well. TODO.md
+        // carries it; this assertion pins today's behaviour so the change is visible when it happens.
         assertEquals(
-            setOf("fix", "fix/gnss", "fix/network", "imu", "box", "cellular", "wifi"),
+            setOf("fix", "fix/gnss", "fix/network", "imu", "box", "box/disk/data", "cellular", "wifi"),
             pairs.map { it.second }.toSet(),
         )
         assertEquals(setOf("pixel_6"), pairs.map { it.first }.toSet())

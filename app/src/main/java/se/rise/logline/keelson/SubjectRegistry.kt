@@ -584,15 +584,71 @@ enum class PublishedSubject(
      * it, same 0.2 Hz, and nothing here needs a rate of its own. `statfs` is cheap and neither reading
      * can be absent, which is why they are published unguarded where every battery reading beside them
      * is nullable.
+     *
+     * **The `disk/data` suffix is upstream's shape, not decoration.** `subjects.yaml` says the source id
+     * "carries the instance within the host — the mountpoint or NIC name: `pc/disk/data`, `pc/net/eth0`",
+     * which §2.1.2 then generalises: multiplicity is a chunk of the source, never a new subject name. A
+     * phone has one volume worth reporting and needs no second key today, but the level has to be there
+     * from the start — a consumer selecting `disk_free_bytes/**/data` matches nothing without it, and
+     * adding the level later moves a key that was already being recorded against.
      */
     DISK_FREE_BYTES(
         subject = Subjects.DISK_FREE_BYTES,
         defaultRate = SensorRate.Hz(0.2),
         source = SourceKind.DEVICE,
+        sourceSuffix = "disk/data",
         rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
     ),
     DISK_USED_PCT(
         subject = Subjects.DISK_USED_PCT,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        sourceSuffix = "disk/data",
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
+
+    /**
+     * Memory and swap, the other half of "is this box in trouble".
+     *
+     * Both are percentages and both can be absent — memory when `ActivityManager` reports no total, swap
+     * when the device has none configured, which `HostMetrics` returns null for rather than publishing a
+     * `0.0` that reads as "swap is there and completely free".
+     */
+    MEMORY_USED_PCT(
+        subject = Subjects.MEMORY_USED_PCT,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
+    SWAP_USED_PCT(
+        subject = Subjects.SWAP_USED_PCT,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
+
+    /**
+     * What machine this is, and when it started — identity rather than health.
+     *
+     * Upstream republishes these "on a long interval so a late subscriber still learns what machine it
+     * is looking at". Here they ride the device poll at 0.2 Hz instead, which is more often than that
+     * purpose needs and costs about 20 kB an hour between them; the alternative is a collector of their
+     * own for two values that never change, and the per-subject publish rate is there for anybody who
+     * wants them slower.
+     *
+     * **Not a duplicate of [DEVICE_UPTIME], and upstream says so explicitly** — "uptime rides
+     * `device_uptime_duration` above" — so the two coexist by design: one is an instant, the other a
+     * duration that keeps growing. Worth knowing that they are the same information seen twice, and
+     * that the *instant* is the one that stays put while the phone is awake.
+     */
+    HOST_NAME(
+        subject = Subjects.HOST_NAME,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
+    HOST_BOOT_TIME(
+        subject = Subjects.HOST_BOOT_TIME,
         defaultRate = SensorRate.Hz(0.2),
         source = SourceKind.DEVICE,
         rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
