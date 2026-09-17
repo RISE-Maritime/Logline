@@ -279,7 +279,7 @@ be here, not in the panel.
       phone that is also a platform. Note `host_boot_time` overlaps `device_uptime_duration`, which
       this app already publishes — adopting both without deciding which is authoritative would put two
       answers to one question in the same file.
-      Done in HEAD. **Three of the claims above were wrong, which is why the probe came first.** The
+      Done in f14b3a2. **Three of the claims above were wrong, which is why the probe came first.** The
       family is nine subjects, not eight, so seven were outstanding rather than six. "Every one is
       readable on Android" is false: measured under the app's own uid on a Pixel 6, `/proc/stat`,
       `/proc/loadavg` and `/sys/class/thermal` are all `Permission denied`, and the sanctioned APIs
