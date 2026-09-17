@@ -76,14 +76,30 @@ class LocationProvider(context: Context) {
      * * `onLocationAvailability(false)` while the switch is on — the soft one, and the reason this
      *   does not simply forward it. Under a roof the fused provider reports itself unavailable and
      *   then recovers; that is the `Waiting` state doing its job, not a failure.
+     *
+     * [balancedPower] is Minimum logging's, and it is a real trade rather than a free saving. High
+     * accuracy keeps the GNSS engine solving continuously, which is most of what an event-marker phone
+     * spends its battery on: measured over an hour in Minimum, the phone drew 3.98 %/h while solving
+     * `FIX_3D` on 723 of 726 samples at a 3.4 m median. `PRIORITY_BALANCED_POWER_ACCURACY` gives that up
+     * for wifi and cell, so expect block-level accuracy — tens to hundreds of metres — and expect
+     * `location_fix_quality` to read `FIX_NO` while perfectly current positions keep arriving, which is
+     * the case `fixQualityOf` already exists to report honestly. Nothing here calls that a failure,
+     * because it is not one; the Logging card says it in words instead.
      */
     @SuppressLint("MissingPermission")
     @RequiresPermission(anyOf = [Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION])
     fun updates(
         intervalMillis: Long = 1_000L,
+        balancedPower: Boolean = false,
         onShed: () -> Unit = {},
     ): Flow<LocationUpdate> = callbackFlow {
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
+        // Defaults to high accuracy, so every caller but a Minimum run is unchanged — the calibration
+        // capture especially, which is surveying a platform's zero point with a tape measure's
+        // expectations and must not quietly become a wifi fix.
+        val priority =
+            if (balancedPower) Priority.PRIORITY_BALANCED_POWER_ACCURACY
+            else Priority.PRIORITY_HIGH_ACCURACY
+        val request = LocationRequest.Builder(priority, intervalMillis)
             .setMinUpdateIntervalMillis(intervalMillis)
             .build()
 

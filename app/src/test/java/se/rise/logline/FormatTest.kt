@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import se.rise.logline.ui.audioMegabytesPerHour
 import se.rise.logline.ui.audioRateLabel
 import se.rise.logline.ui.cameraMegabytesPerHour
+import se.rise.logline.ui.formatMegabytesPerHour
 import se.rise.logline.ui.formatFrameRate
 import se.rise.logline.ui.formatRuntimeLeft
 import org.junit.Test
@@ -95,6 +96,24 @@ class FormatTest {
         // 1080p is 2.25x the pixels, and costs it.
         assertEquals(355, cameraMegabytesPerHour(1920, 1080, 0.5))
         assertEquals(52, cameraMegabytesPerHour(640, 480, 0.5))
+    }
+
+    /**
+     * A fill rate keeps a decimal place only where it needs one.
+     *
+     * The three recording modes span nearly three orders of magnitude, and they are read side by side
+     * — `241.0` beside `0.4` reads as two different kinds of number where `241` and `0.4` read as one.
+     * Through `.fmt()` for the reason every number here is: the bare `format` follows the default
+     * locale and would print `0,4` on a Swedish phone — the case the sv-SE test further down pins.
+     */
+    @Test
+    fun `a fill rate keeps a decimal place only where it needs one`() {
+        assertEquals("241", formatMegabytesPerHour(241.0))
+        assertEquals("23", formatMegabytesPerHour(23.0))
+        assertEquals("0.4", formatMegabytesPerHour(0.4))
+        // The boundary: ten and over drops the decimal, under it keeps one.
+        assertEquals("10", formatMegabytesPerHour(10.0))
+        assertEquals("9.9", formatMegabytesPerHour(9.9))
     }
 
     /** Sub-1 Hz is an interval to a person, not a rate: "one frame every 2 s", never "0.5 frames/s". */

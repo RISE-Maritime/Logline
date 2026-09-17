@@ -96,7 +96,7 @@ between **Full** and **Minimum**.
 Minimum keeps:
 
 - the position, every 5 s, with its horizontal accuracy, fix quality, speed and course;
-- the battery charge and whether it is charging;
+- the battery charge, current, and whether it is charging;
 - the event marks.
 
 Everything else is off:
@@ -110,7 +110,40 @@ While it is on, the sampling-rate chips and the switches it controls are disable
 
 **It is a mode, not an edit.** Your per-subject switches and rates are kept, and choosing Full brings
 them all back. Changing it restarts the run, like the rate modes, because the position request's
-interval is fixed when a run starts. How much a Minimum run writes per hour has not been measured yet.
+priority and interval are both fixed when a run starts.
+
+### What it costs, measured
+
+An hour of each, back to back on a Pixel 6 on 2026-09-16:
+
+| | Full, at maximum rates | Minimum |
+| --- | --- | --- |
+| File | 242.7 MB | **0.36 MB** |
+| Per hour | 240.2 MB/h | **~0.4 MB/h** |
+| Channels | 50 | 8 |
+| Battery | −8.96 %/h, about 11 h from full | **−3.98 %/h, about 25 h** |
+
+So the disk stops being the constraint in Minimum — the card says `over a year` rather than counting
+days, and the battery is what will end the run. The card states `~0.4 MB/h` from the measurement above
+rather than an estimate.
+
+### It asks for a cheaper position, and that is a trade
+
+Minimum asks Android for `PRIORITY_BALANCED_POWER_ACCURACY` instead of the high-accuracy request every
+other run uses. That is most of where the battery goes on an event-marker phone: high accuracy keeps
+the GNSS engine solving continuously even at one fix every five seconds.
+
+Two things follow, and neither is a fault:
+
+- **Accuracy drops** from a few metres to Android's block level — tens to hundreds of metres, from wifi
+  and cell rather than from satellites. The hour measured above, taken with the old high-accuracy
+  request, solved a 3D fix on 723 of 726 samples at a 3.4 m median, which is what is being given up.
+- **Fix quality will often read `No fix`** while positions keep arriving. That is the receiver saying
+  it is not solving, not the phone losing its place — the same distinction described under
+  [live-view.md](live-view.md).
+
+If you need Minimum's battery life *and* a position you can trust to a few metres, the answer today is
+Full with the rates tuned down, not Minimum.
 
 ## Setting up a second phone
 

@@ -48,6 +48,25 @@ class MinimumModeTest {
         assertFalse(PublishedSubject.LOG_MESSAGE in minimum.offSubjects())
     }
 
+    /**
+     * The battery current stays, and it is a decision rather than an oversight.
+     *
+     * How long an event-marker phone lasts is *the* question asked of this mode, and answering it from
+     * the charge percentage alone means reading a gauge that moves in whole points — an hour of
+     * recording bought four of them. The current is a direct reading, it rides the battery poll that is
+     * already running, and it costs about 0.02 MB/h against the mode's measured 0.36. Anybody trimming
+     * this set back to the eight it shipped with should know they are giving that up.
+     */
+    @Test
+    fun `the battery current is kept, so the mode's own cost stays measurable`() {
+        assertFalse(PublishedSubject.BATTERY_CURRENT in minimum.offSubjects())
+        // Riding the charge poll is what makes it free: no second collector, no second listener.
+        assertEquals(
+            Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+            PublishedSubject.BATTERY_CURRENT.rateOwner,
+        )
+    }
+
     /** recordAllMax would otherwise lift position straight back to Max. */
     @Test
     fun `position is capped even with recording at maximum`() {

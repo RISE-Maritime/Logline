@@ -1216,6 +1216,9 @@ class SensorPublisher(private val appContext: Context) {
             LocationProvider(appContext)
                 .updates(
                     intervalMillis = rate.toIntervalMillis(),
+                    // A Minimum run is an event marker, not a track: it trades GNSS accuracy for the
+                    // battery that keeping the engine solving costs. See LocationProvider.updates.
+                    balancedPower = settings.minimumMode,
                     onShed = { statusStore.shed(PublishedSubject.LOCATION_FIX) },
                 )
                 .collect { update ->

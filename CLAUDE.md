@@ -250,13 +250,48 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   and `MinimumModeTest` pins that.
   Three things are load-bearing:
   - **The cap is checked before `recordAllMax`.** Otherwise the default Maximum lifts position straight
-    back to Max.
+    back to Max. **`baseMegabytesPerHour()` now has to make the same check in the same order**, and did
+    not: reading the rate mode first had a Minimum run — which defaults to `recordAllMax = true` —
+    quote 241 MB/h for a file that fills six hundred times slower.
   - **The set holds entries, not subject names.** Four entries publish `location_fix`.
   - **The IMU is out on purpose.** A phone that gets picked up would put an event-shaped burst in the
     file.
 
-  The UI disables what the mode forces off rather than leaving pressable switches that do nothing. It
-  shows no MB/h figure, because none has been measured.
+  The UI disables what the mode forces off rather than leaving pressable switches that do nothing.
+  **It states a measured MB/h figure now.** Two hours back to back on a Pixel 6 on 2026-09-16:
+  Full at maximum wrote 242.7 MB in 60.61 min (**240.2 MB/h**, which confirms
+  `MAX_MEGABYTES_PER_HOUR = 241` to 0.3% against an hour of real capture rather than the original
+  153 s sample), and Minimum wrote 371,893 bytes in 60.38 min — **0.361 MB/h across eight channels**,
+  with `location_fix` at a median 5.00 s interval, i.e. exactly its 0.2 Hz cap. Battery over the same
+  two hours: **−8.96 %/h against −3.98 %/h**, about 11 h from full against about 25. `dumpsys
+  sensorservice` showed nine listeners registered at the Full run's start, nine released at its stop
+  and **none at all for the Minimum run**, which is `supervise()` verified rather than assumed.
+  `MINIMUM_MEGABYTES_PER_HOUR` is 0.4 — rounded up, because a capacity estimate must read short.
+  Three consequences worth keeping.
+  - **`formatCapacity()` stops at a year.** 64 GB at 0.4 MB/h is 6 826 days, and a card stating that
+    reads as arithmetic nobody checked. Past that horizon the disk is not the constraint; the battery
+    is, which `timeLeft()` already names once a run is going.
+  - **`megabytesPerHour()` reads `offSubjects()`, never `audioEnabled`/`cameraEnabled`/`videoEnabled`.**
+    Minimum forces all three off while their flags stand untouched — that is what makes it a mode — so
+    a Minimum run with the camera switch left on had 158 MB/h added to an estimate for a run that
+    writes no frames. Reading the one set `SubjectSink.emit` gates on fixes the video/time-lapse
+    exclusivity case for free.
+  - **45% of a Minimum file is chunk framing, and that is knowingly not fixed.** At 0.2 Hz the two-
+    second flush bound produces chunks averaging 0.4 kB, where zstd manages 1.58× against a full run's
+    3.05×. That bound is a *recovery* decision and trading it for 8.7 MB a day is the wrong way round.
+- **Minimum asks for a cheaper position, and it is the one place `PRIORITY_HIGH_ACCURACY` is not used.**
+  `LocationProvider.updates(balancedPower = …)` defaults to false, so every other caller is unchanged —
+  the calibration capture especially, which surveys a platform's zero point and must not quietly become
+  a wifi fix. `SensorPublisher.runLocation()` passes `settings.minimumMode`.
+  It is a real trade and the UI says so rather than hiding it: high accuracy keeps the GNSS engine
+  solving continuously even at one fix per 5 s, which is most of an event-marker phone's drain, and
+  `PRIORITY_BALANCED_POWER_ACCURACY` gives up a **measured 3.4 m median with FIX_3D on 723 of 726
+  samples** for Android's block level. Expect `location_fix_quality` to read `FIX_NO` while current
+  positions keep arriving — the case `fixQualityOf()` already exists to report honestly, not a fault.
+  **The −3.98 %/h above was measured *before* this change and is not what the shipped mode now draws.**
+  The MB/h figure survives, because neither the subject set's rates nor the cap moved; the drain does
+  not. Re-measure before quoting it, and if the saving turns out to be small the accuracy is not worth
+  giving up — TODO.md carries that as an open item.
 - **Every subject has its own publish rate, and a derived one is capped by the subject it rides.**
   About half the registry carries a `rateOwner`, and those subjects used to have no rate of their own at
   all — all three of `recordRate`, `publishRate` and `ratesCanDiffer` opened with

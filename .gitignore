@@ -28,3 +28,11 @@ local.properties
 # The protoc descriptor set for MCAP schemas used to be generated into `src/main/assets` and needed
 # ignoring here. It is written under `build/` now, one directory per variant, so nothing in the source
 # tree is generated any more and there is nothing left to ignore.
+
+# Recordings pulled off a phone to be measured against. Hundreds of megabytes of capture, and they are
+# evidence for a particular question rather than anything the build needs — the figures that came out
+# of them live in CLAUDE.md and `Capacity.kt`. A stray `git add -A` must not put one in a public repo.
+/MCAP
+
+# Byte-compiled helpers in tools/.
+__pycache__/

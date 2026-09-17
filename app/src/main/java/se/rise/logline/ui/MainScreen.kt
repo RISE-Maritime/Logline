@@ -561,7 +561,9 @@ private fun StatusCard(
                         append(formatBytes(freeBytes))
                         append(" free")
                         if (capacity != null) {
-                            append(" · about ")
+                            // No "about" here: formatCapacity carries its own hedge, because two of
+                            // its arms are already hedges and this end cannot tell which it has got.
+                            append(" · ")
                             append(formatCapacity(capacity))
                             append(" of recording")
                         }
@@ -766,7 +768,9 @@ private fun StatusCard(
                 // The rate the capacity above divides by. Off the resting card because it is an input
                 // to an estimate rather than a fact about this phone, and here because a capacity
                 // nobody can check the arithmetic of is a capacity nobody believes.
-                if (!status.running) Detail("Fill rate", "~${megabytesPerHour(settings)} MB/h")
+                if (!status.running) {
+                    Detail("Fill rate", "~${formatMegabytesPerHour(megabytesPerHour(settings))} MB/h")
+                }
                 recording.error?.let { Detail("Error", it) }
                 if (status.replayed > 0) Detail("Replayed", formatCounted(status.replayed, "sample"))
                 // Next to Replayed on purpose: the two are only meaningful read together.
@@ -1104,9 +1108,15 @@ private fun LoggingModeCard(
         InfoDialog(
             title = "Logging",
             body = "Minimum is for a phone carried only to mark events. It keeps the position every " +
-                "five seconds with its accuracy, fix quality, speed and course, the battery charge, and " +
-                "the marks. Everything else is off, the IMU included, since somebody picking the phone " +
-                "up would put something in the file that looks like an event.\n\n" +
+                "five seconds with its accuracy, fix quality, speed and course, the battery charge and " +
+                "current, and the marks. Everything else is off, the IMU included, since somebody " +
+                "picking the phone up would put something in the file that looks like an event.\n\n" +
+                "Measured over an hour on this phone: about $MINIMUM_MEGABYTES_PER_HOUR MB/h against " +
+                "$MAX_MEGABYTES_PER_HOUR MB/h at maximum, and roughly half the battery drain.\n\n" +
+                "It also asks Android for a position the cheap way, from wifi and cell rather than " +
+                "from the satellites. Expect accuracy in tens or hundreds of metres instead of a few, " +
+                "and expect the fix quality to read No fix while positions keep arriving — that is the " +
+                "receiver saying it is not solving, not the phone losing its place.\n\n" +
                 "It is a mode, not an edit: your switches and rates are kept, and choosing Full brings " +
                 "all of them back.",
             onDismiss = { showHelp = false },
@@ -1120,9 +1130,9 @@ private fun LoggingModeCard(
                 label = "Subjects",
                 atMax = settings.minimumMode,
                 onChange = onSetMinimumMode,
-                // No MB/h figure: nobody has measured a Minimum run yet, and an invented one is worse.
+                // Measured over an hour on a Pixel 6 rather than estimated — see MINIMUM_MEGABYTES_PER_HOUR.
                 detail = if (settings.minimumMode) {
-                    "Position every 5 s, battery and marks only · size not measured yet"
+                    "Position every 5 s, battery and marks only · ~$MINIMUM_MEGABYTES_PER_HOUR MB/h"
                 } else {
                     "Every subject switched on below, at its own rate"
                 },

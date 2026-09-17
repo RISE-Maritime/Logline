@@ -6,6 +6,7 @@ import se.rise.logline.record.MIN_FREE_BYTES
 import se.rise.logline.sensors.SensorRate
 import se.rise.logline.ui.CONFIGURED_MEGABYTES_PER_HOUR
 import se.rise.logline.ui.MAX_MEGABYTES_PER_HOUR
+import se.rise.logline.ui.MINIMUM_MEGABYTES_PER_HOUR
 import se.rise.logline.ui.baseMegabytesPerHour
 import se.rise.logline.ui.formatBytes
 import se.rise.logline.ui.formatCapacity
@@ -38,7 +39,7 @@ class CapacityTest {
 
     @Test
     fun `a default run costs the documented rate`() {
-        assertEquals(baseMegabytesPerHour(settings()), megabytesPerHour(settings()))
+        assertEquals(baseMegabytesPerHour(settings()), megabytesPerHour(settings()), 0.0)
     }
 
     /**
@@ -52,9 +53,9 @@ class CapacityTest {
         val withCamera = megabytesPerHour(settings().copy(cameraEnabled = true))
         val withBoth = megabytesPerHour(settings().copy(audioEnabled = true, cameraEnabled = true))
 
-        assertEquals(baseMegabytesPerHour(settings()) + 109, withAudio)
-        assertEquals(baseMegabytesPerHour(settings()) + 158, withCamera)
-        assertEquals(withAudio + withCamera - baseMegabytesPerHour(settings()), withBoth)
+        assertEquals(baseMegabytesPerHour(settings()) + 109, withAudio, 0.0)
+        assertEquals(baseMegabytesPerHour(settings()) + 158, withCamera, 0.0)
+        assertEquals(withAudio + withCamera - baseMegabytesPerHour(settings()), withBoth, 0.0)
     }
 
     /** A faster time-lapse costs more, and the estimate has to follow the rate that will actually run. */
@@ -75,24 +76,24 @@ class CapacityTest {
      */
     @Test
     fun `the floor is not part of the fuel`() {
-        val hour = recordingCapacityMillis(MIN_FREE_BYTES + 77L * 1_048_576L, 77)
+        val hour = recordingCapacityMillis(MIN_FREE_BYTES + 77L * 1_048_576L, 77.0)
 
         assertEquals(3_600_000L, hour)
     }
 
     @Test
     fun `a volume already at the floor has no recording time`() {
-        assertEquals(0L, recordingCapacityMillis(MIN_FREE_BYTES, 77))
-        assertEquals(0L, recordingCapacityMillis(0L, 77))
+        assertEquals(0L, recordingCapacityMillis(MIN_FREE_BYTES, 77.0))
+        assertEquals(0L, recordingCapacityMillis(0L, 77.0))
         // Below it too — a fuller disk cannot be more optimistic than an empty one.
-        assertEquals(0L, recordingCapacityMillis(MIN_FREE_BYTES - 1, 77))
+        assertEquals(0L, recordingCapacityMillis(MIN_FREE_BYTES - 1, 77.0))
     }
 
     /** Nothing to divide by is unanswerable, not infinite. */
     @Test
     fun `no data rate gives no estimate`() {
-        assertNull(recordingCapacityMillis(64L * GB, 0))
-        assertNull(recordingCapacityMillis(64L * GB, -1))
+        assertNull(recordingCapacityMillis(64L * GB, 0.0))
+        assertNull(recordingCapacityMillis(64L * GB, -1.0))
     }
 
     /**
@@ -102,14 +103,16 @@ class CapacityTest {
      */
     @Test
     fun `a capacity reads in the units a person pictures`() {
+        // "about" is part of the answer: two of the four arms are hedges in their own right, so the
+        // card cannot prefix one without producing "about under an hour" or "about over a year".
         assertEquals("under an hour", formatCapacity(59 * 60_000L))
-        assertEquals("3 h", formatCapacity(3 * 3_600_000L))
-        assertEquals("47 h", formatCapacity(47 * 3_600_000L))
-        assertEquals("2 days", formatCapacity(48 * 3_600_000L))
-        assertEquals("22 days", formatCapacity(22 * 24 * 3_600_000L))
+        assertEquals("about 3 h", formatCapacity(3 * 3_600_000L))
+        assertEquals("about 47 h", formatCapacity(47 * 3_600_000L))
+        assertEquals("about 2 days", formatCapacity(48 * 3_600_000L))
+        assertEquals("about 22 days", formatCapacity(22 * 24 * 3_600_000L))
         // Note "1 day" is unreachable, and deliberately: hours run to 48, so a day and a half reads
         // "36 h", which is more use than "1 day" to somebody deciding whether a passage fits.
-        assertEquals("36 h", formatCapacity(36 * 3_600_000L))
+        assertEquals("about 36 h", formatCapacity(36 * 3_600_000L))
     }
 
     @Test
@@ -132,8 +135,8 @@ class CapacityTest {
         val configured = megabytesPerHour(settings())
         val maximum = megabytesPerHour(settings().copy(recordAllMax = true))
 
-        assertEquals(CONFIGURED_MEGABYTES_PER_HOUR, configured)
-        assertEquals(MAX_MEGABYTES_PER_HOUR, maximum)
+        assertEquals(CONFIGURED_MEGABYTES_PER_HOUR.toDouble(), configured, 0.0)
+        assertEquals(MAX_MEGABYTES_PER_HOUR.toDouble(), maximum, 0.0)
         assertTrue("maximum should dominate", maximum > configured * 5)
     }
 
@@ -143,7 +146,56 @@ class CapacityTest {
         val millis = recordingCapacityMillis(64L * GB, megabytesPerHour(settings()))!!
 
         // (64 GB − the 256 MB floor) ÷ 23 MB/h at the configured rates.
-        assertEquals("118 days", formatCapacity(millis))
+        assertEquals("about 118 days", formatCapacity(millis))
+    }
+
+    /**
+     * A Minimum run costs its own measured figure, and the mode has to be read **before** the rate.
+     *
+     * `recordAllMax` defaults to true, so a Minimum run left at the shipped default used to quote
+     * 241 MB/h for a file that fills six hundred times slower — the mode forces every other subject
+     * off and caps position at 0.2 Hz whatever the rate chips say. Same ordering as
+     * `Settings.recordRate`, same reason.
+     */
+    @Test
+    fun `minimum costs its own rate, whatever the rate mode says`() {
+        val minimum = megabytesPerHour(settings().copy(minimumMode = true, recordAllMax = true))
+
+        assertEquals(MINIMUM_MEGABYTES_PER_HOUR, minimum, 0.0)
+        assertTrue(
+            "minimum should be orders below maximum",
+            minimum < MAX_MEGABYTES_PER_HOUR / 100.0,
+        )
+    }
+
+    /**
+     * The camera cannot add 158 MB/h to a run that will not write a frame.
+     *
+     * `offSubjects()` forces audio and the camera off under Minimum while their enable flags stand
+     * untouched — that is what makes it a mode rather than an edit — so an estimate reading the flags
+     * described a run nobody had asked for. It reads `offSubjects()` now, which is the same set
+     * `SubjectSink.emit` gates on.
+     */
+    @Test
+    fun `a switch minimum overrides costs nothing`() {
+        val settings = settings().copy(minimumMode = true, cameraEnabled = true, audioEnabled = true)
+
+        assertEquals(MINIMUM_MEGABYTES_PER_HOUR, megabytesPerHour(settings), 0.0)
+    }
+
+    /**
+     * Minimum is where the disk stops being the constraint, and a capacity has to stop with it.
+     *
+     * 64 GB at 0.4 MB/h is 6 826 days. A card stating that reads as arithmetic nobody checked; what is
+     * actually going to end the run is the battery, which `timeLeft()` names once one is going.
+     */
+    @Test
+    fun `a capacity past a year says so rather than counting days`() {
+        val millis = recordingCapacityMillis(64L * GB, megabytesPerHour(settings().copy(minimumMode = true)))!!
+
+        assertEquals("over a year", formatCapacity(millis))
+        // The day before the horizon still counts days, so the arm is a ceiling and not a takeover.
+        assertEquals("about 364 days", formatCapacity(364 * 24 * 3_600_000L))
     }
 
     /**

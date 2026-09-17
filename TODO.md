@@ -237,17 +237,45 @@ be here, not in the panel.
 
 - [x] **A "minimum" logging config button on session page** for phones just used as event marker, we should keep some oter data as well so we know were the devise is but dos not need a a high rate and acceleramtion is not needed as someone might pick up the phone or what do you think Done in 0156141.
 
-- [ ] **Measure a Minimum run: MB/h and battery drain.** The Logging card deliberately shows no size
+- [x] **Measure a Minimum run: MB/h and battery drain.** The Logging card deliberately shows no size
       figure because none has been measured. Record an hour in Minimum on a phone, then read the
       file size and the battery estimate, and put the MB/h beside the others in `Capacity.kt` so the
       card can state it. While at it, confirm the file holds only the eight Minimum channels, with
       `location_fix` at ~0.2 Hz, and that `dumpsys sensorservice` lists no Logline listeners.
+      Done in HEAD.
 
-- [ ] **Consider a lower location priority in Minimum.** `LocationProvider` always asks for
+- [x] **Consider a lower location priority in Minimum.** `LocationProvider` always asks for
       `Priority.PRIORITY_HIGH_ACCURACY`, which keeps the GNSS engine busy even at one fix per 5 s.
       `PRIORITY_BALANCED_POWER_ACCURACY` could save a lot of battery on an event-marker phone, but it
       falls back to wifi and cell accuracy. Decide once the drain above is measured, and only if
       marks placed that coarsely are still useful.
+      Done in HEAD.
+
+- [ ] **Re-measure the Minimum drain now that it asks for balanced power — and revert if it barely
+      moves.** The −3.98 %/h in CLAUDE.md was measured with the *old* high-accuracy request and is no
+      longer what the shipped mode draws. The MB/h figure survives the change (neither the subject
+      set's rates nor the 0.2 Hz cap moved); the drain does not. Record another hour in Minimum,
+      unplugged, and read `battery_state_of_charge_pct` back out of the `.mcap`.
+      **This is the decision, not a formality.** What was given up is measured and specific: the
+      high-accuracy hour solved `FIX_3D` on 723 of 726 samples at a **3.4 m median, p90 3.9 m**. If
+      balanced power comes in under about 3 %/h the trade is worth it; if it barely moves — or if
+      `location_fix_accuracy_horizontal_m` in the new file shows it is still solving, which would mean
+      the saving was never there — take `balancedPower` back out rather than keep it for its own sake.
+      Read `location_fix_quality` in the same file: `FIX_NO` becoming common is expected and is not the
+      failure, it is the cost.
+
+- [ ] **Chunk framing is 45% of a Minimum file, and it is deliberately not fixed.** Measured:
+      889 chunks averaging 0.4 kB uncompressed, so zstd manages 1.58x against a full run's 3.05x, and
+      203 kB of compressed payload sits inside a 372 kB file. Raising the two-second flush bound would
+      roughly halve that — and must not. That bound is what caps what a killed process loses, and
+      trading bounded loss for bytes amounting to 8.7 MB a day is the wrong way round. Recorded so the
+      next person meets the argument before rediscovering it as an optimisation.
+
+- [ ] **The Minimum channel count is nine now, not eight.** `battery_current_a` joined
+      `MINIMUM_SUBJECTS` so the mode's own power cost is answerable from the file rather than from a
+      gauge that moves in whole percentage points. It rides the charge poll (`rateOwner`), so there is
+      no extra collector and no extra listener, and it costs about 0.02 MB/h. Anything written down as
+      "the eight Minimum channels" — including the ticked item above — predates it.
 
 - [x] **`MainScreenTest` (androidTest) no longer compiles.** It passes no `activeTags`, `onToggleTag`,
       `onAddTag` or `onRemoveTag`, which `421f334` added to `MainScreen` without defaults.
@@ -259,7 +287,7 @@ be here, not in the panel.
       arguments were missing, not four, and three of the five tests were asserting text the screen had
       stopped saying: the card no longer says "Not publishing" or "Start to put this phone's sensors on
       the bus.", and the two `ConnectionChip`s it looked for ("Router Idle", "Router Connected") were
-      replaced by the app bar's `PUB`/`REC` lamps. The assertions were rewritten against what
+      replaced by the app bar's `PUB`/`REC` lamps. The assertions were rewritten against whatcna 
       `StatusCard` and `RunStatus` say today — `Ready to publish`, `Last run`, `Publishing`,
       `Publishing to nothing`, and the lamps' own descriptions — and the test now provides
       `LocalRunState` itself, since the lamps read the run's state from there rather than from
