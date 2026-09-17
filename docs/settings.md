@@ -195,9 +195,14 @@ The router needs two storages for this; see
 [`keelson-router/docker-compose.keelson-router-rise.yml`](../../keelson-router/docker-compose.keelson-router-rise.yml):
 
 ```
---cfg='plugins/storage_manager/storages/checklist_procedure/key_expr:"crowsnest/@v0/*/pubsub/checklist_procedure/*"'
---cfg='plugins/storage_manager/storages/checklist_snapshot/key_expr:"crowsnest/@v0/*/pubsub/checklist_state/*"'
+--cfg='plugins/storage_manager/storages/roc_procedure/key_expr:"rise/@v0/*/pubsub/checklist_procedure/*"'
+--cfg='plugins/storage_manager/storages/roc_snapshot/key_expr:"rise/@v0/*/pubsub/checklist_state/*"'
 ```
+
+Note the storage id is not the subject: `roc_snapshot` holds `checklist_state`. These were
+`checklist_procedure` / `checklist_snapshot` on realm `crowsnest` until 2026-08-26; those four
+storages and their rocksdb directories were deleted on 2026-09-17, so a phone still configured
+for the old realm writes into nothing — see below.
 
 **Reminders.** Any item can carry a reminder — "remind me in 20 minutes", optionally repeating. These
 are **local to the phone and never published**: no checklist message carries a due time, so what the
@@ -206,7 +211,13 @@ few minutes rather than waking the device precisely), they survive a reboot, and
 cancels the one attached to it.
 
 Checklist traffic uses its own Zenoh session, open only while a checklist screen is, and its own realm
-and entity (`crowsnest/@v0/checklist/...`) — not the ones this phone publishes sensor data under.
+and entity (`rise/@v0/roc1/...`) — not the ones this phone publishes sensor data under.
+
+**Check these two settings on any phone provisioned before 2026-08-26.** They were `crowsnest` /
+`checklist` until then, and a saved profile carries the old values forward: `SettingsRepository`
+falls back to the correct defaults only when the stored value is *blank*, and there is no migration.
+The old realm no longer has router storages, so such a phone publishes into nothing and is told
+nothing about it.
 Checklist activity is **not** written to the MCAP recording.
 
 ## Platform calibration
