@@ -68,8 +68,22 @@ jobs:
           distribution: temurin
           java-version: 25
 
+      # **`packages` is set so the action does not install `tools`, and that is not a tidy-up.**
+      # `setup-android` defaults to `packages: tools platform-tools`, and `tools` is the long-obsolete
+      # SDK Tools package that cmdline-tools replaced years ago. Google delisted it from the repository
+      # between 2026-09-12 and 2026-09-17: the identical `sdkmanager tools` ran green on the 12th and
+      # answered `Warning: Failed to find package 'tools'` on the 17th, same action version, same
+      # cmdline-tools 20.0. The action treats that exit 1 as fatal, so every run went red in 25 seconds
+      # with a stack trace out of the action's own JavaScript — which reads like a broken action rather
+      # than a package that no longer exists. Same shape as the `android-37.0` trap below: sdkmanager
+      # answers a name it cannot resolve with a warning and a non-zero exit.
+      #
+      # Nothing here needs `tools`. `platform-tools` is what the build wants, and the platform and
+      # build-tools come from the explicit step below.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       # compileSdk 37 is leading-edge and will not be preinstalled on the runner image.
       #

@@ -344,3 +344,18 @@ be here, not in the panel.
       refusal. §3.6 requires the new one — `PERMISSION_DENIED` now means "the answer MAY change",
       which is false of this refusal — so the change is not optional, but a consumer reading the enum
       is exactly who the spec says is affected.
+
+- [ ] **Re-check the runner's SDK package list after the next image bump.** CI went red on 2026-09-17
+      in the `Set up Android SDK` step, 25 seconds in, with a stack trace out of the action's own
+      JavaScript — which reads like a broken action and is not. `android-actions/setup-android@v4`
+      defaults to `packages: tools platform-tools`, and Google delisted the obsolete `tools` package
+      between the 12th and the 17th: the identical command ran green on the 12th. Pinned to
+      `packages: platform-tools` in both workflows. Worth knowing the shape, because it will recur —
+      `sdkmanager` answers any name it cannot resolve with `Warning: Failed to find package` and exit 1,
+      exactly as it did for `android-37` versus `android-37.0`, and the message never says the package
+      was withdrawn rather than mistyped.
+
+- [ ] **`gh run watch --exit-status` returned 0 for a failed run.** Noted because it was trusted once
+      here and should not be again: the run was already red and the watch still exited cleanly, so a
+      CI check built on it would report green for a broken build. Read `gh run view --json conclusion`
+      instead.
