@@ -50,6 +50,8 @@ internal val subjectSchemaNames: Map<String, String> = mapOf(
     Subjects.BATTERY_TEMPERATURE_CELSIUS to "keelson.TimestampedFloat",
     Subjects.BATTERY_IS_CHARGING to "keelson.TimestampedBool",
     Subjects.DEVICE_UPTIME_DURATION to "keelson.TimestampedDuration",
+    Subjects.DISK_FREE_BYTES to "keelson.TimestampedInt64",
+    Subjects.DISK_USED_PCT to "keelson.TimestampedFloat",
     Subjects.IMU_TEMPERATURE_CELSIUS to "keelson.TimestampedFloat",
     Subjects.RADIO_RSRP_DBM to "keelson.TimestampedFloat",
     Subjects.RADIO_RSRQ_DB to "keelson.TimestampedFloat",

@@ -390,7 +390,10 @@ fun CalibrationScreen(
                                         )
                                     )
                                 },
-                                label = { Text(type.wire) },
+                                // The label, not the wire value: upstream's vocabulary is
+                                // `sensor_station` and `operator_station` since `0.6.0-pre.18`, and
+                                // neither is a phrase to put in front of somebody.
+                                label = { Text(type.label) },
                             )
                         }
                     }

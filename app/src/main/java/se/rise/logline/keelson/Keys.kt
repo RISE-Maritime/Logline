@@ -40,6 +40,16 @@ object Subjects {
     const val PITCH_RATE_DEGPS = "pitch_rate_degps"
     const val YAW_RATE_DEGPS = "yaw_rate_degps"
     const val DEVICE_UPTIME_DURATION = "device_uptime_duration"
+
+    /**
+     * How much room is left where the recordings go, and how full that volume is.
+     *
+     * Added upstream in `0.6.0-pre.18` as part of a host-telemetry family (`cpu_load_pct`,
+     * `memory_used_pct` and the rest), of which these two are the pair a phone already measures: the
+     * capacity estimate on the Session screen divides by exactly this number.
+     */
+    const val DISK_FREE_BYTES = "disk_free_bytes"
+    const val DISK_USED_PCT = "disk_used_pct"
     const val IMU_TEMPERATURE_CELSIUS = "imu_temperature_celsius"
     const val AIR_PRESSURE_PA = "air_pressure_pa"
     const val ILLUMINANCE_LUX = "illuminance_lux"

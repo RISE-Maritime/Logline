@@ -238,10 +238,49 @@ fun zeroFromMap(
     capturedAtEpochMillis = atEpochMillis,
 )
 
-enum class PlatformType(val wire: String) {
-    VESSEL("vessel"),
-    LANDKRABBA("landkrabba"),
-    ROC("roc"),
+/**
+ * Upstream's `platform_type` vocabulary, verbatim — and **it was renamed in `0.6.0-pre.18`.**
+ *
+ * `connectors/platform/config-schema.json` constrains this to an enum and is `additionalProperties:
+ * false` at every level, so a wrong value is not a cosmetic difference: an exported document fails the
+ * connector's own schema. `landkrabba` became `sensor_station` and `roc` became `operator_station`;
+ * `vessel` did not move.
+ *
+ * **[legacyWire] and [legacyName] are what stop the rename losing data, and they are different
+ * spellings of the same platform.** A platform is stored as its wire document and read back through
+ * `PlatformGeometryParse`, which matches on [wire]; the single-platform `calib_*` keys that predate the
+ * library store the *enum constant name* and are read through `byName`. Neither reader errors on a
+ * value it does not know — both return null — so without the aliases a platform surveyed before this
+ * upgrade, or a document from a station that has not taken it, simply loses its type in silence. Same
+ * tolerance `readCalibration` applies everywhere else, and for the same reason.
+ *
+ * [label] exists because the chips in `CalibrationScreen` render the vocabulary directly, and
+ * `sensor_station` is a wire value rather than a word anybody wants on screen. Same shape as
+ * [SensorType] beside it.
+ */
+enum class PlatformType(
+    val wire: String,
+    val label: String,
+    /** What upstream called this before `0.6.0-pre.18`, accepted on read and never written. */
+    val legacyWire: String? = null,
+    /** What this constant was called before the rename, for the `calib_*` migration's `byName` read. */
+    val legacyName: String? = null,
+) {
+    VESSEL("vessel", "Vessel"),
+    SENSOR_STATION("sensor_station", "Sensor station", legacyWire = "landkrabba", legacyName = "LANDKRABBA"),
+    OPERATOR_STATION("operator_station", "Operator station", legacyWire = "roc", legacyName = "ROC");
+
+    companion object {
+        /** The type a document claims, accepting what upstream called it before `0.6.0-pre.18`. */
+        fun fromWire(value: String?): PlatformType? = value?.let { v ->
+            entries.firstOrNull { it.wire == v } ?: entries.firstOrNull { it.legacyWire == v }
+        }
+
+        /** The type a stored preference names, accepting what this enum called it before the rename. */
+        fun fromStoredName(value: String?): PlatformType? = value?.let { v ->
+            entries.firstOrNull { it.name == v } ?: entries.firstOrNull { it.legacyName == v }
+        }
+    }
 }
 
 /** Upstream's `sensor_type` vocabulary, verbatim. Anything else is `other` by design. */

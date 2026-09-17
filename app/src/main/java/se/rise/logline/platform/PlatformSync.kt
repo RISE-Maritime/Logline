@@ -453,15 +453,23 @@ internal fun decodeConfigurationJson(bytes: ByteArray): String? {
  * deliberately never deletes a platform this phone is publishing and never accepts remote *policy*. An
  * unauthenticated write from anyone on the fleet bus would go around all of that.
  *
- * `PERMISSION_DENIED` is the closest the enum comes — its upstream comment reads "lock-down rules".
- * It is not quite right: §3.6 distinguishes a permanent structural refusal from a conditional one
- * and asks for the permanent signal here, which `ErrorResponse.Code` has no value for. Hence the
- * description saying so in words, where a person will read it, and an upstream note in TODO.md.
- * `UNAVAILABLE` was the alternative and is worse — it reads as "not ready yet" and invites a retry
- * that can never succeed.
+ * **`UNSUPPORTED` is the code, and it has to be the code.** This was `PERMISSION_DENIED` until
+ * `0.6.0-pre.18`, when `ErrorResponse.Code` gained a value for a permanent structural refusal — the
+ * signal §3.6 had always asked for here and the enum had no room for, which is why the permanence used
+ * to live only in the description below. That upgrade also made the old choice actively wrong rather
+ * than merely approximate: `PERMISSION_DENIED`'s upstream comment now reads "refused under current
+ * conditions… **the answer MAY change**", which is the opposite of what this refusal means, and §3.6
+ * gained the matching rule in normative text — `UNSUPPORTED` pairs with `COMMAND_RESULT_UNSUPPORTED`
+ * and `PERMISSION_DENIED` with `COMMAND_RESULT_DENIED`, and *"the distinction has to survive in the
+ * code, not only in `error_description`, because a UI reading the enum alone decides whether to keep
+ * the procedure callable."*
+ *
+ * The description still says "permanent" in words, and still should: the enum is what a UI branches on,
+ * the sentence is what a person reads. `UNAVAILABLE` remains the wrong answer for the reason it always
+ * was — it reads as "not ready yet" and invites a retry that can never succeed.
  */
 internal fun setConfigRefusal(): ErrorResponse = ErrorResponse.newBuilder()
-    .setCode(ErrorResponse.Code.PERMISSION_DENIED)
+    .setCode(ErrorResponse.Code.UNSUPPORTED)
     .setErrorDescription(
         "This platform is configured on the phone and never remotely; the refusal is permanent " +
             "and by design, not a transient condition. Read it with get_config, or share a platform " +

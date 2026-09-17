@@ -91,6 +91,11 @@ private fun labelOfSubject(subject: String): SubjectLabel = when (subject) {
     // Hours, because the row has to fit a number a glance can size: a phone up three weeks reads 504
     // where seconds would read 1 814 400.
     Subjects.DEVICE_UPTIME_DURATION -> SubjectLabel("Uptime", "h")
+    // Gigabytes, for the same reason uptime is hours: the wire carries bytes, and 76 834 353 152 is
+    // not a figure anybody sizes at a glance. "Disk" rather than "Storage" because the subject says
+    // disk and a row that renames its own subject is one more thing to reconcile.
+    Subjects.DISK_FREE_BYTES -> SubjectLabel("Disk free", "GB")
+    Subjects.DISK_USED_PCT -> SubjectLabel("Disk used", "%")
 
     // The link is already in the section heading, so these drop the `radio_` and keep the acronym the
     // way a radio engineer writes it.
@@ -156,6 +161,10 @@ fun formatLiveValue(entry: PublishedSubject, value: Float): String = when (entry
     // One decimal up to a day, whole hours past it — six minutes of resolution stops mattering once
     // the number is in the hundreds.
     Subjects.DEVICE_UPTIME_DURATION -> if (value < 24f) "%.1f".fmt(value) else "%.0f".fmt(value)
+    // One decimal on both: a phone's disk moves in tenths of a gigabyte over a run, and a percentage
+    // that only ever showed whole numbers would look frozen for the first hour.
+    Subjects.DISK_FREE_BYTES,
+    Subjects.DISK_USED_PCT -> "%.1f".fmt(value)
     // A live boolean arrives as 1 or 0; "Yes" is what a person reads.
     Subjects.BATTERY_IS_CHARGING -> if (value != 0f) "Yes" else "No"
 

@@ -694,6 +694,31 @@ class SettingsRepositoryTest {
     }
 
     /**
+     * A phone still on the `calib_*` keys stored the *enum constant* name, and two of them were renamed.
+     *
+     * `0.6.0-pre.18` renamed `landkrabba`/`roc` to `sensor_station`/`operator_station`, which moved the
+     * Kotlin constants with them. This key is the only place the old constant names are ever read, and
+     * the read is a `firstOrNull` — so without the alias a phone that had never taken the multi-platform
+     * upgrade would migrate its one platform with the type silently dropped. A second spelling from the
+     * one in the document parser, which is why both need their own alias and their own test.
+     */
+    @Test
+    fun `a platform type renamed upstream still migrates off the legacy keys`() {
+        fun typeOf(stored: String): PlatformType? {
+            val prefs = mutablePreferencesOf()
+            writeLegacyPlatform(prefs)
+            prefs[Keys.CALIB_PLATFORM_TYPE] = stored
+            return readSettings(prefs, defaultEntityId = "pixel_6").platforms.single().platformType
+        }
+
+        assertEquals(PlatformType.SENSOR_STATION, typeOf("LANDKRABBA"))
+        assertEquals(PlatformType.OPERATOR_STATION, typeOf("ROC"))
+        // And the current names, which is what every save after the migration writes.
+        assertEquals(PlatformType.SENSOR_STATION, typeOf("SENSOR_STATION"))
+        assertEquals(PlatformType.VESSEL, typeOf("VESSEL"))
+    }
+
+    /**
      * The upgrade, against bytes the **previous build actually wrote**.
      *
      * `writeLegacyCalibration` is that build's writer lifted verbatim out of git, so this exercises the

@@ -1,6 +1,7 @@
 package se.rise.logline
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -345,5 +346,47 @@ class PlatformGeometryParseTest {
         val read = parsePlatformGeometry(document)!!
         assertNull(read.platformType)
         assertEquals(SensorType.OTHER, read.sensors.single().sensorType)
+    }
+
+    /**
+     * The two names `0.6.0-pre.18` renamed still read, and that is the difference between an upgrade
+     * and a silent data loss.
+     *
+     * `landkrabba` became `sensor_station` and `roc` became `operator_station`. Every platform in the
+     * library is stored as its wire document, so *this* parser is what reads a platform surveyed before
+     * the upgrade — and it is deliberately tolerant, meaning an unrecognised value comes back null
+     * rather than failing. Without the alias a phone would quietly forget what its platforms were, with
+     * nothing on screen to say so. Same for a document from a station that has not upgraded yet.
+     */
+    @Test
+    fun `the platform type names renamed upstream still read`() {
+        fun typeOf(value: String) = parsePlatformGeometry(
+            """{ "entity_id": "p", "name": "P", "platform_type": "$value", "frame_transforms": [] }"""
+        )!!.platformType
+
+        assertEquals(PlatformType.SENSOR_STATION, typeOf("landkrabba"))
+        assertEquals(PlatformType.OPERATOR_STATION, typeOf("roc"))
+        // The new spellings are what actually gets written, and must not have been broken by the alias.
+        assertEquals(PlatformType.SENSOR_STATION, typeOf("sensor_station"))
+        assertEquals(PlatformType.OPERATOR_STATION, typeOf("operator_station"))
+        assertEquals(PlatformType.VESSEL, typeOf("vessel"))
+    }
+
+    /**
+     * Only the new spelling is ever written, whatever was read.
+     *
+     * The alias is a one-way ramp: `config-schema.json` is `additionalProperties: false` with a
+     * constrained enum, so re-emitting `landkrabba` would produce a document the platform connector
+     * rejects — which is the whole reason for the rename.
+     */
+    @Test
+    fun `a legacy type is written back in the new vocabulary`() {
+        val read = parsePlatformGeometry(
+            """{ "entity_id": "p", "name": "P", "platform_type": "landkrabba", "frame_transforms": [] }"""
+        )!!
+
+        val json = read.toPlatformGeometryJson()
+        assertTrue(json, json.contains("\"platform_type\": \"sensor_station\""))
+        assertFalse("the retired name must never go back on the wire", json.contains("landkrabba"))
     }
 }

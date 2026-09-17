@@ -435,7 +435,10 @@ internal fun readCalibration(prefs: Preferences): PlatformCalibration? {
             ?: se.rise.logline.calibrate.defaultEntityId(name),
         parentFrameId = prefs[Keys.CALIB_PARENT_FRAME_ID]?.takeIf { it.isNotBlank() }
             ?: se.rise.logline.calibrate.defaultParentFrameId(name),
-        platformType = PlatformType.entries.byName(prefs[Keys.CALIB_PLATFORM_TYPE]),
+        // `fromStoredName` rather than `byName`: this key holds the *enum constant* name, and two of
+        // them were renamed with the wire values in `0.6.0-pre.18`. A phone still on the `calib_*`
+        // keys stored `LANDKRABBA`, and this is the one read that will ever see it.
+        platformType = PlatformType.fromStoredName(prefs[Keys.CALIB_PLATFORM_TYPE]),
         description = prefs[Keys.CALIB_DESCRIPTION].orEmpty(),
         lengthOverAllM = prefs[Keys.CALIB_LOA_M]?.toDoubleOrNull(),
         breadthOverAllM = prefs[Keys.CALIB_BOA_M]?.toDoubleOrNull(),

@@ -571,6 +571,32 @@ enum class PublishedSubject(
         source = SourceKind.DEVICE,
         rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
     ),
+
+    /**
+     * Free space on the volume the recordings go to, and how full it is.
+     *
+     * The same volume `Recorder` measures for its own capacity estimate — `filesDir`, not external
+     * storage — because that is the one whose floor makes `openSession` refuse to open the next file.
+     * Publishing a different volume would put a number on the bus that contradicts the figure on the
+     * Session screen, with nothing on either saying which is which.
+     *
+     * Ride the battery poll for the reason [DEVICE_UPTIME] above does: same device, same question about
+     * it, same 0.2 Hz, and nothing here needs a rate of its own. `statfs` is cheap and neither reading
+     * can be absent, which is why they are published unguarded where every battery reading beside them
+     * is nullable.
+     */
+    DISK_FREE_BYTES(
+        subject = Subjects.DISK_FREE_BYTES,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
+    DISK_USED_PCT(
+        subject = Subjects.DISK_USED_PCT,
+        defaultRate = SensorRate.Hz(0.2),
+        source = SourceKind.DEVICE,
+        rateOwner = Subjects.BATTERY_STATE_OF_CHARGE_PCT,
+    ),
     BATTERY_IS_CHARGING(
         subject = Subjects.BATTERY_IS_CHARGING,
         defaultRate = SensorRate.Hz(0.2),

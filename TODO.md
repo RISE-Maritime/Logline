@@ -67,6 +67,8 @@ completes, and that is not something app code can fix.
       The sync is now query-free and there is a simplified `ChecklistRunsScreen` behind the gate, with
       the five protos re-vendored from `0.6.0-pre.12` — correct and tested, and none of it enough to
       turn the feature on. Done in 5d30568.
+      They were re-vendored again at `0.6.0-pre.15`, and are byte-identical at `pre.18`; this line
+      said `pre.12` long after that stopped being true.
 
 - [ ] **`ghcr.io/rise-maritime/keelson:latest` (0.5.3) cannot serve a WHEP handshake at all.**
   Two independent faults, both found by running it:
@@ -295,3 +297,46 @@ be here, not in the panel.
       checking: `connectedDebugAndroidTest` reinstalls the app, which wipes `filesDir` and regenerates
       the entity id, so export a settings profile first and follow the recovery steps in CLAUDE.md.
 
+
+## keelson 0.6.0-pre.18 (2026-09-17)
+
+- [ ] **Six of the eight new host subjects are unadopted, and a phone has all of them.** `pre.18` added
+      `cpu_load_pct`, `cpu_temperature_celsius`, `memory_used_pct`, `swap_used_pct`,
+      `network_interface_up`, `host_name` and `host_boot_time` alongside the two taken here. Every one
+      is readable on Android, and a run that could say the phone was thermally throttled or out of
+      memory would explain a class of dropped-sample report that currently has no evidence behind it.
+      Deliberately left out of the version bump: eight registry entries, a collector reading `/proc`
+      and the Android APIs, unit conversions with tests, and a decision about what "host" means for a
+      phone that is also a platform. Note `host_boot_time` overlaps `device_uptime_duration`, which
+      this app already publishes — adopting both without deciding which is authoritative would put two
+      answers to one question in the same file.
+
+- [ ] **The `battery` collector group polls three non-battery things and is still called `battery`.**
+      `DEVICE_UPTIME` was the first, `disk_free_bytes` and `disk_used_pct` joined it at `pre.18`. It is
+      a device poll now; `device` is the honest name. Not done with the upgrade because it is a rename
+      across `CollectorGroups.kt`, `SensorPublisher` and `CollectorGroupsTest` for no behaviour change,
+      and a version bump is the wrong commit to hide one in. Note the consequence while it stands:
+      switching every battery subject off stops the disk telemetry too, which is correct — one poll,
+      one listener — but is not what the group's name leads anybody to expect.
+
+- [ ] **Read §2.1.1 and §2.1.2 properly against this app's nested source ids.** `pre.18` rewrote the
+      `source_id` section: it is now `{producer}/{scope…}/{identity}`, with device multiplicity as the
+      *last* chunk and liveliness declared at the producer prefix. This app nests
+      `location_fix/{locationSource}/gnss` and `.../network`, which on a glance conforms — a producer
+      may be several chunks (`gnss/0` is upstream's own example), and the source-tier token at
+      `{realm}/@v0/{entity}/*/{source}` is a prefix of both — but a glance is not a reading. The
+      question to answer: are `gnss` and `network` an *identity* (two instances of a device) or part of
+      the *producer* (two solvers in one receiver)? §2.1.2 is blunt that multiplicity is the identity
+      chunk, and getting this backwards produces keys that look right and sort wrong.
+
+- [ ] **`/sync-protos` cannot run the commands it tells you to run.** Its `allowed-tools` lists
+      `Bash(diff:*)`, `Bash(cp:*)`, `Bash(ls:*)`, `Bash(./gradlew:*)` and `Read`, while the body
+      instructs `git tag`, `git archive` and `tar` — so every one of those prompts. It also takes no
+      argument and hard-codes "newest `0.6.0*` tag", which is usually right and was not the thing
+      wanted here. Add `$ARGUMENTS` for a tag, and the three commands to the allowlist.
+
+- [ ] **Tell crowsnest that `set_config` now refuses with `UNSUPPORTED`.** It was `PERMISSION_DENIED`
+      until this upgrade, and anything over there branching on the old code will stop recognising the
+      refusal. §3.6 requires the new one — `PERMISSION_DENIED` now means "the answer MAY change",
+      which is false of this refusal — so the change is not optional, but a consumer reading the enum
+      is exactly who the spec says is affected.

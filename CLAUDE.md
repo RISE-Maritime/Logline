@@ -115,17 +115,20 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
   `checklist_event`), four `transient` (`audio`, `image_compressed`, `video_compressed`,
   `checklist_presence`), three `background` (`raw_nmea0183`, `log_message`, `checklist_state`) — and
   everything else is unlisted upstream and inherits `default` on purpose, so the same subject travels
-  identically from every connector. **Re-verified against `0.6.0-pre.15`, and this time there was
-  drift**: the ten *sensor* subjects still match exactly, and the three checklist ones above were
-  assigned upstream in `pre.15` having been unlisted in every release before it. That check is a dozen
-  lines of script and worth re-running against each release rather than reading this list, which has
-  been wrong before. Two subjects are `default` **by decision rather than by omission**, which
+  identically from every connector. **Re-verified against `0.6.0-pre.18`, and this time there was no
+  drift at all**: all thirteen keep exactly the profiles above, and `checklist_procedure` /
+  `checklist_evidence` are still `default` by decision. `pre.15` was the release that *did* drift — it
+  assigned the three checklist subjects, which every release before it left unlisted. That check is a
+  dozen lines of script and worth re-running against each release rather than reading this list, which
+  has been wrong before. Two subjects are `default` **by decision rather than by omission**, which
   `qos.yaml` now says in words: `checklist_procedure`, a template edited at human pace, and
   `checklist_evidence` — which carries the *same* `foxglove.CompressedImage` as `image_compressed` and
   deliberately takes the opposite stance, because a camera frame is corrected by the next one and an
   evidence photo is a one-shot write nothing will ever republish. Grouping the two by payload type is
   the obvious tidy-up and would make a safety photo the cheapest thing on the link. Upstream now names
-  **61** non-default subjects across *six* profiles, having gained `no_drop` (`DATA_HIGH`, **BLOCK**,
+  **67** non-default subjects across *six* profiles — 61 at `pre.15`, plus
+  `water_level_above_chart_datum_m`, four navigation-advice subjects and `checklist_handover` at
+  `pre.18`, none of which a phone publishes. The sixth profile is `no_drop` (`DATA_HIGH`, **BLOCK**,
   RELIABLE, express) for `scenario_tick_ack`; `QosProfile` transcribes all six and this app publishes
   in neither `realtime` nor `no_drop`. `QosTest` no longer asserts that every profile drops — it
   asserts that nothing *this app publishes* blocks, which is the real hazard since every publish here
@@ -169,11 +172,17 @@ Full walkthrough: [docs/architecture.md](docs/architecture.md).
 - **Subject names only via `Subjects`** in `keelson/Keys.kt`, and the subject *set* only via
   `PublishedSubject` in `keelson/SubjectRegistry.kt`. A new subject means a constant plus a registry
   entry, and the name must already exist in `keelson/messages/subjects.yaml` upstream. **The newest tag is now the
-  right place to look** — re-checked at `0.6.0-pre.15`, of which `pre.12` *is* an ancestor
-  (`git merge-base --is-ancestor` says so), and every subject this app publishes is present:
-  `illuminance_lux`, the four `checklist_*` ones and `checklist_evidence` included. `pre.15` added
-  `depth_below_{transducer,keel,surface}_m`, `scenario_event`, `scenario_tick_ack` and
-  `envelope_exceedance`, none of which a phone has the hardware or the role to publish.
+  right place to look** — re-checked at `0.6.0-pre.18`, of which `pre.15` *is* an ancestor
+  (`git merge-base --is-ancestor` says so, as it does for pre.16 and pre.17), and every subject this
+  app publishes is present: `illuminance_lux`, the four `checklist_*` ones and `checklist_evidence`
+  included. **Nothing has ever been removed or renamed** — every diff so far is purely additive, which
+  is worth knowing before reading a missing subject as a deletion rather than as a typo here. `pre.15`
+  added `depth_below_{transducer,keel,surface}_m`, `scenario_event`, `scenario_tick_ack` and
+  `envelope_exceedance`; `pre.18` added a host-telemetry family (`cpu_load_pct`, `memory_used_pct`,
+  `disk_free_bytes`, `disk_used_pct` and the rest), four navigation-advice subjects and
+  `checklist_handover`. Of those, **`disk_free_bytes` and `disk_used_pct` are adopted** — the phone
+  already measured that number for its own capacity estimate — and the rest are hardware or a role a
+  phone has not got, or filed in TODO.md.
   **Take upstream files from a tag, not from `../keelson`'s worktree.** That checkout is a working
   repository and is routinely parked on a feature branch: while this was being done it sat on one
   that branched before the checklist merge and has no `Checklist*.proto` at all, so `/sync-protos`
@@ -620,12 +629,20 @@ lite bindings are generated at build time into `app/build/generated/source/proto
 | --- | --- |
 | `Envelope.proto` | `../keelson/messages/Envelope.proto` |
 | `Primitives.proto`, `Decomposed3DVector.proto`, `Audio.proto`, `LocationFixQuality.proto` | `../keelson/messages/payloads/` |
-| `Checklist{Event,State,Presence,Procedure}.proto` | `../keelson/messages/payloads/` |
-| `ErrorResponse.proto` | `../keelson/interfaces/` — **not** `payloads/`, the only one from that directory |
-| `foxglove/{LocationFix,Quaternion,Vector3,CompressedImage,Log,FrameTransform}.proto` | `../keelson/messages/payloads/foxglove/` |
+| `Checklist{Event,State,Presence,Procedure,Evidence}.proto` | `../keelson/messages/payloads/` |
+| `ErrorResponse.proto`, `WHEPProxy.proto` | `../keelson/interfaces/` — **not** `payloads/`, the only two from that directory |
+| `foxglove/{LocationFix,Quaternion,Vector3,CompressedImage,CompressedVideo,Log,FrameTransform}.proto` | `../keelson/messages/payloads/foxglove/` |
+
+**Nineteen files, and this table listed sixteen of them until `0.6.0-pre.18`** — `ChecklistEvidence`,
+`WHEPProxy` and `foxglove/CompressedVideo` were vendored without being written down here, which is how
+a file comes to be re-synced by nobody. Count the directory against the table before trusting it.
 
 Editing these locally forks the protocol silently. To take an upstream change, copy the file over
 (`/sync-protos` does this) and rebuild. To *change* a message, change it in the `keelson` repo first.
+
+**All nineteen are byte-identical to `0.6.0-pre.18`.** The only one that moved between `pre.15` and
+`pre.18` was `ErrorResponse.proto`, which gained `UNSUPPORTED = 9` — additive, so nothing renumbered
+and nothing broke on the wire. Verified by shasum against the tag rather than by reading this line.
 
 Generated Kotlin lives in packages `core`, `keelson`, and `foxglove` — note that `EnvelopeOuterClass`,
 `Primitives`, and `Decomposed3DVectorOuterClass` are the outer class names the imports use.
@@ -980,10 +997,19 @@ simply never finds anything on the bus.
   Refusing is a decision on the merits, not laziness: geometry arrives either from the phone's own
   editor or through `mergeRemotePlatforms`, which never deletes a platform this phone is publishing and never
   takes remote *policy* — an unauthenticated `set_config` from anyone on the fleet bus goes around all
-  of it. The code is `PERMISSION_DENIED` because `ErrorResponse.Code` **has no `UNSUPPORTED`**, which is
-  what §3.6 actually asks for here; the description says "permanent" in words so a consumer's operator
-  is not invited to retry, and `ConfigurableRpcTest` pins that wording. Do not soften it to
-  `UNAVAILABLE`, which reads as "not ready yet".
+  of it. **The code is `UNSUPPORTED`, and that inverts what this note used to say.** It was
+  `PERMISSION_DENIED` until `0.6.0-pre.18`, on the grounds that `ErrorResponse.Code` had no value for
+  the permanent structural refusal §3.6 asks for here, so the permanence lived in the description
+  instead. `pre.18` added `UNSUPPORTED = 9` and rewrote `PERMISSION_DENIED` to mean "refused under
+  current conditions… **the answer MAY change**" — the opposite of what this refusal means — and gave
+  §3.6 the matching rule in normative text: `UNSUPPORTED` pairs with `COMMAND_RESULT_UNSUPPORTED`,
+  `PERMISSION_DENIED` with `COMMAND_RESULT_DENIED`, and *"the distinction has to survive in the code,
+  not only in `error_description`, because a UI reading the enum alone decides whether to keep the
+  procedure callable."* So the old choice went from approximate to a spec violation in one release.
+  The description still says "permanent" in words and still should — the enum is what a UI branches
+  on, the sentence is what a person reads — and `ConfigurableRpcTest` pins both. Do not soften the
+  code to `UNAVAILABLE`, which reads as "not ready yet", nor back to `PERMISSION_DENIED`, which now
+  promises the answer might change.
 - **The RPC interface token lives and dies with the platform screens**, because `PlatformSync` does. §3.5
   forbids holding a token for an interface a source does not currently serve, so that is correct rather
   than a bug — but it does mean a fleet tool probing a phone that is *logging* finds no configurable

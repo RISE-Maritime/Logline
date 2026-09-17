@@ -179,6 +179,8 @@ class SubjectRegistryTest {
                 "pitch_rate_degps",
                 "yaw_rate_degps",
                 "device_uptime_duration",
+                "disk_free_bytes",
+                "disk_used_pct",
                 "imu_temperature_celsius",
                 "linear_acceleration_mpss",
                 "angular_velocity_radps",

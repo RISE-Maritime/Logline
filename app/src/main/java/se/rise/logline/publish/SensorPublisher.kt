@@ -34,6 +34,7 @@ import se.rise.logline.keelson.sourceLivelinessKey
 import se.rise.logline.keelson.subjectLivelinessKeys
 import se.rise.logline.record.RecordSample
 import se.rise.logline.record.Recorder
+import se.rise.logline.record.recordingsDir
 import se.rise.logline.record.QueueLoad
 import se.rise.logline.record.RecordingStatus
 import se.rise.logline.sensors.AudioProvider
@@ -2037,6 +2038,31 @@ class SensorPublisher(private val appContext: Context) {
                         .toByteArray(),
                     uptimeMillis / 3_600_000f,
                 )
+
+                // Nor is the disk, and it rides this poll for the same reason. **The volume measured is
+                // the one the recorder writes to** — `recordingsDir` under `filesDir`, the same one the
+                // Session screen's capacity estimate divides by — because that is the volume whose floor
+                // makes `openSession` refuse the next file. Measuring anything else would put a figure
+                // on the bus that disagrees with the one on screen.
+                //
+                // Published unguarded, which is the exception to the rule the battery readings above
+                // follow: `usableSpace` and `totalSpace` always answer, so there is no absent value to
+                // mistake for a zero. A `totalSpace` of 0 would mean the path is gone, and dividing by
+                // it is the one thing to avoid.
+                val volume = recordingsDir(appContext)
+                val freeBytes = volume.usableSpace
+                val totalBytes = volume.totalSpace
+                sinks.getValue(PublishedSubject.DISK_FREE_BYTES).emit(
+                    publishers.of(PublishedSubject.DISK_FREE_BYTES),
+                    timestampedInt64(now, freeBytes).toByteArray(),
+                    freeBytes / 1_073_741_824f,
+                )
+                if (totalBytes > 0L) {
+                    // Used, not free — the subject name says `used`, and leaving a reader to infer the
+                    // sense from context is how a full disk gets read as an empty one.
+                    val usedPct = (totalBytes - freeBytes).toDouble() / totalBytes * 100.0
+                    emit(PublishedSubject.DISK_USED_PCT, usedPct.toFloat())
+                }
 
                 emit(PublishedSubject.BATTERY_STATE_OF_CHARGE, s.stateOfChargePct)
                 emit(PublishedSubject.BATTERY_VOLTAGE, s.voltageV)

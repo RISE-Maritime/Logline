@@ -89,6 +89,10 @@ val BATTERY_SUBJECTS = setOf(
     PublishedSubject.BATTERY_IS_CHARGING,
     // Not a battery reading, but the same poll and the same device — see the registry.
     PublishedSubject.DEVICE_UPTIME,
+    // Nor are these, and for the same reason: one `statfs` beside the gauge read, at the same 0.2 Hz.
+    // The group is a device poll now rather than a battery one; only its name still says otherwise.
+    PublishedSubject.DISK_FREE_BYTES,
+    PublishedSubject.DISK_USED_PCT,
 )
 
 /**

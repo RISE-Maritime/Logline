@@ -109,7 +109,10 @@ private fun JsonObject.toPlatformCalibration(fallbackEntityId: String?): Platfor
         name = name,
         entityId = entityId,
         parentFrameId = parentFrameId,
-        platformType = PlatformType.entries.firstOrNull { it.wire == string("platform_type") },
+        // Through `fromWire`, not a bare `wire ==` match: `0.6.0-pre.18` renamed two of the three
+        // values, and a document written before it — or by a station that has not upgraded — would
+        // otherwise lose its type silently, which is the one thing this parser is careful never to do.
+        platformType = PlatformType.fromWire(string("platform_type")),
         description = string("description").orEmpty(),
         lengthOverAllM = double("length_over_all_m"),
         breadthOverAllM = double("breadth_over_all_m"),
