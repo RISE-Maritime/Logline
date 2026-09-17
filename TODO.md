@@ -242,14 +242,14 @@ be here, not in the panel.
       file size and the battery estimate, and put the MB/h beside the others in `Capacity.kt` so the
       card can state it. While at it, confirm the file holds only the eight Minimum channels, with
       `location_fix` at ~0.2 Hz, and that `dumpsys sensorservice` lists no Logline listeners.
-      Done in HEAD.
+      Done in a3377da.
 
 - [x] **Consider a lower location priority in Minimum.** `LocationProvider` always asks for
       `Priority.PRIORITY_HIGH_ACCURACY`, which keeps the GNSS engine busy even at one fix per 5 s.
       `PRIORITY_BALANCED_POWER_ACCURACY` could save a lot of battery on an event-marker phone, but it
       falls back to wifi and cell accuracy. Decide once the drain above is measured, and only if
       marks placed that coarsely are still useful.
-      Done in HEAD.
+      Done in a3377da.
 
 - [ ] **Re-measure the Minimum drain now that it asks for balanced power — and revert if it barely
       moves.** The −3.98 %/h in CLAUDE.md was measured with the *old* high-accuracy request and is no
