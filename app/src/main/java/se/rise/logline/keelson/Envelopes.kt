@@ -44,3 +44,20 @@ fun protoTimestamp(epochNanos: Long): Timestamp =
         .setSeconds(Math.floorDiv(epochNanos, 1_000_000_000L))
         .setNanos(Math.floorMod(epochNanos, 1_000_000_000L).toInt())
         .build()
+
+/** An envelope opened: when it was enclosed, and the payload inside it. */
+class Enclosed(val enclosedAtMillis: Long, val payload: ByteArray)
+
+/**
+ * Opens a `core.Envelope`, or null when the bytes are not one.
+ *
+ * The one shared unwrap. Everything on the wire is enveloped, but the only readers this app had were
+ * private to the checklist codec and the platform document decoder; the monitor reads every subject
+ * another entity publishes and needs it in the open. Null on any parse failure, since a foreign
+ * publisher's bytes are exactly the input that should not throw.
+ */
+fun unwrapEnvelope(bytes: ByteArray): Enclosed? = runCatching {
+    val envelope = Envelope.parseFrom(bytes)
+    val at = envelope.enclosedAt
+    Enclosed(at.seconds * 1_000L + at.nanos / 1_000_000L, envelope.payload.toByteArray())
+}.getOrNull()

@@ -3,6 +3,7 @@ package se.rise.logline
 import android.app.Application
 import se.rise.logline.checklist.ChecklistRepository
 import se.rise.logline.checklist.ChecklistSync
+import se.rise.logline.monitor.MonitorSync
 import se.rise.logline.platform.PlatformSync
 import se.rise.logline.config.SettingsRepository
 import se.rise.logline.publish.SensorPublisher
@@ -37,4 +38,10 @@ class LoglineApp : Application() {
      * surveyed with logging stopped, so it deliberately shares nothing with [publisher].
      */
     val platforms: PlatformSync by lazy { PlatformSync(this) }
+
+    /**
+     * The Monitor tab's link to another entity. Process-scoped so the samples survive a trip to
+     * another tab and back; opened and closed by route like [platforms], but it owns no Zenoh session.
+     */
+    val monitor: MonitorSync by lazy { MonitorSync() }
 }
