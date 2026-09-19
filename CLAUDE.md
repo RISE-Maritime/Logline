@@ -6,7 +6,7 @@ Single Gradle module `:app`, package `se.rise.logline`, ~3000 lines of Kotlin.
 Read [README.md](README.md) for what it does; this file is how to work on it.
 **The README is a front page, not the reference** — it is the pitch, the screenshots and an
 index. The detail lives in `docs/`: `subjects.md`, `keys-and-liveliness.md`, `connecting.md`,
-`settings.md`, `live-view.md`, `recording.md`, `development.md`, plus the older `user-guide.md`,
+`settings.md`, `live-view.md`, `monitor.md`, `recording.md`, `development.md`, plus the older `user-guide.md`,
 `install.md`, `deploying.md`, `calibration.md` and `architecture.md`. A new explanation belongs on one of those
 pages and in the index, never appended to the README.
 
@@ -77,6 +77,12 @@ LoglineApp
         ├── serves     configurable/v1 — get_config per platform (plus crowsnest's older key shape),
         │               set_config refused in a typed way, and the interface liveliness token
         └── shares     the platform library as raw JSON on platform_registry/library/latest
+```
+
+```
+LoglineApp
+  └── MonitorSync ─── NO Zenoh session: one HTTP GET, open only while the Monitor tab is on screen
+        └── streams  {realm}/@v0/{entity}/pubsub/** from the router's REST plugin as SSE → MonitorStore
 ```
 
 `ChecklistSync` and `PlatformSync` share nothing with `SensorPublisher` — different session, different
@@ -854,6 +860,40 @@ A shared checklist that several sites work at once, interoperating with crowsnes
   the key. Worth knowing before reading its behaviour as intended.
 - Checklist events are **not** recorded to MCAP. `Recorder` is per-run and hangs off the publish path;
   wiring an event-driven subject into it is a separate change.
+
+## Monitor tab
+
+Another entity's data as user-chosen cards, the Foxglove panels on a phone. Lives in `monitor/` and
+`ui/monitor/`; the page is [docs/monitor.md](docs/monitor.md).
+
+- **It reads over HTTP because it cannot subscribe.** Every router-timestamped sample aborts the
+  process on this binding (`ZenohBinding.SUBSCRIPTIONS_SAFE`), so `MonitorSync` reads the router's REST
+  plugin as Server-Sent Events instead — `GET {base}/{keyExpr}` with `Accept: text/event-stream`, one
+  `PUT` event per sample, `value` base64 of the envelope (pinned by `MonitorWireTest` with an event
+  captured from the rise router). It is **the one HTTP client in the app** and the reason cleartext is
+  permitted in `network_security_config.xml`. `MonitorSource` is the seam: when the binding is fixed, a
+  subscriber is a second implementation and nothing above it changes. Do not "simplify" it onto
+  `declareSubscriber` before then — it will abort the app the first time a sample arrives.
+- **The URL is derived from the configured router** (`monitorBaseUrl()`: first endpoint's host, port
+  8000) unless set. The REST plugin sends **no keep-alives** — an entity with nothing to say yields zero
+  bytes — so a read timeout on a stream that was up is a quiet reconnect, not a failure, and the lamp
+  keeps saying Streaming.
+- **Pulled, never pushed**, like the live store, and it reuses that store's `SampleRing`/`TrackRing`.
+  Only windows some card reads are copied per tick (`wantedTopics()`). Arrival time goes in the rings,
+  since a replay's payload timestamps are from the day it was recorded.
+- **Decoding is by the subject's declared type**, from `RemoteSubjectTypes.kt` — a transcription of
+  `subjects.yaml` at `0.6.0-pre.18`, regenerated rather than hand-edited. A subject with a type that
+  is not vendored is listed as seen and never guessed at.
+- **Card settings are data** (`ParamSpec` on each `CardKind`), so one sheet edits every card. The sheet
+  edits a **draft and writes once on close**, and a move carries the draft in the same write — two
+  writes off one captured `current` lose the first.
+  `DEFAULT_MONITOR_CARDS` is **in its own file on purpose**: beside `CardKind`'s helper functions it
+  was built during the enum's class initialisation and every entry came out null.
+- **Everything goes through `update()`, never `saveSettings()`** — watching another boat must never
+  restart a run. `monitor_card_count` present at zero is an emptied board, not a fresh install.
+- **The Bow thruster card's default subject, `thruster_power_pct`, is not a keelson subject.** It is
+  the Foxglove panel's name and nothing upstream declares it, so the subject is a setting and the card
+  says so. An upstream question, not a local one.
 
 ## Platform library
 

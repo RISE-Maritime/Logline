@@ -103,6 +103,7 @@ This file is the front door; everything else is a page of its own.
 | [docs/connecting.md](docs/connecting.md) | endpoints, mTLS, replay after an outage, proving it works |
 | [docs/settings.md](docs/settings.md) | what is configurable, checklists, platform library |
 | [docs/live-view.md](docs/live-view.md) | the chart, its layers, and offline maps |
+| [docs/monitor.md](docs/monitor.md) | the Monitor tab: another entity as cards, and why it reads over HTTP |
 | [docs/recording.md](docs/recording.md) | the MCAP files, and running unattended |
 | [docs/calibration.md](docs/calibration.md) | surveying a platform's geometry, in full |
 | [docs/architecture.md](docs/architecture.md) | how the code fits together |
