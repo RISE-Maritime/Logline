@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import se.rise.logline.keelson.KeelsonSession
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -28,8 +31,18 @@ sealed interface MonitorLink {
     data class Failed(val url: String?, val reason: String) : MonitorLink
 }
 
-/** Everything a stream needs, resolved from `Settings` by the caller. Null URL means none derivable. */
-data class MonitorConfig(val baseUrl: String?, val realm: String, val entity: String)
+/**
+ * Everything a stream needs, resolved from `Settings` by the caller. Null URL means none derivable.
+ *
+ * [zenohEndpoints] non-null selects the Zenoh subscriber instead of the REST stream; the caller sets it
+ * only where subscriptions are safe on this binding and nobody asked for a URL by hand.
+ */
+data class MonitorConfig(
+    val baseUrl: String?,
+    val realm: String,
+    val entity: String,
+    val zenohEndpoints: List<String>? = null,
+)
 
 /**
  * Where the monitor's samples come from.
@@ -94,6 +107,42 @@ class SseMonitorSource(private val url: String) : MonitorSource {
 }
 
 /**
+ * A Zenoh subscriber on the entity's whole `pubsub` tree, over its own session.
+ *
+ * The source the interface above was written for. Its own session rather than the publisher's, for
+ * the reason `MonitorSync` owns none of the run's state: watching another boat must never be what
+ * restarts, or is torn down by, a run. The subscriber callback runs on Zenoh's thread, so it does
+ * nothing but hand the bytes on — `MonitorStore.accept` is the same cheap append the REST path uses.
+ *
+ * Unlike the REST stream there is no quiet-link problem to work around: Zenoh keeps its own
+ * keep-alives and reconnects the transport underneath an open subscriber, so once declared this simply
+ * waits to be cancelled.
+ */
+class ZenohMonitorSource(
+    private val endpoints: List<String>,
+    private val keyExpr: String,
+    private val openSession: (List<String>) -> KeelsonSession,
+) : MonitorSource {
+
+    override suspend fun stream(onOpen: () -> Unit, onSample: (RemoteSample) -> Unit) {
+        val session = withContext(Dispatchers.IO) { openSession(endpoints) }
+        try {
+            val subscriber = session.declareSubscriber(keyExpr) { key, bytes ->
+                onSample(RemoteSample(key, System.currentTimeMillis(), bytes))
+            }
+            try {
+                onOpen()
+                awaitCancellation()
+            } finally {
+                runCatching { subscriber.close() }
+            }
+        } finally {
+            runCatching { session.close() }
+        }
+    }
+}
+
+/**
  * The Monitor tab's link to another entity.
  *
  * Shaped like `PlatformSync` and scoped the same way — process-lifetime owner, opened when the tab is
@@ -101,7 +150,7 @@ class SseMonitorSource(private val url: String) : MonitorSource {
  * session** and shares nothing with the publisher. Watching another boat is not part of a run, and a
  * run must never be restarted because somebody looked at the Monitor tab.
  */
-class MonitorSync {
+class MonitorSync(private val openSession: ((List<String>) -> KeelsonSession)? = null) {
 
     val store = MonitorStore()
 
@@ -109,34 +158,43 @@ class MonitorSync {
     val link: StateFlow<MonitorLink> = _link.asStateFlow()
 
     private var scope: CoroutineScope? = null
-    private var source: SseMonitorSource? = null
+    private var sse: SseMonitorSource? = null
     private var current: MonitorConfig? = null
 
     fun start(config: MonitorConfig) {
         if (scope != null) return
         if (config != current) store.clear()
         current = config
-        val base = config.baseUrl
-        if (base == null) {
-            _link.value = MonitorLink.Failed(null, "no router configured to read from")
-            return
+        val keyExpr = monitorKeyExpr(config.realm, config.entity)
+        val endpoints = config.zenohEndpoints
+        val (source, url) = if (endpoints != null && openSession != null) {
+            if (endpoints.isEmpty()) {
+                _link.value = MonitorLink.Failed(null, "no router configured to subscribe through")
+                return
+            }
+            ZenohMonitorSource(endpoints, keyExpr, openSession) to endpoints.first()
+        } else {
+            val base = config.baseUrl
+            if (base == null) {
+                _link.value = MonitorLink.Failed(null, "no router configured to read from")
+                return
+            }
+            val url = streamUrl(base, keyExpr)
+            SseMonitorSource(url).also { sse = it } to url
         }
-        val url = streamUrl(base, monitorKeyExpr(config.realm, config.entity))
-        val sse = SseMonitorSource(url)
-        source = sse
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = newScope
-        newScope.launch { runLoop(sse, url) }
+        newScope.launch { runLoop(source, url) }
     }
 
-    private suspend fun runLoop(sse: SseMonitorSource, url: String) {
+    private suspend fun runLoop(source: MonitorSource, url: String) {
         var backoff = 0
         while (coroutineContext.isActive) {
             // A quiet reconnect keeps saying Streaming; flickering to Connecting every minute on an
             // entity that simply has nothing to say would read as a flaky link.
             if (_link.value !is MonitorLink.Streaming) _link.value = MonitorLink.Connecting(url)
             try {
-                sse.stream(
+                source.stream(
                     onOpen = {
                         _link.value = MonitorLink.Streaming(url)
                         backoff = 0
@@ -163,8 +221,8 @@ class MonitorSync {
     fun stop() {
         val old = scope ?: return
         scope = null
-        source?.disconnect()
-        source = null
+        sse?.disconnect()
+        sse = null
         old.cancel()
         _link.value = MonitorLink.Idle
         Log.i(TAG, "stream closed")

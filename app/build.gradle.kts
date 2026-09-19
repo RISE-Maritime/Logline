@@ -156,6 +156,10 @@ plugins {
 }
 
 android {
+    // Branch-only: the arm64 libzenoh_flat_jni.so in src/main/jniLibs is zenoh-flat-jni 1.10.1 rebuilt
+    // with the class-loader fix proposed upstream (eclipse-zenoh/zenoh-flat-jni#49), and must win over
+    // the one in the AAR. Delete this, the jniLibs copy and the flag flip once a release carries it.
+    packaging { jniLibs { pickFirsts += "lib/arm64-v8a/libzenoh_flat_jni.so" } }
     namespace = "se.rise.logline"
     compileSdk {
         version = release(37)

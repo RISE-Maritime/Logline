@@ -54,7 +54,7 @@ object ZenohBinding {
      * liveliness *declaration* are unaffected and stay on: this app remains present on the bus and keeps
      * saying what it is doing. It simply cannot listen.
      */
-    const val SUBSCRIPTIONS_SAFE = false
+    const val SUBSCRIPTIONS_SAFE = true
 }
 
 /**
