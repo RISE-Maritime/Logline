@@ -4,6 +4,7 @@ import io.zenoh.qos.CongestionControl
 import io.zenoh.qos.Priority
 import io.zenoh.qos.Reliability
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -12,6 +13,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import se.rise.logline.keelson.SubjectQos
+import se.rise.logline.monitor.MonitorCard
+import se.rise.logline.monitor.parseMonitorCards
+import se.rise.logline.monitor.toJsonArray
 import se.rise.logline.record.parseTags
 import se.rise.logline.sensors.parseSensorRate
 import se.rise.logline.sensors.serialise
@@ -116,6 +120,14 @@ data class SettingsProfile(
     val operatorName: String? = null,
     val operatorRole: String? = null,
     val rocSiteId: String? = null,
+
+    // ---- the Monitor tab -------------------------------------------------------------------------
+    // Fleet configuration: which entity a shore phone watches and what it shows. Carried like the
+    // annotation buttons, since provisioning three phones by hand is how three dashboards drift.
+    val monitorEntity: String? = null,
+    val monitorRealm: String? = null,
+    val monitorUrl: String? = null,
+    val monitorCards: List<MonitorCard>? = null,
 ) {
     /** Whether this profile says anything about who is operating the phone. */
     val hasOperator: Boolean
@@ -220,6 +232,10 @@ fun SettingsProfile.encode(pretty: Boolean = true): String {
         putIfPresent("operator_name", operatorName)
         putIfPresent("operator_role", operatorRole)
         putIfPresent("roc_site_id", rocSiteId)
+        putIfPresent("monitor_entity", monitorEntity)
+        putIfPresent("monitor_realm", monitorRealm)
+        putIfPresent("monitor_url", monitorUrl)
+        monitorCards?.let { put("monitor_cards", it.toJsonArray()) }
     }
     // Compact for a QR, where every byte is a module: the same document, no whitespace.
     return if (pretty) json.encodeToString(JsonObject.serializer(), obj) else obj.toString()
@@ -289,6 +305,10 @@ fun parseSettingsProfile(text: String): SettingsProfile? {
         operatorName = root.string("operator_name"),
         operatorRole = root.string("operator_role"),
         rocSiteId = root.string("roc_site_id"),
+        monitorEntity = root.string("monitor_entity"),
+        monitorRealm = root.string("monitor_realm"),
+        monitorUrl = root.string("monitor_url"),
+        monitorCards = (root["monitor_cards"] as? JsonArray)?.let(::parseMonitorCards),
     )
 }
 
@@ -378,6 +398,10 @@ fun Settings.toProfile(withSecrets: Boolean = false): SettingsProfile = Settings
     operatorName = operatorName.takeIf { withSecrets },
     operatorRole = operatorRole.takeIf { withSecrets },
     rocSiteId = rocSiteId.takeIf { withSecrets },
+    monitorEntity = monitorEntity,
+    monitorRealm = monitorRealm,
+    monitorUrl = monitorUrl,
+    monitorCards = monitorCards,
 )
 
 /**
@@ -466,6 +490,10 @@ fun Settings.applyProfile(profile: SettingsProfile, withOperator: Boolean = true
     operatorName = if (withOperator) profile.operatorName ?: operatorName else operatorName,
     operatorRole = if (withOperator) profile.operatorRole ?: operatorRole else operatorRole,
     rocSiteId = if (withOperator) profile.rocSiteId ?: rocSiteId else rocSiteId,
+    monitorEntity = profile.monitorEntity?.takeIf { it.isNotBlank() } ?: monitorEntity,
+    monitorRealm = profile.monitorRealm ?: monitorRealm,
+    monitorUrl = profile.monitorUrl ?: monitorUrl,
+    monitorCards = profile.monitorCards ?: monitorCards,
 )
 
 /**

@@ -1,5 +1,11 @@
 package se.rise.logline.config
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import se.rise.logline.monitor.DEFAULT_MONITOR_CARDS
+import se.rise.logline.monitor.MonitorCard
+import se.rise.logline.monitor.parseMonitorCard
+import se.rise.logline.monitor.toJson
 import android.content.Context
 import android.os.Build
 import androidx.datastore.core.DataStore
@@ -150,6 +156,14 @@ internal object Keys {
     // that into a single loop, and the serialiser it needs already exists.
     val PLATFORM_COUNT = stringPreferencesKey("platform_count")
     fun platform(index: Int) = stringPreferencesKey("platform_$index")
+
+    // The Monitor tab. Its cards are a list of small JSON documents, stored the way the platform
+    // library is and for the same reason: one key per entry, so a clear-out is a single loop.
+    val MONITOR_ENTITY = stringPreferencesKey("monitor_entity")
+    val MONITOR_REALM = stringPreferencesKey("monitor_realm")
+    val MONITOR_URL = stringPreferencesKey("monitor_url")
+    val MONITOR_CARD_COUNT = stringPreferencesKey("monitor_card_count")
+    fun monitorCard(index: Int) = stringPreferencesKey("monitor_card_$index")
 
     /** Entity id of the platform the phone is on. Absent means none is selected. */
     val PLATFORM_ACTIVE_ENTITY = stringPreferencesKey("platform_active_entity")
@@ -334,6 +348,10 @@ internal fun readSettings(prefs: Preferences, defaultEntityId: String): Settings
             ?: Settings.DEFAULT_CHECKLIST_REALM,
         checklistEntityId = prefs[Keys.CHECKLIST_ENTITY_ID]?.takeIf { it.isNotBlank() }
             ?: Settings.DEFAULT_CHECKLIST_ENTITY,
+        monitorEntity = prefs[Keys.MONITOR_ENTITY]?.takeIf { it.isNotBlank() } ?: Settings.DEFAULT_MONITOR_ENTITY,
+        monitorRealm = prefs[Keys.MONITOR_REALM].orEmpty(),
+        monitorUrl = prefs[Keys.MONITOR_URL].orEmpty(),
+        monitorCards = readMonitorCards(prefs),
     )
 }
 
@@ -369,6 +387,10 @@ internal fun writeSettings(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.ROC_SITE_ID] = settings.rocSiteId
     prefs[Keys.CHECKLIST_REALM] = settings.checklistRealm
     prefs[Keys.CHECKLIST_ENTITY_ID] = settings.checklistEntityId
+    prefs[Keys.MONITOR_ENTITY] = settings.monitorEntity
+    prefs[Keys.MONITOR_REALM] = settings.monitorRealm
+    prefs[Keys.MONITOR_URL] = settings.monitorUrl
+    writeMonitorCards(prefs, settings.monitorCards)
     prefs[Keys.CAMERA_ENABLED] = settings.cameraEnabled.toString()
     prefs[Keys.CAMERA_LENS_FRONT] = settings.cameraLensFront.toString()
     prefs[Keys.CAMERA_WIDTH] = settings.cameraWidth.toString()
@@ -535,6 +557,31 @@ internal fun writePlatforms(prefs: MutablePreferences, settings: Settings) {
     prefs[Keys.PLATFORM_REGISTRY_ORIGIN] = settings.platformRegistryOrigin
     if (prefs[Keys.CALIB_NAME] != null) clearLegacyCalibration(prefs)
     if (prefs[Keys.LEGACY_RIG_COUNT] != null) clearLegacyPlatformKeys(prefs)
+}
+
+/**
+ * The Monitor tab's cards, one JSON document per key, with stale indices removed — the shape
+ * [writePlatforms] has, and for the reason it gives: an index left behind resurrects a deleted card.
+ */
+internal fun writeMonitorCards(prefs: MutablePreferences, cards: List<MonitorCard>) {
+    val previousCount = prefs[Keys.MONITOR_CARD_COUNT]?.toIntOrNull() ?: 0
+    cards.forEachIndexed { i, card -> prefs[Keys.monitorCard(i)] = card.toJson().toString() }
+    for (i in cards.size until previousCount) prefs.remove(Keys.monitorCard(i))
+    prefs[Keys.MONITOR_CARD_COUNT] = cards.size.toString()
+}
+
+/**
+ * The cards, or the default set when none were ever saved. **A count present is authoritative even
+ * at zero** — somebody removed every card, and handing the defaults back would undo it at the next
+ * launch. A card that will not parse costs that card, not the tab.
+ */
+internal fun readMonitorCards(prefs: Preferences): List<MonitorCard> {
+    val count = prefs[Keys.MONITOR_CARD_COUNT]?.toIntOrNull() ?: return DEFAULT_MONITOR_CARDS
+    return (0 until count).mapNotNull { i ->
+        prefs[Keys.monitorCard(i)]?.let { raw ->
+            runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()?.let(::parseMonitorCard)
+        }
+    }
 }
 
 /**

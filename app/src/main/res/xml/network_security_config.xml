@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is permitted for one reason: the Monitor tab reads another entity off the router's
+  Zenoh REST plugin, which the rise router serves as plain http on :8000. It cannot be a Zenoh
+  subscriber on this binding (ZenohBinding.SUBSCRIPTIONS_SAFE), and the host is whatever router the
+  phone is configured for, so no domain-config can name it in advance.
+
+  What this does NOT loosen: the Zenoh session is not HTTP and is governed by its own tls/ locators
+  and the mTLS credentials, and every map tile source is https. The monitor stream is unauthenticated
+  and readable on the path; putting TLS in front of :8000 is filed in TODO.md.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

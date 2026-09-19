@@ -1,5 +1,7 @@
 package se.rise.logline
 
+import se.rise.logline.monitor.CardKind
+import se.rise.logline.monitor.MonitorCard
 import io.zenoh.qos.CongestionControl
 import io.zenoh.qos.Priority
 import io.zenoh.qos.Reliability
@@ -90,6 +92,10 @@ class SettingsProfileTest {
         rocSiteId = "deck",
         checklistRealm = "rise",
         checklistEntityId = "roc1",
+        monitorEntity = "vessel",
+        monitorRealm = "sea",
+        monitorUrl = "http://router.example:8000",
+        monitorCards = listOf(MonitorCard("m1", CardKind.Engine, mapOf("slot" to "1"))),
         platformRegistryVersion = 42L,
         platformRegistryOrigin = "b7c1-origin-of-this-install",
         batteryExemptionAsked = true,
@@ -200,6 +206,11 @@ class SettingsProfileTest {
         assertEquals(original.operatorName, out.operatorName)
         assertEquals(original.operatorRole, out.operatorRole)
         assertEquals(original.rocSiteId, out.rocSiteId)
+        // The Monitor tab is fleet configuration: which entity a shore phone watches, and how.
+        assertEquals(original.monitorEntity, out.monitorEntity)
+        assertEquals(original.monitorRealm, out.monitorRealm)
+        assertEquals(original.monitorUrl, out.monitorUrl)
+        assertEquals(original.monitorCards, out.monitorCards)
     }
 
     /**

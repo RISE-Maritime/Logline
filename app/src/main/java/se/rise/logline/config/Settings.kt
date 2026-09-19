@@ -1,5 +1,7 @@
 package se.rise.logline.config
 
+import se.rise.logline.monitor.DEFAULT_MONITOR_CARDS
+import se.rise.logline.monitor.MonitorCard
 import se.rise.logline.calibrate.PlatformCalibration
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
@@ -388,9 +390,33 @@ data class Settings(
      */
     val checklistRealm: String = DEFAULT_CHECKLIST_REALM,
     val checklistEntityId: String = DEFAULT_CHECKLIST_ENTITY,
+    /**
+     * The entity the Monitor tab watches — somebody else's, never this phone's. `case` is the entity
+     * the debugging replay publishes as, which is why it is the default rather than blank.
+     */
+    val monitorEntity: String = DEFAULT_MONITOR_ENTITY,
+    /** The realm to watch in. Blank follows [realm]. */
+    val monitorRealm: String = "",
+    /**
+     * The router's REST plugin, e.g. `http://router:8000`. Blank derives it from the first router
+     * endpoint — see `monitorBaseUrl()` — because the router this phone is configured for is the one
+     * that has the data.
+     */
+    val monitorUrl: String = "",
+    /**
+     * The Monitor tab's cards, in order. Absent from the store means [DEFAULT_MONITOR_CARDS]; an empty
+     * list is somebody who removed every card, the same distinction the annotation buttons keep.
+     */
+    val monitorCards: List<MonitorCard> = DEFAULT_MONITOR_CARDS,
 ) {
+    /** The realm the Monitor tab watches in. */
+    fun monitorRealmOrDefault(): String = monitorRealm.ifBlank { realm }
+
     companion object {
         const val DEFAULT_REALM = "rise"
+
+        /** What the debugging replay publishes as. See [monitorEntity]. */
+        const val DEFAULT_MONITOR_ENTITY = "case"
 
         /** Crowsnest's checklist tree. See `checklist/ChecklistKeys.kt`. */
         const val DEFAULT_CHECKLIST_REALM = "rise"
