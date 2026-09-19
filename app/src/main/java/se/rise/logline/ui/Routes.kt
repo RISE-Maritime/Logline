@@ -34,6 +34,12 @@ object Routes {
     const val RECORDINGS = "recordings"
     const val SETUP = "setup"
 
+    /**
+     * Another entity's data, as cards. Collides with neither session prefix, and it scopes a session
+     * of its own — the REST stream in `MonitorSync` — by being exactly this route.
+     */
+    const val MONITOR = "monitor"
+
     // -- pushed on top of a tab, with a back arrow ------------------------------------------------
 
     const val ANNOTATION_BUTTONS = "annotations/edit"
@@ -80,7 +86,7 @@ object Routes {
      * see — so add both together.
      */
     val ALL = listOf(
-        MAIN, SETUP, RECORDINGS, LIVE, SUBJECT_QOS, ANNOTATIONS, ANNOTATION_BUTTONS,
+        MAIN, SETUP, RECORDINGS, LIVE, MONITOR, SUBJECT_QOS, ANNOTATIONS, ANNOTATION_BUTTONS,
         CHECKLISTS, CHECKLIST, PLATFORMS, PLATFORM, SENSOR_MOUNT, SCAN_QR, SETTINGS, ABOUT,
     )
 
@@ -148,6 +154,13 @@ object Routes {
             inChecklists(route) &&
             settings.checklistEnabled &&
             settings.hasChecklistIdentity()
+
+    /**
+     * Whether the Monitor stream should be open: only while the tab is on screen. The stream is a
+     * long-lived HTTP GET carrying everything an entity publishes, and holding it from another tab
+     * would spend radio and battery drawing cards nobody can see.
+     */
+    fun shouldStreamMonitor(route: String?): Boolean = route == MONITOR
 
     /** Whether the platform session should be open. The route is the whole of it. */
     fun shouldSyncPlatforms(route: String?): Boolean = inPlatformScreens(route)

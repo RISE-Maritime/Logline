@@ -1,5 +1,11 @@
 package se.rise.logline
 
+import se.rise.logline.monitor.MonitorConfig
+import se.rise.logline.monitor.MonitorSnapshot
+import se.rise.logline.monitor.monitorBaseUrl
+import se.rise.logline.monitor.monitorUrlIsLocal
+import se.rise.logline.monitor.wantedTopics
+import se.rise.logline.ui.monitor.MonitorScreen
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ContentUris
@@ -768,6 +774,21 @@ private fun App(
         if (Routes.shouldSyncPlatforms(currentRoute)) app.platforms.start(platformConfig)
     }
 
+    // ── the Monitor stream ──────────────────────────────────────────────────────────────────────
+    //
+    // Open only while the Monitor tab is on screen: it is one long-lived HTTP GET carrying everything
+    // another entity publishes, and holding it from another tab spends radio on cards nobody sees.
+    // Keyed on the config as well, so a new entity or router takes effect at once — the same
+    // stop-first shape as the two sessions above.
+    val monitorBaseUrl = monitorBaseUrl(current.monitorUrl, current.routerEndpoints)
+    val monitorConfig = MonitorConfig(monitorBaseUrl, current.monitorRealmOrDefault(), current.monitorEntity)
+    val inMonitor = Routes.shouldStreamMonitor(currentRoute)
+    var monitorPermissionTick by remember { mutableStateOf(0) }
+    LaunchedEffect(inMonitor, monitorConfig, monitorPermissionTick) {
+        app.monitor.stop()
+        if (inMonitor) app.monitor.start(monitorConfig)
+    }
+
     LaunchedEffect(inChecklists, current.checklistEnabled, checklistConfig) {
         // Unconditionally first: `start()` is a no-op while a session is up, so this is what makes an
         // endpoint or identity change actually take effect rather than being ignored until next time.
@@ -1335,6 +1356,66 @@ private fun App(
             )
         }
 
+        composable(Routes.MONITOR) {
+            val link by app.monitor.link.collectAsState()
+            val cards = current.monitorCards
+            // Pulled on a ticker, like the Live tab, and for the same reason: the stream can carry
+            // hundreds of samples a second and none of them may drive recomposition. Only the windows
+            // some card will draw are copied.
+            val monitorSnapshot by produceState(MonitorSnapshot(), app, cards) {
+                while (true) {
+                    val wanted = wantedTopics(cards, app.monitor.store.topics())
+                    value = app.monitor.store.snapshot(wanted)
+                    delay(200)
+                }
+            }
+            // A router on the boat's own network is a LAN address, which Android 17 gates behind
+            // ACCESS_LOCAL_NETWORK — without it the GET fails as EPERM and looks like a dead router.
+            // Asked here, on opening the tab, the shape the scan uses; a grant restarts the stream.
+            val localNetworkLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) { granted -> if (granted) monitorPermissionTick++ }
+            LaunchedEffect(monitorBaseUrl) {
+                val needs = monitorBaseUrl?.let(::monitorUrlIsLocal) == true &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+                    PackageManager.PERMISSION_GRANTED
+                if (needs) localNetworkLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+            }
+            MonitorScreen(
+                entity = current.monitorEntity,
+                realm = current.monitorRealmOrDefault(),
+                baseUrl = monitorBaseUrl,
+                configuredUrl = current.monitorUrl,
+                configuredRealm = current.monitorRealm,
+                link = link,
+                snapshot = monitorSnapshot,
+                cards = cards,
+                // Through update(), never saveSettings(): watching another boat is not part of a run
+                // and must never restart one.
+                onSourceChange = { entity, realm, url ->
+                    scope.launch {
+                        app.settingsRepository.update(
+                            current.copy(monitorEntity = entity, monitorRealm = realm, monitorUrl = url),
+                        )
+                    }
+                },
+                onCardsChange = { updated ->
+                    scope.launch { app.settingsRepository.update(current.copy(monitorCards = updated)) }
+                },
+                chart = { model, m ->
+                    TrackMap(
+                        track = model.track,
+                        followFix = model.follow,
+                        headingDegrees = model.headingDegrees,
+                        offlineOnly = current.offlineTilesOnly,
+                        layer = liveLayer,
+                        mapTilerKey = current.mapTilerKey,
+                        modifier = m,
+                    )
+                },
+                bottomBar = navBar,
+            )
+        }
         composable(Routes.LIVE) {
             // Pulled on a ticker rather than pushed: the publish path runs at ~217 samples/s and must
             // not drive recomposition. 5 Hz is smooth to look at and two orders of magnitude cheaper.

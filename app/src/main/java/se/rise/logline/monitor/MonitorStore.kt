@@ -140,6 +140,9 @@ class MonitorStore(private val capacity: Int = DEFAULT_CAPACITY) {
         }.getOrDefault(false)
     }
 
+    /** Every topic seen so far, sorted — cheap, for resolving the cards' inputs before a [snapshot]. */
+    fun topics(): List<Topic> = entries.keys.sorted()
+
     /**
      * Pull what the cards need. `wanted` names the topics whose full windows are copied; everything
      * else carries only its latest value.

@@ -110,3 +110,12 @@ fun monitorBaseUrl(configured: String, endpoints: List<String>): String? {
  * matches nothing and fails silently.
  */
 fun monitorKeyExpr(realm: String, entity: String): String = "$realm/@v0/$entity/pubsub/**"
+
+/**
+ * Whether the monitor URL points at the local network — the same classification the Zenoh endpoints
+ * get from `isLocalEndpoint`, so the two ask for `ACCESS_LOCAL_NETWORK` under the same conditions.
+ */
+fun monitorUrlIsLocal(url: String): Boolean {
+    val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
+    return se.rise.logline.keelson.isLocalEndpoint("tcp/$host:$DEFAULT_REST_PORT")
+}

@@ -131,7 +131,16 @@ enum class CardKind(val label: String, val blurb: String, val specs: List<ParamS
             stale(),
         ),
     ),
-    BowThruster("Bow thruster", "Thruster power, port to starboard", listOf(slot(), stale())),
+    /**
+     * The Foxglove panel reads `thruster_power_pct`, which is **not in keelson's `subjects.yaml`** —
+     * checked at `0.6.0-pre.18` — so nothing a conforming publisher sends will ever match it. The
+     * subject is a setting here rather than a constant for that reason; the card says so when it is
+     * pointed at a name upstream does not declare.
+     */
+    BowThruster(
+        "Bow thruster", "Thruster power, port to starboard",
+        listOf(ParamSpec.Subject("subject", "Subject", "thruster_power_pct"), slot(), stale()),
+    ),
     Wind(
         "Wind", "Apparent wind angle and speed",
         listOf(ParamSpec.Number("trailS", "Trail", 60.0, 0.0, 600.0, "s"), stale()),
@@ -174,13 +183,17 @@ enum class CardKind(val label: String, val blurb: String, val specs: List<ParamS
             stale(),
         ),
     ),
+    /**
+     * The live tab's own chart (`TrackMap`), so the halo, attribution and layer rules come with it.
+     * The Foxglove panel's `vectorMinutes` is deliberately absent: the course vector here is a fixed
+     * length on purpose — it says which way, not how far — and a setting it ignored would be a lie.
+     */
     NavMap(
         "Chart", "Position, heading and course on a chart",
         listOf(
             ParamSpec.Subject("position", "Position", "location_fix", setOf(PayloadShape.Position)),
             ParamSpec.Source("positionSource", "Position source", subjectKey = "position"),
             ParamSpec.Toggle("follow", "Follow", true),
-            ParamSpec.Number("vectorMinutes", "Course vector", 6.0, 0.0, 60.0, "min"),
             ParamSpec.Number("trackMinutes", "Track", 3.0, 0.0, 240.0, "min"),
             stale(),
         ),

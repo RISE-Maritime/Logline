@@ -9,8 +9,9 @@
   and the mTLS credentials, and every map tile source is https. The monitor stream is unauthenticated
   and readable on the path; putting TLS in front of :8000 is filed in TODO.md.
 -->
-<network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!-- Deliberate, for the reason above: the host is only known at runtime. -->
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

@@ -184,3 +184,18 @@ val IconImage: ImageVector by lazy {
         }
     }
 }
+
+/**
+ * Four tiles of unequal height: the Monitor tab, a board of cards. Material's `dashboard`, which
+ * `material-icons-core` does not carry.
+ */
+val IconDashboard: ImageVector by lazy {
+    mapIcon("Dashboard") {
+        path(fill = fill) {
+            moveTo(3f, 13f); horizontalLineTo(11f); verticalLineTo(3f); horizontalLineTo(3f); close()
+            moveTo(3f, 21f); horizontalLineTo(11f); verticalLineTo(15f); horizontalLineTo(3f); close()
+            moveTo(13f, 21f); horizontalLineTo(21f); verticalLineTo(11f); horizontalLineTo(13f); close()
+            moveTo(13f, 3f); verticalLineTo(9f); horizontalLineTo(21f); verticalLineTo(3f); close()
+        }
+    }
+}

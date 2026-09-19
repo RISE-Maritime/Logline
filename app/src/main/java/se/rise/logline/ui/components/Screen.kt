@@ -486,6 +486,15 @@ enum class TopLevel(val route: String, val label: String, val icon: ImageVector)
      * word ellipsizes; the screen keeps its own title.
      */
     Files(Routes.RECORDINGS, "Files", Icons.AutoMirrored.Filled.List),
+
+    /**
+     * Another entity, as a board of cards — the Foxglove panels, on a phone.
+     *
+     * A sixth tab, which leaves ~68 dp each on a Pixel 6: "Monitor" is the longest label the bar holds
+     * without ellipsizing, which is why it is not "Remote entity". Placed before Setup so the tab you
+     * configure things from stays at the far right where it always was.
+     */
+    Monitor(Routes.MONITOR, "Monitor", se.rise.logline.ui.IconDashboard),
     Setup(Routes.SETUP, "Setup", Icons.Default.Settings),
 }
 
