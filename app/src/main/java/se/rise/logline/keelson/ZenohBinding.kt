@@ -43,8 +43,11 @@ object ZenohBinding {
      * subscriber declaration protects only the declaration, never the delivery.
      *
      * **Upstream:** eclipse-zenoh/zenoh-flat-jni#49. Filed against the shared JNI layer rather than the
-     * Kotlin binding because that is where the fault is; it affects zenoh-java identically. 1.10.0 is the
-     * newest release, so no version bump escapes it.
+     * Kotlin binding because that is where the fault is; it affects zenoh-java identically. **1.10.1 does
+     * not fix it** — tried on a Pixel 6 on 2026-09-19 with this flag set true and a subscriber on a busy
+     * entity: `ClassNotFoundException: io.zenoh.jni.time.Timestamp` and SIGABRT 164 ms after the first
+     * sample, identical to 1.10.0. It predates #49 being filed, so that was expected; check the issue
+     * rather than the version number before trying again.
      *
      * **Flipping this to true is the whole of re-enabling** what it gates — the checklist feature and the
      * platform *documents* — once #49 lands and the binding is bumped. Publishing, queryables and
