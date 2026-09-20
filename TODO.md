@@ -269,27 +269,6 @@ be here, not in the panel.
 
 ## keelson 0.6.0-pre.18 (2026-09-17)
 
-- [x] **Six of the eight new host subjects are unadopted, and a phone has all of them.** `pre.18` added
-      `cpu_load_pct`, `cpu_temperature_celsius`, `memory_used_pct`, `swap_used_pct`,
-      `network_interface_up`, `host_name` and `host_boot_time` alongside the two taken here. Every one
-      is readable on Android, and a run that could say the phone was thermally throttled or out of
-      memory would explain a class of dropped-sample report that currently has no evidence behind it.
-      Deliberately left out of the version bump: eight registry entries, a collector reading `/proc`
-      and the Android APIs, unit conversions with tests, and a decision about what "host" means for a
-      phone that is also a platform. Note `host_boot_time` overlaps `device_uptime_duration`, which
-      this app already publishes — adopting both without deciding which is authoritative would put two
-      answers to one question in the same file.
-      Done in f14b3a2. **Three of the claims above were wrong, which is why the probe came first.** The
-      family is nine subjects, not eight, so seven were outstanding rather than six. "Every one is
-      readable on Android" is false: measured under the app's own uid on a Pixel 6, `/proc/stat`,
-      `/proc/loadavg` and `/sys/class/thermal` are all `Permission denied`, and the sanctioned APIs
-      (`HardwarePropertiesManager.getCpuUsages` / `getDeviceTemperatures`) need `DEVICE_POWER`, a
-      signature permission — so `cpu_load_pct` and `cpu_temperature_celsius` are unobtainable, and the
-      thermal-throttling evidence this item wanted is exactly what cannot be had. And the
-      `host_boot_time` overlap is settled upstream rather than open: `subjects.yaml` says in words that
-      "uptime rides `device_uptime_duration`", so the two coexist by design — one an instant, one a
-      duration. Four adopted: `memory_used_pct`, `swap_used_pct`, `host_name`, `host_boot_time`.
-
 - [ ] **`cpu_load_pct` and `cpu_temperature_celsius` need a privileged build to ever appear.** Recorded
       so nobody spends an afternoon rediscovering it: both are blocked at the SELinux layer *and* at the
       permission layer, so there is no app-side trick. What a normal app *can* have is
@@ -359,3 +338,26 @@ be here, not in the panel.
       here and should not be again: the run was already red and the watch still exited cleanly, so a
       CI check built on it would report green for a broken build. Read `gh run view --json conclusion`
       instead.
+
+- [ ] **`versionCode` is derived from the commit count, so two branches produce the same number.**
+      `Logline-1.1.apk` (built by CI from `main` at 214 commits) reports **versionCode 10214**, and so
+      does the `monitor-zenoh-subscriber` preview build, which is a different APK at the same depth.
+      Nothing was harmed here — the two carry different signing keys, so Android refused the install on
+      signature grounds long before it looked at the version — but between two builds sharing a key
+      that is a silent trap: Android treats an equal `versionCode` as "not an upgrade", so a phone can
+      keep the older build with nothing on screen saying why. The derivation assumes one line of
+      history and a branch breaks that assumption. `version.properties` already documents the ratchet
+      for *rewritten* history; this is the branch case, which it does not mention. A fix would have to
+      keep the number monotonic per branch without inventing one (a suffix cannot: `versionCode` is a
+      single integer) — one option is that only `main` builds are installable and branch builds carry
+      their own `versionCodeBase`.
+
+- [ ] **A release-signed APK cannot upgrade a phone running builds from a laptop**, and the recovery
+      wipes the two things a phone cannot regenerate. Verified rather than reasoned about:
+      `adb install -r Logline-1.1.apk` over the development build answers
+      `INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match`. Getting onto release builds means
+      uninstalling, which takes `filesDir` with it — the mTLS credentials and the entity id, plus every
+      setting and any recording not yet published to `Downloads`. The instrumented-test note in
+      CLAUDE.md already documents that exact recovery (export a profile, re-import the three PEMs, set
+      the entity id by hand, since a profile deliberately does not carry it), so this is the same trap
+      reached by a second route and the install guide is where it is missing.
