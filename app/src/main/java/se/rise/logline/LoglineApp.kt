@@ -3,6 +3,8 @@ package se.rise.logline
 import android.app.Application
 import se.rise.logline.checklist.ChecklistRepository
 import se.rise.logline.checklist.ChecklistSync
+import se.rise.logline.config.TlsCredentialStore
+import se.rise.logline.keelson.KeelsonSession
 import se.rise.logline.monitor.MonitorSync
 import se.rise.logline.platform.PlatformSync
 import se.rise.logline.config.SettingsRepository
@@ -41,7 +43,10 @@ class LoglineApp : Application() {
 
     /**
      * The Monitor tab's link to another entity. Process-scoped so the samples survive a trip to
-     * another tab and back; opened and closed by route like [platforms], but it owns no Zenoh session.
+     * another tab and back; opened and closed by route like [platforms]. It owns a Zenoh session of
+     * its own only while it is subscribing; over REST it owns none.
      */
-    val monitor: MonitorSync by lazy { MonitorSync() }
+    val monitor: MonitorSync by lazy {
+        MonitorSync { endpoints -> KeelsonSession.openClient(endpoints, TlsCredentialStore(this).paths()) }
+    }
 }

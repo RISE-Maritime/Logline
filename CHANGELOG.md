@@ -11,6 +11,51 @@ heading and the next `## ` and makes it the GitHub Release body, matching by lit
 `v` on the front, an en dash, or a version that does not match `version.properties` all mean the
 workflow finds nothing, and it fails the release rather than publishing one with no notes.
 
+## 1.1 — 2026-09-20
+
+The Monitor tab, a Minimum logging mode, and keelson `0.6.0-pre.18`.
+
+### Monitor
+
+A new tab that watches **another** entity on the bus and draws what it publishes as cards you
+choose — value, plot, heading, chart and the rest — the Foxglove panels on a phone. Cards resolve
+their inputs by subject, so one board follows whichever source is publishing.
+
+It reads the router's REST plugin as Server-Sent Events rather than subscribing, because a
+subscribed sample aborts this Zenoh binding; [docs/monitor.md](docs/monitor.md) explains the
+mechanism. The Zenoh subscriber is written and ships dormant behind
+`ZenohBinding.SUBSCRIPTIONS_SAFE`: it has been proven on a phone against a patched binding, and a
+fix is proposed upstream (milyin/prebindgen#758, eclipse-zenoh/zenoh-flat-jni#49). Watching another
+boat never restarts a run.
+
+### Minimum logging
+
+A mode for a phone carried only to mark events: eight channels instead of thirty-nine, position
+capped at 0.2 Hz, IMU and media off. Measured over two hours on a Pixel 6 — **0.361 MB/h against
+240.2 MB/h**, and about 25 hours of battery against 11. It narrows the tuned profile rather than
+editing it, so Full comes back untouched.
+
+### Subjects and protocol
+
+Re-synced to keelson `0.6.0-pre.18`: all nineteen vendored protobuf files byte-identical, QoS
+profiles re-verified. Six host-telemetry subjects adopted — free and used disk, memory, swap, host
+name and boot time — with the disk ones carrying their mountpoint in the source id.
+`cpu_load_pct` and `cpu_temperature_celsius` are unobtainable under an app's own uid and are
+documented as such. `set_config` now refuses with `UNSUPPORTED`, which `pre.18` added for exactly
+this case.
+
+### Fixes
+
+- A held radio reading's timestamp is converted once per reading, not per poll: ~166 real
+  measurements had been publishing as 18 766 distinct instants.
+- The MCAP schema descriptor is generated into `build/` instead of `src/`, which had made
+  `./gradlew build` refuse to run at all.
+- CI stopped installing an SDK package Google withdrew.
+
+### Docs
+
+An install and setup guide, a Monitor page, and `deploying.md` narrowed to one audience.
+
 ## 1.0 — 2026-08-25
 
 First release. Internal use; see [docs/install.md](docs/install.md) for getting it onto a

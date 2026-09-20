@@ -227,8 +227,15 @@ private fun SourceHeader(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(entity, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // What the link is actually on, where it says: over Zenoh that is the endpoint, and the
+                    // derived REST address would name a port nothing is reading.
+                    val address = when (link) {
+                        is MonitorLink.Streaming -> link.url
+                        is MonitorLink.Connecting -> link.url
+                        else -> baseUrl
+                    }
                     Text(
-                        "$realm · ${baseUrl?.let(::hostLabel) ?: "no router"}",
+                        "$realm · ${address?.let(::hostLabel) ?: "no router"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -247,7 +254,11 @@ private fun SourceHeader(
                 is MonitorLink.Failed -> StatusLine(
                     "Not streaming: ${link.reason}",
                     StatusTone.Error,
-                    detail = "Retrying. The router must serve its REST plugin (normally port 8000).",
+                    detail = if (link.url?.startsWith("http") == false) {
+                        "Retrying through the configured router."
+                    } else {
+                        "Retrying. The router must serve its REST plugin (normally port 8000)."
+                    },
                 )
                 MonitorLink.Idle -> StatusLine("Idle", StatusTone.Neutral)
             }

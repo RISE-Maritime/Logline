@@ -17,6 +17,13 @@ timestamps aborts the process in native code. Routers timestamp every sample the
 default. `keelson/ZenohBinding.kt` has the diagnosis, and upstream tracks it as
 eclipse-zenoh/zenoh-flat-jni#49.
 
+**The subscriber is written and dormant, waiting on that.** `ZenohMonitorSource` opens its own
+session and subscribes to the same key expression, and `MonitorSync` picks it over the REST stream
+as soon as `ZenohBinding.SUBSCRIPTIONS_SAFE` is true and no Router REST URL is set by hand — a URL
+somebody typed still means REST. It is proven rather than hopeful: built against the fix proposed in
+milyin/prebindgen#758, a Pixel 6 streamed 35 topics through it with no port 8000 anywhere in the
+path. What ships here is the REST stream until that fix is released.
+
 The REST plugin serves the same key expressions over HTTP. A `GET` with
 `Accept: text/event-stream` on `{realm}/@v0/{entity}/pubsub/**` is a subscription, delivered one
 event per sample:

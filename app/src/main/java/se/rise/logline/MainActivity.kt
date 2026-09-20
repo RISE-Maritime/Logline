@@ -113,6 +113,7 @@ import se.rise.logline.config.toConnectionProfile
 import se.rise.logline.keelson.DiscoveredRouter
 import se.rise.logline.keelson.PublishedSubject
 import se.rise.logline.keelson.Subjects
+import se.rise.logline.keelson.ZenohBinding
 import se.rise.logline.keelson.isLocalEndpoint
 import se.rise.logline.keelson.policyQosForSubject
 import se.rise.logline.keelson.pubsubKey
@@ -781,7 +782,16 @@ private fun App(
     // Keyed on the config as well, so a new entity or router takes effect at once — the same
     // stop-first shape as the two sessions above.
     val monitorBaseUrl = monitorBaseUrl(current.monitorUrl, current.routerEndpoints)
-    val monitorConfig = MonitorConfig(monitorBaseUrl, current.monitorRealmOrDefault(), current.monitorEntity)
+    // A subscriber where the binding can take one and nobody pointed the tab at a URL by hand; an
+    // explicit URL still means REST, which is also the only path while subscriptions abort.
+    val monitorConfig = MonitorConfig(
+        monitorBaseUrl,
+        current.monitorRealmOrDefault(),
+        current.monitorEntity,
+        zenohEndpoints = current.routerEndpoints.takeIf {
+            ZenohBinding.SUBSCRIPTIONS_SAFE && current.monitorUrl.isBlank()
+        },
+    )
     val inMonitor = Routes.shouldStreamMonitor(currentRoute)
     var monitorPermissionTick by remember { mutableStateOf(0) }
     LaunchedEffect(inMonitor, monitorConfig, monitorPermissionTick) {
