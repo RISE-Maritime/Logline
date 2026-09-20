@@ -11,6 +11,26 @@ heading and the next `## ` and makes it the GitHub Release body, matching by lit
 `v` on the front, an en dash, or a version that does not match `version.properties` all mean the
 workflow finds nothing, and it fails the release rather than publishing one with no notes.
 
+## 1.2 — 2026-09-20
+
+Packaging only: no behaviour changed since 1.1.
+
+### The release installs beside a development build
+
+A phone that runs builds from a laptop holds a debug-signed `se.rise.logline`, and Android refuses an
+APK signed with a different key over it (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). The only way through
+was an uninstall, which takes `filesDir` with it — the mTLS credentials and the entity id, neither of
+which the app can regenerate.
+
+Release builds now use the application id **`se.rise.logline.release`**, so they install alongside a
+development build instead of fighting it. The development build keeps the plain id, because that is
+the install holding state nobody wants to re-import.
+
+Two consequences. A phone carrying the **1.0 or 1.1 release** sees this as a second app rather than an
+upgrade, and the old one has to be removed by hand there. And the two installs are separate apps with
+separate settings, so they must not be given the same `entity_id` — two installs publishing on one key
+interleave with nothing on the bus saying so.
+
 ## 1.1 — 2026-09-20
 
 The Monitor tab, a Minimum logging mode, and keelson `0.6.0-pre.18`.
