@@ -49,6 +49,17 @@ object ZenohBinding {
      * sample, identical to 1.10.0. It predates #49 being filed, so that was expected; check the issue
      * rather than the version number before trying again.
      *
+     * **A fix is proposed and is proven on this phone: milyin/prebindgen#758.** It belongs in the
+     * *generator* rather than in zenoh-flat-jni, whose `build.rs` rewrites `generated_bindings.rs` on
+     * every build — so the obvious patch, editing the thirteen encoders there, does not survive one.
+     * The runtime gains a `find_class` that resolves through the application's class loader, recorded
+     * by the binding in `JNI_OnLoad`, and falls back to the old `FindClass` where none is recorded.
+     * zenoh-flat-jni then needs about ten lines. Built against those crates, a Pixel 6 took 9 500
+     * router-timestamped samples in 43 s where the released 1.10.1 aborted on the first, and query and
+     * liveliness replies arrived too; the branch `monitor-zenoh-subscriber` carries the Monitor tab
+     * running on a real subscriber over it. So when this flag is finally flipped for good, it will have
+     * been flipped once already — that branch is the diff, minus its hand-built `.so`.
+     *
      * **Flipping this to true is the whole of re-enabling** what it gates — the checklist feature and the
      * platform *documents* — once #49 lands and the binding is bumped. Publishing, queryables and
      * liveliness *declaration* are unaffected and stay on: this app remains present on the bus and keeps
