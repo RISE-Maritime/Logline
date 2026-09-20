@@ -160,6 +160,11 @@ android {
     // with the class-loader fix proposed upstream (eclipse-zenoh/zenoh-flat-jni#49), and must win over
     // the one in the AAR. Delete this, the jniLibs copy and the flag flip once a release carries it.
     packaging { jniLibs { pickFirsts += "lib/arm64-v8a/libzenoh_flat_jni.so" } }
+    // Branch-only, and the pickFirst above is why: only arm64 carries the patched library that makes
+    // a subscription survive, so any other ABI would install happily and abort the moment the Monitor
+    // tab opened. Refusing to install is the honest failure. Goes with the rest of this when the fix
+    // is released. (An emulator is x86_64 and is therefore out — this build is for a phone.)
+    defaultConfig { ndk { abiFilters += "arm64-v8a" } }
     namespace = "se.rise.logline"
     compileSdk {
         version = release(37)
