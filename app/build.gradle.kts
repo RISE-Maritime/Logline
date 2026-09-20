@@ -184,6 +184,26 @@ android {
 
     buildTypes {
         release {
+            // **The release installs beside a development build, rather than over it.** A phone that
+            // runs builds from a laptop holds a debug-signed `se.rise.logline`, and Android refuses an
+            // APK signed with another key over it — `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, verified.
+            // The only way through is an uninstall, and that takes `filesDir` with it: the mTLS
+            // credentials and the entity id, neither of which this app can regenerate. So the
+            // *release* takes the new id and the development build keeps the old one, because the
+            // development phone is the one holding state nobody wants to re-import.
+            //
+            // The consequence to know: a phone carrying the 1.0 release (plain `se.rise.logline`) sees
+            // 1.1 as a second app rather than an upgrade, and both have to be sorted out by hand there.
+            // Anything keyed on the application id already derives it — the FileProvider authority is
+            // `${applicationId}.fileprovider` and the code reads `context.packageName` — and the
+            // `se.rise.logline.action.*` intent strings are only ever used in explicit intents, so
+            // nothing collides between the two installs.
+            //
+            // They are separate apps, so they have separate `filesDir`, settings and credentials, and
+            // **they must not be given the same `entity_id`**: two installs publishing on one key
+            // interleave with nothing on the bus saying so.
+            applicationIdSuffix = ".release"
+
             // Minification is off on purpose, not by oversight. This is an in-house tool for
             // developers and is never published to a store, so there is no size ceiling to meet and
             // no reason to obfuscate — readable stack traces are worth more here. Turning R8 on would
